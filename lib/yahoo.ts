@@ -52,8 +52,8 @@ export async function fetchCandles(
   else if (period === '1y')  startDate.setFullYear(endDate.getFullYear() - 1);
   else                       startDate.setMonth(endDate.getMonth() - 3);
 
-  const result = await yahoo.chart(symbol, { period1: startDate, period2: endDate, interval: safeInterval });
-  const quotes: any[] = result.quotes ?? [];
+  const result = await yahoo.historical(symbol, { period1: startDate, period2: endDate, interval: safeInterval });
+  const quotes: any[] = result ?? [];
   if (quotes.length === 0) throw new Error(`No chart data returned for ${symbol}`);
 
   const candles = quotes
