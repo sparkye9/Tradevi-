@@ -4,11 +4,13 @@ import { usePathname } from 'next/navigation';
 import { clsx } from 'clsx';
 import {
   LayoutDashboard, Search, BarChart2, Eye, Zap, Shield,
-  Bell, BookOpen, FlaskConical, BookMarked, ClipboardList, X, TrendingUp
+  Bell, BookOpen, FlaskConical, BookMarked, ClipboardList, X, TrendingUp,
+  CandlestickChart
 } from 'lucide-react';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/charts', label: 'Technical Charts', icon: CandlestickChart },
   { href: '/scanner', label: 'Opportunities', icon: Search },
   { href: '/options-chain', label: 'Options Chain', icon: BarChart2 },
   { href: '/watchlist', label: 'Watchlist', icon: Eye },
