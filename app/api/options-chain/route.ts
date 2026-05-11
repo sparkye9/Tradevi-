@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchYahooOptionsChain } from '@/lib/yahooFinance';
 
-function safeJson(body: unknown, status = 200): NextResponse {
+function json(body: unknown, status = 200) {
   return NextResponse.json(body, {
     status,
-    headers: { 'Cache-Control': 'no-store', 'Content-Type': 'application/json' },
+    headers: { 'Cache-Control': 'no-store' },
   });
 }
 
@@ -13,52 +12,66 @@ export async function GET(request: NextRequest) {
   const symbol = sp.get('symbol')?.toUpperCase();
 
   if (!symbol) {
-    return safeJson(
-      { success: false, error: 'symbol is required', expirations: [], calls: [], puts: [] },
-      400,
-    );
+    return json({ success: false, error: 'symbol is required', expirations: [], calls: [], puts: [] }, 400);
   }
 
-  // Accept either ?date=<unix_timestamp> or ?expiration=<YYYY-MM-DD>
-  const dateParam       = sp.get('date');
-  const expirationParam = sp.get('expiration');
-
-  let expiryArg: string | number | undefined;
-  if (dateParam)       expiryArg = parseInt(dateParam, 10);
-  else if (expirationParam) expiryArg = expirationParam;
+  const expiration = sp.get('expiration');
+  let url = `https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
+  if (expiration) {
+    const epoch = Math.floor(new Date(expiration).getTime() / 1000);
+    url += `?date=${epoch}`;
+  }
 
   try {
-    const data = await fetchYahooOptionsChain(symbol, expiryArg);
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept':     'application/json',
+      },
+      cache: 'no-store',
+    });
 
-    return safeJson({
+    if (!res.ok) throw new Error(`Yahoo returned ${res.status}`);
+
+    const text = await res.text();
+    if (text.trimStart().startsWith('<')) throw new Error('Yahoo returned HTML');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any   = JSON.parse(text);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result: any = data?.optionChain?.result?.[0];
+    if (!result) throw new Error('No options data in response');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const opts: any          = result.options?.[0] ?? {};
+    const rawDates: number[] = result.expirationDates ?? [];
+    const expirations        = rawDates.map((ts: number) => new Date(ts * 1000).toISOString().split('T')[0]);
+    const underlyingPrice: number = result.quote?.regularMarketPrice ?? 0;
+
+    return json({
       success:         true,
       symbol,
-      expirations:     data.expirationDates,   // alias expected by spec
-      expirationDates: data.expirationDates,   // keep for backward compat
-      calls:           data.calls,
-      puts:            data.puts,
-      underlyingPrice: data.underlyingPrice,
+      underlyingPrice,
+      expirations,
+      expirationDates: expirations,
+      calls:           opts.calls ?? [],
+      puts:            opts.puts  ?? [],
       meta: {
-        dataSource: data.dataSource,
+        dataSource: 'yahoo_delayed',
         fetchedAt:  new Date().toISOString(),
-        delayNote:  'Options data ~15-20 min delayed. Verify bid/ask in your broker before entering.',
+        delayNote:  'Options data ~15-20 min delayed.',
       },
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Options chain unavailable';
+    const msg = err instanceof Error ? err.message : String(err);
     console.error(`[options-chain] ${symbol}:`, msg);
-    return safeJson(
-      {
-        success:         false,
-        error:           'Options chain unavailable',
-        symbol,
-        expirations:     [],
-        expirationDates: [],
-        calls:           [],
-        puts:            [],
-        underlyingPrice: 0,
-      },
-      503,
-    );
+    return json({
+      success:         false,
+      error:           'Options chain unavailable',
+      expirations:     [],
+      expirationDates: [],
+      calls:           [],
+      puts:            [],
+    }, 503);
   }
 }
