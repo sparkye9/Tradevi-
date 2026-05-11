@@ -57,10 +57,11 @@ async function scanSymbol(symbol: string, filters: ScannerFilters): Promise<Oppo
   const opportunities: Opportunity[] = [];
 
   try {
-    const [quote, candles] = await Promise.all([
+    const [quote, candleResult] = await Promise.all([
       fetchQuote(symbol),
       fetchCandles(symbol, '3mo', '1d'),
     ]);
+    const candles = candleResult.candles;
 
     const analysis = analyzeStock(candles, symbol);
 

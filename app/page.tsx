@@ -8,7 +8,7 @@ import { BiblePanel } from '@/components/dashboard/BiblePanel';
 import { FocusTimer } from '@/components/dashboard/FocusTimer';
 import { Card, CardHeader, StatCard } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
+import { DataSourceBanner, DataSourceBadge, type DataSource } from '@/components/ui/DataSourceBanner';
 import type { StockQuote, StockAnalysis, CandleData, NewsItem } from '@/lib/types';
 import { RefreshCw, TrendingUp, TrendingDown, Newspaper, Search } from 'lucide-react';
 import Link from 'next/link';
@@ -24,7 +24,8 @@ export default function DashboardPage() {
   const [candles, setCandles] = useState<CandleData[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState('');
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
+  const [dataSource, setDataSource] = useState<DataSource>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -41,19 +42,31 @@ export default function DashboardPage() {
       setAnalysis(quoteData.analysis);
       setCandles(chartData.candles ?? []);
       setNews(newsData.news ?? []);
-      setLastUpdated(new Date().toLocaleTimeString());
-    } catch { /* handled by mock fallback */ }
+      // Use the most pessimistic source reported
+      const src: DataSource = quoteData.meta?.dataSource ?? chartData.meta?.dataSource ?? 'mock';
+      setDataSource(src);
+      setFetchedAt(quoteData.meta?.fetchedAt ?? new Date().toISOString());
+    } catch {
+      setDataSource('mock');
+    }
     setLoading(false);
   }, [selectedSymbol, selectedPeriod]);
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 60000); // refresh every minute
+    const interval = setInterval(fetchData, 60000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
+  const lastUpdated = fetchedAt
+    ? new Date(fetchedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : '';
+
   return (
     <AppShell title="Dashboard">
+      {/* Data source banner — prominent warning when on mock data */}
+      <DataSourceBanner dataSource={dataSource} fetchedAt={fetchedAt} className="mb-4" />
+
       {/* Symbol selector + controls */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div className="flex flex-wrap gap-2">
@@ -111,10 +124,15 @@ export default function DashboardPage() {
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-6">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h2 className="font-bold text-gray-900">{selectedSymbol}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="font-bold text-gray-900">{selectedSymbol}</h2>
+              <DataSourceBadge dataSource={dataSource} />
+            </div>
             {quote && (
               <p className="text-xs text-gray-500">
-                {quote.shortName} • Updated {lastUpdated}
+                {quote.shortName} • Fetched {lastUpdated}
+                {dataSource === 'yahoo_delayed' && ' · ~15–20min delayed'}
+                {dataSource === 'mock' && ' · ⚠️ DEMO — not real prices'}
               </p>
             )}
           </div>
@@ -141,7 +159,6 @@ export default function DashboardPage() {
 
       {/* News + Quick Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* News */}
         <div className="lg:col-span-2">
           <Card>
             <CardHeader title={`${selectedSymbol} News`} icon={<Newspaper size={16} />} />
@@ -167,7 +184,6 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Quick Actions */}
         <Card>
           <CardHeader title="Quick Actions" />
           <div className="space-y-2">

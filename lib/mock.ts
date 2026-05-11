@@ -1,25 +1,33 @@
-// Mock fallback data when Yahoo Finance is unavailable
-import type { StockQuote, CandleData, OptionContract, StockAnalysis, NewsItem } from './types';
+// Mock fallback data — used ONLY when Yahoo Finance is unreachable.
+// Prices below are approximate mid-2025 values.
+// NVDA reflects the 10-for-1 split effective June 2024.
+// These are NOT real-time and will drift. When you see these, a red
+// "DEMO DATA" banner appears in the app.
+import type { StockQuote, CandleData, OptionContract, NewsItem } from './types';
 
 export const SCANNER_SYMBOLS = [
   'SPY', 'QQQ', 'IWM', 'TSLA', 'NVDA', 'AAPL', 'AMD',
   'META', 'MSFT', 'F', 'SQQQ', 'TQQQ', 'SOFI', 'PLTR', 'USO', 'XLE'
 ];
 
+// Approximate prices as of mid-2025. NVDA is post-10-for-1 split.
 export const MOCK_QUOTES: Record<string, StockQuote> = {
-  SPY: { symbol: 'SPY', price: 534.20, change: 2.15, changePercent: 0.40, volume: 65000000, avgVolume: 55000000, fiftyTwoWeekHigh: 560.00, fiftyTwoWeekLow: 420.00, regularMarketOpen: 532.00, regularMarketDayHigh: 535.50, regularMarketDayLow: 531.20, shortName: 'SPDR S&P 500 ETF' },
-  QQQ: { symbol: 'QQQ', price: 456.80, change: 3.20, changePercent: 0.71, volume: 42000000, avgVolume: 38000000, fiftyTwoWeekHigh: 490.00, fiftyTwoWeekLow: 340.00, regularMarketOpen: 453.60, regularMarketDayHigh: 458.00, regularMarketDayLow: 452.10, shortName: 'Invesco QQQ Trust' },
-  IWM: { symbol: 'IWM', price: 198.45, change: -0.85, changePercent: -0.43, volume: 28000000, avgVolume: 25000000, fiftyTwoWeekHigh: 225.00, fiftyTwoWeekLow: 165.00, regularMarketOpen: 199.30, regularMarketDayHigh: 200.10, regularMarketDayLow: 197.80, shortName: 'iShares Russell 2000' },
-  TSLA: { symbol: 'TSLA', price: 248.50, change: 5.80, changePercent: 2.39, volume: 95000000, avgVolume: 85000000, fiftyTwoWeekHigh: 300.00, fiftyTwoWeekLow: 138.00, regularMarketOpen: 242.70, regularMarketDayHigh: 250.20, regularMarketDayLow: 241.00, shortName: 'Tesla Inc' },
-  NVDA: { symbol: 'NVDA', price: 892.30, change: 12.50, changePercent: 1.42, volume: 45000000, avgVolume: 40000000, fiftyTwoWeekHigh: 974.00, fiftyTwoWeekLow: 392.00, regularMarketOpen: 879.80, regularMarketDayHigh: 895.00, regularMarketDayLow: 877.00, shortName: 'NVIDIA Corp' },
-  AAPL: { symbol: 'AAPL', price: 189.20, change: 1.30, changePercent: 0.69, volume: 55000000, avgVolume: 50000000, fiftyTwoWeekHigh: 198.00, fiftyTwoWeekLow: 164.00, regularMarketOpen: 187.90, regularMarketDayHigh: 190.00, regularMarketDayLow: 187.50, shortName: 'Apple Inc' },
-  AMD: { symbol: 'AMD', price: 168.75, change: -2.45, changePercent: -1.43, volume: 38000000, avgVolume: 35000000, fiftyTwoWeekHigh: 210.00, fiftyTwoWeekLow: 93.00, regularMarketOpen: 171.20, regularMarketDayHigh: 172.00, regularMarketDayLow: 167.30, shortName: 'Advanced Micro Devices' },
-  PLTR: { symbol: 'PLTR', price: 24.85, change: 0.65, changePercent: 2.69, volume: 52000000, avgVolume: 45000000, fiftyTwoWeekHigh: 28.00, fiftyTwoWeekLow: 12.50, regularMarketOpen: 24.20, regularMarketDayHigh: 25.10, regularMarketDayLow: 24.00, shortName: 'Palantir Technologies' },
+  SPY:  { symbol: 'SPY',  price: 562.40, change: 0,  changePercent: 0,    volume: 65000000,  avgVolume: 55000000, fiftyTwoWeekHigh: 615.00, fiftyTwoWeekLow: 480.00, regularMarketOpen: 560.00, regularMarketDayHigh: 564.00, regularMarketDayLow: 558.00, shortName: 'SPDR S&P 500 ETF' },
+  QQQ:  { symbol: 'QQQ',  price: 483.20, change: 0,  changePercent: 0,    volume: 42000000,  avgVolume: 38000000, fiftyTwoWeekHigh: 530.00, fiftyTwoWeekLow: 385.00, regularMarketOpen: 480.00, regularMarketDayHigh: 485.00, regularMarketDayLow: 479.00, shortName: 'Invesco QQQ Trust' },
+  IWM:  { symbol: 'IWM',  price: 209.80, change: 0,  changePercent: 0,    volume: 28000000,  avgVolume: 25000000, fiftyTwoWeekHigh: 245.00, fiftyTwoWeekLow: 185.00, regularMarketOpen: 208.00, regularMarketDayHigh: 211.00, regularMarketDayLow: 207.00, shortName: 'iShares Russell 2000' },
+  TSLA: { symbol: 'TSLA', price: 285.60, change: 0,  changePercent: 0,    volume: 95000000,  avgVolume: 85000000, fiftyTwoWeekHigh: 420.00, fiftyTwoWeekLow: 180.00, regularMarketOpen: 282.00, regularMarketDayHigh: 288.00, regularMarketDayLow: 280.00, shortName: 'Tesla Inc' },
+  NVDA: { symbol: 'NVDA', price: 118.50, change: 0,  changePercent: 0,    volume: 300000000, avgVolume: 280000000, fiftyTwoWeekHigh: 153.00, fiftyTwoWeekLow:  75.00, regularMarketOpen: 116.00, regularMarketDayHigh: 120.00, regularMarketDayLow: 115.00, shortName: 'NVIDIA Corp (post-split)' },
+  AAPL: { symbol: 'AAPL', price: 213.40, change: 0,  changePercent: 0,    volume: 55000000,  avgVolume: 50000000, fiftyTwoWeekHigh: 240.00, fiftyTwoWeekLow: 164.00, regularMarketOpen: 211.00, regularMarketDayHigh: 215.00, regularMarketDayLow: 210.00, shortName: 'Apple Inc' },
+  AMD:  { symbol: 'AMD',  price: 162.30, change: 0,  changePercent: 0,    volume: 38000000,  avgVolume: 35000000, fiftyTwoWeekHigh: 225.00, fiftyTwoWeekLow: 120.00, regularMarketOpen: 160.00, regularMarketDayHigh: 164.00, regularMarketDayLow: 159.00, shortName: 'Advanced Micro Devices' },
+  PLTR: { symbol: 'PLTR', price:  78.40, change: 0,  changePercent: 0,    volume: 52000000,  avgVolume: 45000000, fiftyTwoWeekHigh: 125.00, fiftyTwoWeekLow:  16.00, regularMarketOpen:  77.00, regularMarketDayHigh:  80.00, regularMarketDayLow:  76.00, shortName: 'Palantir Technologies' },
+  META: { symbol: 'META', price: 572.80, change: 0,  changePercent: 0,    volume: 18000000,  avgVolume: 16000000, fiftyTwoWeekHigh: 740.00, fiftyTwoWeekLow: 400.00, regularMarketOpen: 568.00, regularMarketDayHigh: 577.00, regularMarketDayLow: 565.00, shortName: 'Meta Platforms' },
+  MSFT: { symbol: 'MSFT', price: 435.60, change: 0,  changePercent: 0,    volume: 22000000,  avgVolume: 20000000, fiftyTwoWeekHigh: 468.00, fiftyTwoWeekLow: 360.00, regularMarketOpen: 432.00, regularMarketDayHigh: 438.00, regularMarketDayLow: 430.00, shortName: 'Microsoft Corp' },
+  AMZN: { symbol: 'AMZN', price: 195.20, change: 0,  changePercent: 0,    volume: 35000000,  avgVolume: 32000000, fiftyTwoWeekHigh: 232.00, fiftyTwoWeekLow: 153.00, regularMarketOpen: 193.00, regularMarketDayHigh: 197.00, regularMarketDayLow: 192.00, shortName: 'Amazon.com Inc' },
 };
 
 export function generateMockCandles(basePrice: number, days = 90): CandleData[] {
   const candles: CandleData[] = [];
-  let price = basePrice * 0.85;
+  let price = basePrice * 0.88;
   const now = Date.now();
   const msPerDay = 86400000;
 
@@ -50,9 +58,7 @@ export function generateMockOptionChain(
   const dte = Math.max(0, Math.ceil((expiryDate.getTime() - now.getTime()) / 86400000));
   const iv = 0.30 + Math.random() * 0.40;
 
-  const strikeRange = type === 'call'
-    ? [0.90, 0.93, 0.95, 0.97, 0.98, 1.00, 1.02, 1.03, 1.05, 1.07, 1.10]
-    : [0.90, 0.93, 0.95, 0.97, 0.98, 1.00, 1.02, 1.03, 1.05, 1.07, 1.10];
+  const strikeRange = [0.90, 0.93, 0.95, 0.97, 0.98, 1.00, 1.02, 1.03, 1.05, 1.07, 1.10];
 
   for (const mult of strikeRange) {
     const strike = Math.round(stockPrice * mult * 2) / 2;
@@ -110,15 +116,15 @@ export function generateMockOptionChain(
 
 export const MOCK_NEWS: Record<string, NewsItem[]> = {
   SPY: [
-    { title: 'S&P 500 hits new milestone as Fed signals rate patience', link: '#', publisher: 'MarketWatch', publishedAt: new Date(Date.now() - 3600000).toISOString() },
-    { title: 'Options market pricing in 1.2% move for SPY this week', link: '#', publisher: 'Options Insider', publishedAt: new Date(Date.now() - 7200000).toISOString() },
+    { title: 'S&P 500 consolidates near highs ahead of Fed decision', link: '#', publisher: 'MarketWatch', publishedAt: new Date(Date.now() - 3600000).toISOString() },
+    { title: 'Options market pricing in elevated volatility this week', link: '#', publisher: 'Options Insider', publishedAt: new Date(Date.now() - 7200000).toISOString() },
   ],
   TSLA: [
-    { title: 'Tesla deliveries beat estimates, stock jumps premarket', link: '#', publisher: 'Reuters', publishedAt: new Date(Date.now() - 1800000).toISOString() },
-    { title: 'TSLA call options see unusual activity ahead of earnings', link: '#', publisher: 'Benzinga', publishedAt: new Date(Date.now() - 5400000).toISOString() },
+    { title: 'Tesla updates guidance on vehicle production targets', link: '#', publisher: 'Reuters', publishedAt: new Date(Date.now() - 1800000).toISOString() },
+    { title: 'TSLA options see unusual activity ahead of earnings', link: '#', publisher: 'Benzinga', publishedAt: new Date(Date.now() - 5400000).toISOString() },
   ],
   NVDA: [
-    { title: 'NVIDIA raises guidance on AI chip demand surge', link: '#', publisher: 'Bloomberg', publishedAt: new Date(Date.now() - 900000).toISOString() },
-    { title: 'Data center revenue drives NVDA to record quarterly results', link: '#', publisher: 'CNBC', publishedAt: new Date(Date.now() - 4500000).toISOString() },
+    { title: 'NVIDIA continues to dominate AI chip market share', link: '#', publisher: 'Bloomberg', publishedAt: new Date(Date.now() - 900000).toISOString() },
+    { title: 'Data center revenue drives NVDA to record results', link: '#', publisher: 'CNBC', publishedAt: new Date(Date.now() - 4500000).toISOString() },
   ],
 };

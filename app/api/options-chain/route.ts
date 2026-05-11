@@ -8,10 +8,18 @@ export async function GET(request: NextRequest) {
 
   if (!symbol) return NextResponse.json({ error: 'symbol required' }, { status: 400 });
 
-  try {
-    const data = await fetchOptionsChain(symbol, expiration);
-    return NextResponse.json(data, { headers: { 'Cache-Control': 'no-store' } });
-  } catch {
-    return NextResponse.json({ error: 'Failed to fetch options chain' }, { status: 500 });
-  }
+  const data = await fetchOptionsChain(symbol, expiration);
+  return NextResponse.json(
+    {
+      ...data,
+      meta: {
+        dataSource: data.dataSource,
+        fetchedAt: new Date().toISOString(),
+        delayNote: data.dataSource === 'yahoo_delayed'
+          ? 'Options data is typically 15–20 min delayed. Always verify bid/ask in your broker before entering.'
+          : 'DEMO DATA: Options prices shown are simulated, not real market quotes. Do not use for trading decisions.',
+      },
+    },
+    { headers: { 'Cache-Control': 'no-store' } }
+  );
 }

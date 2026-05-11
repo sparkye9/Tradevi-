@@ -1,18 +1,35 @@
-// Yahoo Finance data fetching with mock fallback
+// Yahoo Finance data fetching with mock fallback.
+// All functions attach _dataSource so callers know whether they got real or demo data.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { StockQuote, CandleData, OptionContract, NewsItem } from './types';
 import { MOCK_QUOTES, generateMockCandles, generateMockOptionChain, MOCK_NEWS } from './mock';
 import { analyzeOptionContract } from './optionsAnalysis';
+
+export type DataSource = 'yahoo_delayed' | 'mock';
+
+export interface QuoteWithSource extends StockQuote {
+  _dataSource: DataSource;
+  _fetchedAt: string;
+}
 
 async function yf(): Promise<any> {
   const mod = await import('yahoo-finance2');
   return mod.default as any;
 }
 
-export async function fetchQuote(symbol: string): Promise<StockQuote> {
+function mockQuote(symbol: string, dataSource: DataSource = 'mock'): QuoteWithSource {
+  const base = MOCK_QUOTES[symbol] ?? {
+    symbol, price: 100, change: 0, changePercent: 0, volume: 1000000,
+    fiftyTwoWeekHigh: 120, fiftyTwoWeekLow: 80,
+  };
+  return { ...base, _dataSource: dataSource, _fetchedAt: new Date().toISOString() };
+}
+
+export async function fetchQuote(symbol: string): Promise<QuoteWithSource> {
   try {
     const yahoo = await yf();
     const result = await yahoo.quote(symbol);
+    if (!result?.regularMarketPrice) throw new Error('Empty response');
     return {
       symbol: result.symbol,
       price: result.regularMarketPrice ?? 0,
@@ -28,16 +45,18 @@ export async function fetchQuote(symbol: string): Promise<StockQuote> {
       regularMarketDayLow: result.regularMarketDayLow,
       shortName: result.shortName,
       longName: result.longName,
+      _dataSource: 'yahoo_delayed',
+      _fetchedAt: new Date().toISOString(),
     };
-  } catch {
-    return MOCK_QUOTES[symbol] ?? {
-      symbol, price: 100, change: 0, changePercent: 0, volume: 1000000,
-      fiftyTwoWeekHigh: 120, fiftyTwoWeekLow: 80,
-    };
+  } catch (err: any) {
+    console.error(`[TradeWise] Yahoo Finance quote FAILED for ${symbol}: ${err?.message ?? err} — serving mock data`);
+    return mockQuote(symbol);
   }
 }
 
-export async function fetchCandles(symbol: string, period = '3mo', interval = '1d'): Promise<CandleData[]> {
+export async function fetchCandles(
+  symbol: string, period = '3mo', interval = '1d'
+): Promise<{ candles: CandleData[]; dataSource: DataSource }> {
   try {
     const yahoo = await yf();
     const validIntervals = ['1m','2m','5m','15m','30m','60m','90m','1h','1d','5d','1wk','1mo','3mo'];
@@ -45,18 +64,19 @@ export async function fetchCandles(symbol: string, period = '3mo', interval = '1
 
     const endDate = new Date();
     const startDate = new Date();
-    if (period === '1d') startDate.setDate(endDate.getDate() - 1);
-    else if (period === '5d') startDate.setDate(endDate.getDate() - 5);
+    if (period === '1d')       startDate.setDate(endDate.getDate() - 1);
+    else if (period === '5d')  startDate.setDate(endDate.getDate() - 5);
     else if (period === '1mo') startDate.setMonth(endDate.getMonth() - 1);
     else if (period === '3mo') startDate.setMonth(endDate.getMonth() - 3);
     else if (period === '6mo') startDate.setMonth(endDate.getMonth() - 6);
-    else if (period === '1y') startDate.setFullYear(endDate.getFullYear() - 1);
-    else startDate.setMonth(endDate.getMonth() - 3);
+    else if (period === '1y')  startDate.setFullYear(endDate.getFullYear() - 1);
+    else                       startDate.setMonth(endDate.getMonth() - 3);
 
     const result = await yahoo.chart(symbol, { period1: startDate, period2: endDate, interval: safeInterval });
     const quotes: any[] = result.quotes ?? [];
+    if (quotes.length === 0) throw new Error('Empty chart response');
 
-    return quotes
+    const candles = quotes
       .filter((q: any) => q.timestamp && q.open != null && q.close != null)
       .map((q: any) => ({
         time: Math.floor(new Date(q.timestamp).getTime() / 1000),
@@ -66,9 +86,12 @@ export async function fetchCandles(symbol: string, period = '3mo', interval = '1
         close: q.close ?? 0,
         volume: q.volume ?? 0,
       }));
-  } catch {
+
+    return { candles, dataSource: 'yahoo_delayed' };
+  } catch (err: any) {
+    console.error(`[TradeWise] Yahoo Finance chart FAILED for ${symbol}: ${err?.message ?? err} — serving mock candles`);
     const basePrice = MOCK_QUOTES[symbol]?.price ?? 100;
-    return generateMockCandles(basePrice);
+    return { candles: generateMockCandles(basePrice), dataSource: 'mock' };
   }
 }
 
@@ -76,6 +99,7 @@ export async function fetchOptionsChain(symbol: string, expirationDate?: string)
   expirationDates: string[];
   calls: OptionContract[];
   puts: OptionContract[];
+  dataSource: DataSource;
 }> {
   try {
     const yahoo = await yf();
@@ -87,7 +111,6 @@ export async function fetchOptionsChain(symbol: string, expirationDate?: string)
     const expirationDates: string[] = (result.expirationDates ?? []).map((d: any) =>
       new Date(d).toISOString().split('T')[0]
     );
-
     const activeExpiry = expirationDate ?? expirationDates[0];
     const expiryTs = activeExpiry ? new Date(activeExpiry).getTime() : Date.now() + 7 * 86400000;
     const dte = Math.max(0, Math.ceil((expiryTs - Date.now()) / 86400000));
@@ -116,8 +139,10 @@ export async function fetchOptionsChain(symbol: string, expirationDate?: string)
       expirationDates,
       calls: rawCalls.map((r: any) => mapContract(r, 'call')),
       puts: rawPuts.map((r: any) => mapContract(r, 'put')),
+      dataSource: 'yahoo_delayed',
     };
-  } catch {
+  } catch (err: any) {
+    console.error(`[TradeWise] Yahoo Finance options FAILED for ${symbol}: ${err?.message ?? err} — serving mock chain`);
     const quote = await fetchQuote(symbol);
     const expiry = expirationDate ?? new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
     return {
@@ -129,6 +154,7 @@ export async function fetchOptionsChain(symbol: string, expirationDate?: string)
       ],
       calls: generateMockOptionChain(symbol, quote.price, expiry, 'call'),
       puts: generateMockOptionChain(symbol, quote.price, expiry, 'put'),
+      dataSource: 'mock',
     };
   }
 }
@@ -138,6 +164,7 @@ export async function fetchNews(symbol: string): Promise<NewsItem[]> {
     const yahoo = await yf();
     const result = await yahoo.search(symbol, { newsCount: 8, quotesCount: 0 });
     const newsItems: any[] = result.news ?? [];
+    if (newsItems.length === 0) throw new Error('No news returned');
     return newsItems.slice(0, 8).map((item: any) => ({
       title: item.title ?? '',
       link: item.link ?? '#',
@@ -147,16 +174,17 @@ export async function fetchNews(symbol: string): Promise<NewsItem[]> {
         : new Date().toISOString(),
       summary: item.summary,
     }));
-  } catch {
+  } catch (err: any) {
+    console.error(`[TradeWise] Yahoo Finance news FAILED for ${symbol}: ${err?.message ?? err}`);
     return MOCK_NEWS[symbol] ?? [
-      { title: `Latest news for ${symbol}`, link: '#', publisher: 'Market Data', publishedAt: new Date().toISOString() },
+      { title: `${symbol} — live news unavailable`, link: '#', publisher: 'Demo Data', publishedAt: new Date().toISOString() },
     ];
   }
 }
 
-export async function fetchMultipleQuotes(symbols: string[]): Promise<Record<string, StockQuote>> {
+export async function fetchMultipleQuotes(symbols: string[]): Promise<Record<string, QuoteWithSource>> {
   const results = await Promise.allSettled(symbols.map(s => fetchQuote(s)));
-  const map: Record<string, StockQuote> = {};
+  const map: Record<string, QuoteWithSource> = {};
   results.forEach((r, i) => {
     if (r.status === 'fulfilled') map[symbols[i]] = r.value;
   });

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import type { OptionContract } from '@/lib/types';
 import { SCANNER_SYMBOLS } from '@/lib/mock';
 import { BarChart2, RefreshCw } from 'lucide-react';
+import { DataSourceBanner, type DataSource } from '@/components/ui/DataSourceBanner';
 
 export default function OptionsChainPage() {
   const [symbol, setSymbol] = useState('SPY');
@@ -18,6 +19,8 @@ export default function OptionsChainPage() {
   const [stockPrice, setStockPrice] = useState(0);
   const [activeTab, setActiveTab] = useState<'calls' | 'puts'>('calls');
   const [loading, setLoading] = useState(false);
+  const [dataSource, setDataSource] = useState<DataSource>(null);
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
 
   const fetch = useCallback(async (sym: string, expiry?: string) => {
     setLoading(true);
@@ -28,9 +31,10 @@ export default function OptionsChainPage() {
       setExpirations(data.expirationDates ?? []);
       setCalls(data.calls ?? []);
       setPuts(data.puts ?? []);
+      setDataSource(data.meta?.dataSource ?? 'mock');
+      setFetchedAt(data.meta?.fetchedAt ?? new Date().toISOString());
       if (!expiry && data.expirationDates?.length) setSelectedExpiry(data.expirationDates[0]);
-    } catch { /* handled by mock */ }
-    // fetch stock price
+    } catch { setDataSource('mock'); }
     try {
       const qRes = await window.fetch(`/api/quote?symbol=${sym}`);
       const qData = await qRes.json();
@@ -48,6 +52,7 @@ export default function OptionsChainPage() {
 
   return (
     <AppShell title="Options Chain">
+      <DataSourceBanner dataSource={dataSource} fetchedAt={fetchedAt} className="mb-4" />
       <div className="mb-6 flex flex-wrap gap-3 items-end">
         {/* Symbol quick select */}
         <div>

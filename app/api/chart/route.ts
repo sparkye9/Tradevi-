@@ -9,10 +9,19 @@ export async function GET(request: NextRequest) {
 
   if (!symbol) return NextResponse.json({ error: 'symbol required' }, { status: 400 });
 
-  try {
-    const candles = await fetchCandles(symbol, period, interval);
-    return NextResponse.json({ symbol, candles }, { headers: { 'Cache-Control': 'no-store' } });
-  } catch {
-    return NextResponse.json({ error: 'Failed to fetch chart data' }, { status: 500 });
-  }
+  const { candles, dataSource } = await fetchCandles(symbol, period, interval);
+  return NextResponse.json(
+    {
+      symbol,
+      candles,
+      meta: {
+        dataSource,
+        fetchedAt: new Date().toISOString(),
+        delayNote: dataSource === 'yahoo_delayed'
+          ? 'Yahoo Finance chart data is typically 15–20 minutes delayed.'
+          : 'DEMO DATA: Chart prices are approximate and not current market data.',
+      },
+    },
+    { headers: { 'Cache-Control': 'no-store' } }
+  );
 }

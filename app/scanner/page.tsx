@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/Badge';
 import type { ScannerFilters, ScannerResult, Opportunity } from '@/lib/types';
 import { SCANNER_SYMBOLS } from '@/lib/mock';
 import { Search, AlertTriangle, Plus, X } from 'lucide-react';
+import { DataSourceBanner, type DataSource } from '@/components/ui/DataSourceBanner';
 
 const defaultFilters: ScannerFilters = {
   maxPremium: 100,
@@ -32,6 +33,8 @@ export default function ScannerPage() {
   const [error, setError] = useState('');
   const [sortBy, setSortBy] = useState<'score' | 'cost' | 'gain'>('score');
   const [newSymbol, setNewSymbol] = useState('');
+  const [dataSource, setDataSource] = useState<DataSource>(null);
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
 
   const addSymbol = () => {
     const sym = newSymbol.trim().toUpperCase();
@@ -58,6 +61,8 @@ export default function ScannerPage() {
       if (!res.ok) throw new Error('Scanner request failed');
       const data = await res.json();
       setResult(data);
+      setDataSource(data.meta?.dataSource ?? 'mock');
+      setFetchedAt(data.meta?.fetchedAt ?? new Date().toISOString());
     } catch {
       setError('Scanner failed. Check your connection and try again.');
     }
@@ -93,6 +98,7 @@ export default function ScannerPage() {
 
   return (
     <AppShell title="Opportunities Scanner">
+      {dataSource && <DataSourceBanner dataSource={dataSource} fetchedAt={fetchedAt} className="mb-4" />}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Filters sidebar */}
         <div className="lg:col-span-1 space-y-4">
