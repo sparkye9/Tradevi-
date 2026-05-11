@@ -10,7 +10,7 @@ import { Card, CardHeader, StatCard } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { DataSourceBanner, DataSourceBadge, type DataSource } from '@/components/ui/DataSourceBanner';
 import type { StockQuote, StockAnalysis, CandleData, NewsItem } from '@/lib/types';
-import { RefreshCw, TrendingUp, TrendingDown, Newspaper, Search } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, Newspaper, Search, WifiOff } from 'lucide-react';
 import Link from 'next/link';
 
 const SYMBOLS = ['SPY', 'QQQ', 'TSLA', 'NVDA', 'AAPL'];
@@ -24,11 +24,13 @@ export default function DashboardPage() {
   const [candles, setCandles] = useState<CandleData[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState('');
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<DataSource>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setFetchError('');
     try {
       const [quoteRes, chartRes, newsRes] = await Promise.all([
         fetch(`/api/quote?symbol=${selectedSymbol}`),
@@ -38,16 +40,16 @@ export default function DashboardPage() {
       const quoteData = await quoteRes.json();
       const chartData = await chartRes.json();
       const newsData = await newsRes.json();
+      if (quoteData.error) throw new Error(quoteData.error);
       setQuote(quoteData.quote);
       setAnalysis(quoteData.analysis);
       setCandles(chartData.candles ?? []);
       setNews(newsData.news ?? []);
-      // Use the most pessimistic source reported
-      const src: DataSource = quoteData.meta?.dataSource ?? chartData.meta?.dataSource ?? 'mock';
-      setDataSource(src);
+      setDataSource(quoteData.meta?.dataSource ?? 'yahoo_delayed');
       setFetchedAt(quoteData.meta?.fetchedAt ?? new Date().toISOString());
-    } catch {
-      setDataSource('mock');
+    } catch (err: any) {
+      setFetchError(err?.message ?? 'Failed to load live data. Check your connection.');
+      setDataSource(null);
     }
     setLoading(false);
   }, [selectedSymbol, selectedPeriod]);
@@ -64,8 +66,20 @@ export default function DashboardPage() {
 
   return (
     <AppShell title="Dashboard">
-      {/* Data source banner — prominent warning when on mock data */}
+      {/* Data freshness banner */}
       <DataSourceBanner dataSource={dataSource} fetchedAt={fetchedAt} className="mb-4" />
+
+      {/* Error state when Yahoo Finance is unreachable */}
+      {fetchError && (
+        <div className="flex items-start gap-3 p-4 mb-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-800">
+          <WifiOff size={16} className="flex-shrink-0 mt-0.5 text-red-600" />
+          <div>
+            <p className="font-bold">Live data unavailable</p>
+            <p className="text-xs mt-0.5">{fetchError}</p>
+            <p className="text-xs mt-1 text-red-600">No prices are shown until Yahoo Finance responds. This app does not use demo data.</p>
+          </div>
+        </div>
+      )}
 
       {/* Symbol selector + controls */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
@@ -132,7 +146,6 @@ export default function DashboardPage() {
               <p className="text-xs text-gray-500">
                 {quote.shortName} • Fetched {lastUpdated}
                 {dataSource === 'yahoo_delayed' && ' · ~15–20min delayed'}
-                {dataSource === 'mock' && ' · ⚠️ DEMO — not real prices'}
               </p>
             )}
           </div>

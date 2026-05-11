@@ -175,10 +175,13 @@ async function scanSymbol(symbol: string, filters: ScannerFilters): Promise<Oppo
               scannedAt: new Date().toISOString(),
             });
           }
-        } catch { /* skip this expiry */ }
+        } catch { /* skip this expiry on error — other expiries still tried */ }
       }
     }
-  } catch { /* skip this symbol */ }
+  } catch (err: any) {
+    // Symbol failed (network/data error); log and return empty — other symbols still scanned
+    console.error(`[Scanner] ${symbol} failed: ${err?.message ?? err}`);
+  }
 
   return opportunities.sort((a, b) => b.opportunityScore - a.opportunityScore).slice(0, 5);
 }

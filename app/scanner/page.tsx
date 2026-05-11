@@ -61,7 +61,7 @@ export default function ScannerPage() {
       if (!res.ok) throw new Error('Scanner request failed');
       const data = await res.json();
       setResult(data);
-      setDataSource(data.meta?.dataSource ?? 'mock');
+      setDataSource(data.meta?.dataSource ?? 'yahoo_delayed');
       setFetchedAt(data.meta?.fetchedAt ?? new Date().toISOString());
     } catch {
       setError('Scanner failed. Check your connection and try again.');

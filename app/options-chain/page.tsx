@@ -31,10 +31,10 @@ export default function OptionsChainPage() {
       setExpirations(data.expirationDates ?? []);
       setCalls(data.calls ?? []);
       setPuts(data.puts ?? []);
-      setDataSource(data.meta?.dataSource ?? 'mock');
+      setDataSource(data.meta?.dataSource ?? 'yahoo_delayed');
       setFetchedAt(data.meta?.fetchedAt ?? new Date().toISOString());
       if (!expiry && data.expirationDates?.length) setSelectedExpiry(data.expirationDates[0]);
-    } catch { setDataSource('mock'); }
+    } catch { setDataSource(null); }
     try {
       const qRes = await window.fetch(`/api/quote?symbol=${sym}`);
       const qData = await qRes.json();

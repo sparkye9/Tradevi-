@@ -8,18 +8,23 @@ export async function GET(request: NextRequest) {
 
   if (!symbol) return NextResponse.json({ error: 'symbol required' }, { status: 400 });
 
-  const data = await fetchOptionsChain(symbol, expiration);
-  return NextResponse.json(
-    {
-      ...data,
-      meta: {
-        dataSource: data.dataSource,
-        fetchedAt: new Date().toISOString(),
-        delayNote: data.dataSource === 'yahoo_delayed'
-          ? 'Options data is typically 15–20 min delayed. Always verify bid/ask in your broker before entering.'
-          : 'DEMO DATA: Options prices shown are simulated, not real market quotes. Do not use for trading decisions.',
+  try {
+    const data = await fetchOptionsChain(symbol, expiration);
+    return NextResponse.json(
+      {
+        ...data,
+        meta: {
+          dataSource: data.dataSource,
+          fetchedAt: new Date().toISOString(),
+          delayNote: 'Options data from Yahoo Finance is typically 15–20 min delayed. Always verify bid/ask in your broker before entering.',
+        },
       },
-    },
-    { headers: { 'Cache-Control': 'no-store' } }
-  );
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: `Failed to fetch options chain for ${symbol}: ${err?.message ?? 'Yahoo Finance unreachable'}` },
+      { status: 503 }
+    );
+  }
 }
