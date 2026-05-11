@@ -1,6 +1,7 @@
 // Opportunity scanner logic
 import type { Opportunity, ScannerFilters, ScannerResult, StockAnalysis, OptionContract } from './types';
-import { fetchQuote, fetchCandles, fetchOptionsChain } from './yahoo';
+import { fetchYahooQuote, fetchYahooOptionsChain } from './yahooFinance';
+import { fetchYahooCandles } from './yahooChart';
 import { analyzeStock } from './indicators';
 import { calcOpportunityScore, genBeginnerExplanation, rateTradeWouldTake } from './optionsAnalysis';
 import { SCANNER_SYMBOLS } from './mock';
@@ -58,8 +59,8 @@ async function scanSymbol(symbol: string, filters: ScannerFilters): Promise<Oppo
 
   try {
     const [quote, candleResult] = await Promise.all([
-      fetchQuote(symbol),
-      fetchCandles(symbol, '3mo', '1d'),
+      fetchYahooQuote(symbol),
+      fetchYahooCandles(symbol, '3mo', '1d'),
     ]);
     const candles = candleResult.candles;
 
@@ -89,7 +90,7 @@ async function scanSymbol(symbol: string, filters: ScannerFilters): Promise<Oppo
     for (const dir of directions) {
       for (const expDate of expiryDates.slice(0, 2)) {
         try {
-          const chain = await fetchOptionsChain(symbol, expDate);
+          const chain = await fetchYahooOptionsChain(symbol, expDate);
           const contracts = dir === 'call' ? chain.calls : chain.puts;
 
           for (const contract of contracts) {
