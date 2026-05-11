@@ -32,6 +32,31 @@ export default function RiskPage() {
             <CardHeader title="Account Settings" icon={<Shield size={16} />} />
             <div className="space-y-3">
               <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">My Broker</label>
+                <select
+                  value={settings.brokerName}
+                  onChange={e => settings.update({ brokerName: e.target.value })}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+                >
+                  <option value="your broker">Select your broker…</option>
+                  <option value="Robinhood">Robinhood</option>
+                  <option value="TD Ameritrade / thinkorswim">TD Ameritrade / thinkorswim</option>
+                  <option value="Charles Schwab">Charles Schwab</option>
+                  <option value="Webull">Webull</option>
+                  <option value="tastytrade">tastytrade</option>
+                  <option value="E*TRADE">E*TRADE</option>
+                  <option value="Fidelity">Fidelity</option>
+                  <option value="IBKR / Interactive Brokers">IBKR / Interactive Brokers</option>
+                  <option value="Moomoo">Moomoo</option>
+                  <option value="Tradier">Tradier</option>
+                  <option value="Other">Other</option>
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  Used to label trade tickets and open the correct broker link.
+                  TradeWise never connects to your broker automatically.
+                </p>
+              </div>
+              <div>
                 <label className="text-xs font-medium text-gray-600 block mb-1">Account Size ($)</label>
                 <input
                   type="number" value={settings.accountSize}
@@ -82,11 +107,11 @@ export default function RiskPage() {
           <p>• <strong>100%+ potential does not mean likely.</strong> Most cheap options expire worthless.</p>
           <p>• <strong>Cheap options are cheap because they are risky.</strong> Low premium = low probability.</p>
           <p>• <strong>0DTE and short-dated options can go to zero quickly.</strong> You can lose 100% of your premium.</p>
-          <p>• <strong>Always confirm manually in Robinhood</strong> before entering any trade.</p>
+          <p>• <strong>Always confirm manually in your broker</strong> before entering any trade.</p>
           <p>• <strong>Past performance of any strategy does not guarantee future results.</strong></p>
           <p>• <strong>Options trading involves significant risk.</strong> Only trade with money you can afford to lose.</p>
           <p className="mt-2 text-xs text-red-600">
-            TradeWise does not connect to Robinhood, does not store login credentials, does not place trades automatically, and does not bypass any brokerage security measures.
+            TradeWise does not store login credentials, does not place trades automatically, and does not bypass any brokerage security measures.
           </p>
         </div>
       </Card>

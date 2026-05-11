@@ -1,7 +1,8 @@
 'use client';
 import { useState } from 'react';
 import type { TradeAlert } from '@/lib/types';
-import { buildRobinhoodTicketText } from '@/lib/alerts';
+import { buildTradeTicketText, buildBrokerLink } from '@/lib/alerts';
+import { useSettingsStore } from '@/store/settingsStore';
 import { Button } from '@/components/ui/Button';
 import { Copy, Check, ExternalLink } from 'lucide-react';
 
@@ -11,10 +12,11 @@ const CHECKLIST_ITEMS = [
   'I checked the expiration date',
   'I calculated my max risk',
   'I understand this option can go to zero',
-  'I am manually confirming this trade in Robinhood',
+  'I am manually confirming this trade in my broker app',
 ];
 
 export function TradeTicket({ alert, contracts = 1 }: { alert: TradeAlert; contracts?: number }) {
+  const brokerName = useSettingsStore(s => s.brokerName) || 'your broker';
   const [checklist, setChecklist] = useState<boolean[]>(new Array(CHECKLIST_ITEMS.length).fill(false));
   const [copied, setCopied] = useState(false);
   const [numContracts, setNumContracts] = useState(contracts);
@@ -22,7 +24,7 @@ export function TradeTicket({ alert, contracts = 1 }: { alert: TradeAlert; contr
   const allChecked = checklist.every(Boolean);
 
   const handleCopy = async () => {
-    const text = buildRobinhoodTicketText(alert, numContracts);
+    const text = buildTradeTicketText(alert, numContracts, brokerName);
     await navigator.clipboard.writeText(text).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -34,14 +36,17 @@ export function TradeTicket({ alert, contracts = 1 }: { alert: TradeAlert; contr
 
   const maxLoss = (alert.suggestedMaxEntry * 100 * numContracts);
   const targetSell = alert.suggestedMaxEntry * 2;
+  const brokerLink = buildBrokerLink(brokerName, alert.symbol);
 
   return (
     <div className="bg-gray-900 text-white rounded-xl p-4 mb-4 text-sm">
       {/* Header */}
       <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-700">
         <div>
-          <h3 className="font-bold text-purple-400 text-base">📋 Robinhood Manual Trade Ticket</h3>
-          <p className="text-xs text-gray-400">Review and enter manually — this app does NOT trade automatically</p>
+          <h3 className="font-bold text-purple-400 text-base">📋 Manual Trade Ticket</h3>
+          <p className="text-xs text-gray-400">
+            Broker: <span className="text-purple-300 font-medium">{brokerName}</span> — review and enter manually
+          </p>
         </div>
       </div>
 
@@ -117,14 +122,28 @@ export function TradeTicket({ alert, contracts = 1 }: { alert: TradeAlert; contr
       )}
 
       <div className="flex gap-2">
-        <Button size="sm" variant={copied ? 'success' : 'outline'} onClick={handleCopy} className="flex-1 bg-transparent border-gray-600 text-gray-200 hover:bg-gray-700 hover:border-gray-500">
+        <Button
+          size="sm"
+          variant={copied ? 'success' : 'outline'}
+          onClick={handleCopy}
+          className="flex-1 bg-transparent border-gray-600 text-gray-200 hover:bg-gray-700 hover:border-gray-500"
+        >
           {copied ? <Check size={13} className="mr-1" /> : <Copy size={13} className="mr-1" />}
           {copied ? 'Copied!' : 'Copy Ticket'}
         </Button>
+        <a
+          href={brokerLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-600 text-xs text-gray-200 hover:bg-gray-700 transition-colors"
+        >
+          <ExternalLink size={12} />
+          Open {brokerName.length > 12 ? 'Broker' : brokerName}
+        </a>
       </div>
 
       <p className="text-xs text-gray-500 mt-3 text-center">
-        ⚠️ NOT FINANCIAL ADVICE. Always confirm manually in Robinhood. Options can go to zero.
+        ⚠️ NOT FINANCIAL ADVICE. Always confirm manually in {brokerName}. Options can go to zero.
       </p>
     </div>
   );

@@ -3,11 +3,11 @@ import { useState, useCallback } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { ScannerFiltersPanel } from '@/components/scanner/ScannerFilters';
 import { OpportunityCard } from '@/components/scanner/OpportunityCard';
-import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import type { ScannerFilters, ScannerResult, Opportunity } from '@/lib/types';
 import { SCANNER_SYMBOLS } from '@/lib/mock';
-import { Search, AlertTriangle, TrendingUp } from 'lucide-react';
+import { Search, AlertTriangle, Plus, X } from 'lucide-react';
 
 const defaultFilters: ScannerFilters = {
   maxPremium: 100,
@@ -31,6 +31,20 @@ export default function ScannerPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [sortBy, setSortBy] = useState<'score' | 'cost' | 'gain'>('score');
+  const [newSymbol, setNewSymbol] = useState('');
+
+  const addSymbol = () => {
+    const sym = newSymbol.trim().toUpperCase();
+    if (!sym || filters.symbols.includes(sym)) { setNewSymbol(''); return; }
+    setFilters(f => ({ ...f, symbols: [...f.symbols, sym] }));
+    setNewSymbol('');
+  };
+
+  const removeSymbol = (sym: string) => {
+    setFilters(f => ({ ...f, symbols: f.symbols.filter(s => s !== sym) }));
+  };
+
+  const resetSymbols = () => setFilters(f => ({ ...f, symbols: SCANNER_SYMBOLS }));
 
   const runScan = useCallback(async () => {
     setLoading(true);
@@ -44,7 +58,7 @@ export default function ScannerPage() {
       if (!res.ok) throw new Error('Scanner request failed');
       const data = await res.json();
       setResult(data);
-    } catch (e) {
+    } catch {
       setError('Scanner failed. Check your connection and try again.');
     }
     setLoading(false);
@@ -81,7 +95,7 @@ export default function ScannerPage() {
     <AppShell title="Opportunities Scanner">
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Filters sidebar */}
-        <div className="lg:col-span-1">
+        <div className="lg:col-span-1 space-y-4">
           <ScannerFiltersPanel
             filters={filters}
             onChange={(updates) => setFilters(f => ({ ...f, ...updates }))}
@@ -89,10 +103,51 @@ export default function ScannerPage() {
             loading={loading}
           />
 
+          {/* Custom symbol manager */}
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-gray-800">Scan Symbols</p>
+              <button onClick={resetSymbols} className="text-xs text-purple-600 hover:underline">Reset defaults</button>
+            </div>
+
+            {/* Add symbol input */}
+            <div className="flex gap-2 mb-3">
+              <input
+                value={newSymbol}
+                onChange={e => setNewSymbol(e.target.value.toUpperCase())}
+                onKeyDown={e => e.key === 'Enter' && addSymbol()}
+                placeholder="Add ticker (e.g. AMZN)"
+                className="flex-1 border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
+              />
+              <Button size="xs" onClick={addSymbol}>
+                <Plus size={12} />
+              </Button>
+            </div>
+
+            {/* Symbol chips */}
+            <div className="flex flex-wrap gap-1.5">
+              {filters.symbols.map(sym => (
+                <span
+                  key={sym}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 text-xs font-medium rounded-full border border-purple-100"
+                >
+                  {sym}
+                  <button
+                    onClick={() => removeSymbol(sym)}
+                    className="hover:text-red-500 transition-colors ml-0.5"
+                  >
+                    <X size={10} />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-2">{filters.symbols.length} symbols will be scanned</p>
+          </div>
+
           {/* Scanner info */}
-          <div className="mt-4 p-3 bg-blue-50 rounded-xl text-xs text-blue-800 space-y-1">
+          <div className="p-3 bg-blue-50 rounded-xl text-xs text-blue-800 space-y-1">
             <p className="font-semibold">📊 How the scanner works:</p>
-            <p>It fetches real Yahoo Finance data for {SCANNER_SYMBOLS.length} symbols, calculates technical indicators, and scores every options contract on 10 factors to find setups with strong reward potential.</p>
+            <p>Fetches real Yahoo Finance data, calculates RSI/ATR/trend, then scores every contract on 10 factors to rank reward potential.</p>
           </div>
         </div>
 
@@ -104,17 +159,15 @@ export default function ScannerPage() {
             <div>
               <p className="font-bold">Opportunities are for analysis only.</p>
               <p>100%+ potential does not mean likely. Cheap options expire worthless most of the time.
-              Always confirm in Robinhood and complete the risk checklist before entering any trade.</p>
+              Always confirm in your broker and complete the risk checklist before entering any trade.</p>
             </div>
           </div>
 
           {result && (
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-              <div className="flex items-center gap-3">
-                <div className="text-xs text-gray-500">
-                  {result.opportunities.length} opportunities across {result.symbolsScanned} symbols
-                  • Scanned {new Date(result.scannedAt).toLocaleTimeString()}
-                </div>
+              <div className="text-xs text-gray-500">
+                {result.opportunities.length} opportunities across {result.symbolsScanned} symbols
+                • Scanned {new Date(result.scannedAt).toLocaleTimeString()}
               </div>
               <div className="flex gap-1">
                 {(['score', 'cost', 'gain'] as const).map(s => (
@@ -136,16 +189,14 @@ export default function ScannerPage() {
             <div className="text-center py-16">
               <div className="inline-flex flex-col items-center gap-4">
                 <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
-                <p className="text-gray-600 font-medium">Scanning {SCANNER_SYMBOLS.length} symbols...</p>
+                <p className="text-gray-600 font-medium">Scanning {filters.symbols.length} symbols…</p>
                 <p className="text-xs text-gray-400">Fetching live options data from Yahoo Finance</p>
               </div>
             </div>
           )}
 
           {error && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-              {error}
-            </div>
+            <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">{error}</div>
           )}
 
           {!loading && !result && !error && (
@@ -155,17 +206,17 @@ export default function ScannerPage() {
               </div>
               <h3 className="font-semibold text-gray-800 mb-2">Ready to Scan</h3>
               <p className="text-gray-500 text-sm mb-4 max-w-md mx-auto">
-                Configure your filters and click "Run Scanner" to find options with 100%+ potential across {SCANNER_SYMBOLS.length} symbols.
+                Configure your filters and click "Run Scanner" to find options with 100%+ potential.
               </p>
               <p className="text-xs text-gray-400">
-                Scans: {SCANNER_SYMBOLS.join(', ')}
+                Scanning: {filters.symbols.join(', ')}
               </p>
             </div>
           )}
 
           {!loading && result && sorted.length === 0 && (
             <div className="text-center py-12">
-              <p className="text-gray-500">No opportunities matched your filters. Try relaxing the criteria.</p>
+              <p className="text-gray-500">No opportunities matched your filters. Try relaxing the criteria or adding more symbols.</p>
             </div>
           )}
 

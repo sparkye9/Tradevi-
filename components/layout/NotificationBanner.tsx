@@ -33,7 +33,7 @@ export function NotificationBanner() {
             <p className="text-xs text-green-100 truncate">
               Max entry: ${top.suggestedMaxEntry.toFixed(2)} •{' '}
               {top.tradeWindowExpiresAt ? `Window: ${formatTimeRemaining(top.tradeWindowExpiresAt)}` : `~${top.tradeWindowMinutes}min`} •
-              Open Robinhood and review manually
+              Open your broker and review manually
             </p>
           </div>
         </div>

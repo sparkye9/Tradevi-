@@ -11,7 +11,7 @@ export function DisclaimerBanner() {
         <p className="text-xs text-amber-800">
           <span className="font-bold">⚠️ DISCLAIMER:</span> TradeWise is for education, research, alerts, and journaling only.
           It does not provide financial advice and does not execute trades.
-          Options can go to zero. Always confirm manually in Robinhood.
+          Options can go to zero. Always confirm manually in your broker before entering any trade.
         </p>
         <button
           onClick={() => setDismissed(true)}

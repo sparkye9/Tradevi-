@@ -70,9 +70,10 @@ export function isAlertActive(state: AlertState): boolean {
   return ['watching', 'triggered', 'trade_window_open', 'reviewed'].includes(state);
 }
 
-export function buildRobinhoodTicketText(alert: TradeAlert, contracts = 1): string {
+export function buildTradeTicketText(alert: TradeAlert, contracts = 1, brokerName = 'your broker'): string {
   const lines = [
-    `=== ROBINHOOD MANUAL TRADE TICKET ===`,
+    `=== MANUAL TRADE TICKET ===`,
+    `Broker: ${brokerName}`,
     ``,
     `Ticker: ${alert.symbol}`,
     `Action: BUY ${alert.direction.toUpperCase()}`,
@@ -93,13 +94,16 @@ export function buildRobinhoodTicketText(alert: TradeAlert, contracts = 1): stri
     `[ ] I checked expiration date`,
     `[ ] I calculated my risk`,
     `[ ] I understand this can go to zero`,
-    `[ ] I am manually confirming this trade`,
+    `[ ] I am manually confirming this trade in ${brokerName}`,
     ``,
     `⚠️  NOT FINANCIAL ADVICE. FOR EDUCATIONAL USE ONLY.`,
-    `Always confirm manually in Robinhood before entering.`,
+    `Always confirm manually in ${brokerName} before entering.`,
   ];
   return lines.join('\n');
 }
+
+// Keep old name as alias for backward compat
+export const buildRobinhoodTicketText = buildTradeTicketText;
 
 export function formatTimeRemaining(expiresAt: string): string {
   const diff = new Date(expiresAt).getTime() - Date.now();
@@ -109,13 +113,13 @@ export function formatTimeRemaining(expiresAt: string): string {
   return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
-export function buildAlert1Text(alert: TradeAlert): string {
+export function buildAlert1Text(alert: TradeAlert, brokerName = 'your broker'): string {
   const expiry = new Date(alert.expiration).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   return `${alert.symbol} ${alert.direction.toUpperCase()} setup triggered. ` +
     `Review the ${alert.symbol} $${alert.strike} ${alert.direction === 'call' ? 'Call' : 'Put'} expiring ${expiry}. ` +
     `Max entry: $${alert.suggestedMaxEntry.toFixed(2)}. ` +
     `Trade window: ~${alert.tradeWindowMinutes} minutes. ` +
-    `Open Robinhood and review manually.`;
+    `Open ${brokerName} and review manually.`;
 }
 
 export function buildAlert2Text(alert: TradeAlert): string {
@@ -126,4 +130,17 @@ export function buildAlert2Text(alert: TradeAlert): string {
     `or if no continuation by ${invalidTime}. ` +
     `If not entered yet, skip. If entered, reassess or follow your stop. ` +
     `Do not chase if price moved without you.`;
+}
+
+// Build a deep-link URL for common brokers (best-effort pre-fill)
+export function buildBrokerLink(brokerName: string, symbol: string): string {
+  const b = brokerName.toLowerCase();
+  if (b.includes('robinhood')) return `https://robinhood.com/stocks/${symbol}`;
+  if (b.includes('td') || b.includes('thinkorswim') || b.includes('schwab')) return `https://client.schwab.com/app/trade/tom/index.html#/trade?symbol=${symbol}`;
+  if (b.includes('webull')) return `https://www.webull.com/quote/${symbol.toLowerCase()}`;
+  if (b.includes('tastytrade') || b.includes('tasty')) return `https://tastytrade.com/`;
+  if (b.includes('etrade') || b.includes('e*trade')) return `https://us.etrade.com/etx/aw/optionChain?symbol=${symbol}`;
+  if (b.includes('fidelity')) return `https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=${symbol}`;
+  if (b.includes('ibkr') || b.includes('interactive')) return `https://www.interactivebrokers.com/`;
+  return `https://finance.yahoo.com/quote/${symbol}/options/`;
 }

@@ -14,6 +14,7 @@ interface Settings {
   showDisclaimer: boolean;
   focusTimerMinutes: number;
   darkMode: boolean;
+  brokerName: string; // user's brokerage, e.g. "Robinhood", "TD Ameritrade"
 }
 
 interface SettingsState extends Settings {
@@ -33,6 +34,7 @@ const defaults: Settings = {
   showDisclaimer: true,
   focusTimerMinutes: 25,
   darkMode: false,
+  brokerName: 'your broker',
 };
 
 export const useSettingsStore = create<SettingsState>()(

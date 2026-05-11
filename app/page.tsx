@@ -194,7 +194,7 @@ export default function DashboardPage() {
           </div>
           <div className="mt-4 p-3 bg-amber-50 rounded-lg text-xs text-amber-800 leading-relaxed">
             <p className="font-bold mb-1">⚠️ Remember:</p>
-            <p>This app does NOT place trades. Every trade must be manually confirmed in Robinhood.</p>
+            <p>This app does NOT place trades. Every trade must be manually confirmed in your broker.</p>
           </div>
         </Card>
       </div>

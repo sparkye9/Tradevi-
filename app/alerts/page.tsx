@@ -107,9 +107,9 @@ export default function AlertsPage() {
       {/* How alerts work */}
       <div className="mt-6 p-4 bg-blue-50 rounded-xl text-xs text-blue-800 space-y-1">
         <p className="font-bold text-sm mb-2">📋 How the 2-Alert System Works:</p>
-        <p><strong>Alert 1 (Trade Window Open):</strong> Fires when a setup triggers. Tells you exactly what to review in Robinhood and how long the window is valid.</p>
+        <p><strong>Alert 1 (Trade Window Open):</strong> Fires when a setup triggers. Tells you exactly what to review in your broker and how long the window is valid.</p>
         <p><strong>Alert 2 (Invalidation Warning):</strong> Shows when the setup becomes invalid so you don't chase a stale or failed setup.</p>
-        <p className="mt-2 text-red-700"><strong>⚠️ This app NEVER places trades automatically.</strong> Everything must be manually confirmed in Robinhood.</p>
+        <p className="mt-2 text-red-700"><strong>⚠️ This app NEVER places trades automatically.</strong> Everything must be manually confirmed in your broker.</p>
       </div>
     </AppShell>
   );
