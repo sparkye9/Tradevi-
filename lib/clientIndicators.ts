@@ -272,7 +272,7 @@ function buildEmptyIndicators(n: number): IndicatorData {
   };
 }
 
-function buildAnalysis(candles: CandleData[], ind: IndicatorData) {
+export function buildAnalysis(candles: CandleData[], ind: IndicatorData) {
   const last = candles.length - 1;
   if (last < 0) {
     return {
