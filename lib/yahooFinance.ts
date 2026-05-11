@@ -9,25 +9,96 @@ import {
   estimateTargetForDoubling, estimateGainPct, calcSpreadPct, calcRiskLabel,
 } from './optionsAnalysis';
 
-// query1 for chart/quote endpoints; query2 for options (more reliable for v7)
 const YF_BASE         = 'https://query1.finance.yahoo.com';
 const YF_OPTIONS_BASE = 'https://query2.finance.yahoo.com';
 
+const YF_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
 const YF_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (compatible; TradingApp/1.0)',
-  'Accept': 'application/json',
+  'User-Agent':      YF_UA,
+  'Accept':          'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer':         'https://finance.yahoo.com/',
 };
 
+// ── Crumb / session cache ──────────────────────────────────────────────────────
+// Yahoo Finance v7 options endpoint requires a crumb token obtained from a
+// prior authenticated session. We cache it per serverless instance (warm reuse).
+
+let _session: { crumb: string; cookie: string; expiresAt: number } | null = null;
+
+async function getYahooSession(): Promise<{ crumb: string; cookie: string } | null> {
+  const now = Date.now();
+  if (_session && now < _session.expiresAt) return _session;
+
+  try {
+    // Attempt 1 — try crumb endpoint without any cookie (works in many regions)
+    const directRes = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
+      headers: { 'User-Agent': YF_UA, 'Accept': '*/*' },
+      cache: 'no-store',
+    });
+    if (directRes.ok) {
+      const crumb = (await directRes.text()).trim();
+      if (crumb && !crumb.trimStart().startsWith('<')) {
+        _session = { crumb, cookie: '', expiresAt: now + 3_600_000 };
+        return _session;
+      }
+    }
+
+    // Attempt 2 — get cookies from Yahoo Finance homepage, then exchange for crumb
+    const homeRes = await fetch('https://finance.yahoo.com', {
+      headers: { 'User-Agent': YF_UA, 'Accept-Language': 'en-US,en;q=0.9' },
+      cache: 'no-store',
+    });
+
+    // Node 18+ exposes getSetCookie(); fall back to single header otherwise
+    const rawCookies: string[] =
+      typeof (homeRes.headers as any).getSetCookie === 'function'
+        ? (homeRes.headers as any).getSetCookie()
+        : [(homeRes.headers.get('set-cookie') ?? '')].filter(Boolean);
+
+    const cookie = rawCookies
+      .map((s: string) => s.split(';')[0].trim())
+      .filter(Boolean)
+      .join('; ');
+
+    if (!cookie) return null;
+
+    const crumbRes = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
+      headers: { 'User-Agent': YF_UA, 'Cookie': cookie },
+      cache: 'no-store',
+    });
+    const crumb = (await crumbRes.text()).trim();
+    if (!crumb || crumb.trimStart().startsWith('<')) return null;
+
+    _session = { crumb, cookie, expiresAt: now + 3_600_000 };
+    return _session;
+  } catch {
+    return null;
+  }
+}
+
+// ── Low-level fetch helpers ────────────────────────────────────────────────────
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function yfFetch(url: string): Promise<any> {
-  const res = await fetch(url, { headers: YF_HEADERS, cache: 'no-store' });
+async function yfFetch(url: string, cookie?: string): Promise<any> {
+  const headers: Record<string, string> = { ...YF_HEADERS };
+  if (cookie) headers['Cookie'] = cookie;
+
+  const res = await fetch(url, { headers, cache: 'no-store' });
   if (!res.ok) throw new Error(`Yahoo Finance ${res.status}`);
   const text = await res.text();
-  // Yahoo sometimes returns 200 OK with an HTML consent/CAPTCHA page
   if (text.trimStart().startsWith('<')) {
     throw new Error('Yahoo Finance returned an HTML page — likely rate-limited or blocked');
   }
   return JSON.parse(text);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function yfOptionsFetch(url: string, session: { crumb: string; cookie: string } | null): Promise<any> {
+  const sep = url.includes('?') ? '&' : '?';
+  const fullUrl = session?.crumb ? `${url}${sep}crumb=${encodeURIComponent(session.crumb)}` : url;
+  return yfFetch(fullUrl, session?.cookie || undefined);
 }
 
 // ── Quote ─────────────────────────────────────────────────────────────────────
@@ -138,6 +209,8 @@ export async function fetchYahooOptionsChain(
   underlyingPrice: number;
   dataSource: 'yahoo_delayed';
 }> {
+  const session = await getYahooSession();
+
   let url = `${YF_OPTIONS_BASE}/v7/finance/options/${encodeURIComponent(symbol)}`;
   if (expirationDate !== undefined && expirationDate !== '') {
     const epoch = typeof expirationDate === 'number'
@@ -146,7 +219,7 @@ export async function fetchYahooOptionsChain(
     url += `?date=${epoch}`;
   }
 
-  const json   = await yfFetch(url);
+  const json   = await yfOptionsFetch(url, session);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result: any = json?.optionChain?.result?.[0];
   if (!result) throw new Error(`No options data for ${symbol} from Yahoo Finance`);
