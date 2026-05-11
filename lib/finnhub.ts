@@ -12,11 +12,19 @@ function getKey(): string {
 }
 
 async function finnhubGet<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+  const key = getKey();
   const url = new URL(`${FINNHUB_BASE}${path}`);
-  url.searchParams.set('token', getKey());
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const res = await fetch(url.toString(), { next: { revalidate: 0 } });
-  if (!res.ok) throw new Error(`Finnhub ${res.status}: ${res.statusText}`);
+
+  const res = await fetch(url.toString(), {
+    headers: { 'X-Finnhub-Token': key },
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Finnhub ${res.status}: ${body || res.statusText}`);
+  }
   return res.json();
 }
 
