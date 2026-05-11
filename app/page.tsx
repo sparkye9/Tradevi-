@@ -11,6 +11,7 @@ import { DataSourceBanner, DataSourceBadge, type DataSource } from '@/components
 import { RefreshCw, TrendingUp, TrendingDown, Newspaper, Search, WifiOff, Zap } from 'lucide-react';
 import { fetchChart, fetchQuote, fetchNews, type ChartResponse, type QuoteData } from '@/lib/apiClient';
 import { useTickerPrice } from '@/lib/wsClient';
+import { ChartErrorBoundary } from '@/components/charts/ChartErrorBoundary';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 
@@ -168,11 +169,13 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-        <TradingViewChart
-          candles={chartData?.candles ?? []}
-          analysis={analysis}
-          livePrice={livePrice}
-        />
+        <ChartErrorBoundary onReset={() => loadData()}>
+          <TradingViewChart
+            candles={chartData?.candles ?? []}
+            analysis={analysis}
+            livePrice={livePrice}
+          />
+        </ChartErrorBoundary>
       </div>
 
       {/* Grid: Bias + Key Levels + Bible + Timer */}

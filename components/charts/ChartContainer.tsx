@@ -5,7 +5,9 @@ import { WifiOff, Zap } from 'lucide-react';
 import type { ChartResponse } from '@/lib/apiClient';
 import { fetchChart } from '@/lib/apiClient';
 import { useTickerPrice } from '@/lib/wsClient';
+import { validateCandles, validateCandlesForIndicators } from '@/lib/candleValidation';
 import { DataSourceBadge, type DataSource } from '@/components/ui/DataSourceBanner';
+import { ChartErrorBoundary } from './ChartErrorBoundary';
 import { ChartToolbar } from './ChartToolbar';
 import { TimeframeSelector } from './TimeframeSelector';
 import { SignalSummaryBar } from './SignalSummaryBar';
@@ -249,51 +251,71 @@ export function ChartContainer({ symbol }: Props) {
 
           {candles.length > 0 && (
             <>
-              <CoreChart
-                ref={coreRef}
-                candles={candles}
-                analysis={analysis}
-                indicators={indicators}
-                theme={theme}
-                showGrid={showGrid}
-                rrSetup={rrSetup}
-                livePrice={livePrice}
-                height={fullscreen ? Math.max(viewportH - 300, 400) : 460}
-              />
-              {activeSubPanels.includes('rsi') && (
-                <SubPanel
-                  ref={rsiRef}
+              <ChartErrorBoundary onReset={() => load()}>
+                <CoreChart
+                  ref={coreRef}
                   candles={candles}
                   analysis={analysis}
                   indicators={indicators}
                   theme={theme}
-                  panelType="rsi"
-                  onRangeChange={handleSubPanelRangeChange}
+                  showGrid={showGrid}
+                  rrSetup={rrSetup}
+                  livePrice={livePrice}
+                  height={fullscreen ? Math.max(viewportH - 300, 400) : 460}
                 />
+              </ChartErrorBoundary>
+              {activeSubPanels.includes('rsi') && (
+                <ChartErrorBoundary onReset={() => load()}>
+                  <SubPanel
+                    ref={rsiRef}
+                    candles={candles}
+                    analysis={analysis}
+                    indicators={indicators}
+                    theme={theme}
+                    panelType="rsi"
+                    onRangeChange={handleSubPanelRangeChange}
+                  />
+                </ChartErrorBoundary>
               )}
               {activeSubPanels.includes('macd') && (
-                <SubPanel
-                  ref={macdRef}
-                  candles={candles}
-                  analysis={analysis}
-                  indicators={indicators}
-                  theme={theme}
-                  panelType="macd"
-                  onRangeChange={handleSubPanelRangeChange}
-                />
+                <ChartErrorBoundary onReset={() => load()}>
+                  <SubPanel
+                    ref={macdRef}
+                    candles={candles}
+                    analysis={analysis}
+                    indicators={indicators}
+                    theme={theme}
+                    panelType="macd"
+                    onRangeChange={handleSubPanelRangeChange}
+                  />
+                </ChartErrorBoundary>
               )}
               {activeSubPanels.includes('atr') && (
-                <SubPanel
-                  ref={atrRef}
-                  candles={candles}
-                  analysis={analysis}
-                  indicators={indicators}
-                  theme={theme}
-                  panelType="atr"
-                  onRangeChange={handleSubPanelRangeChange}
-                />
+                <ChartErrorBoundary onReset={() => load()}>
+                  <SubPanel
+                    ref={atrRef}
+                    candles={candles}
+                    analysis={analysis}
+                    indicators={indicators}
+                    theme={theme}
+                    panelType="atr"
+                    onRangeChange={handleSubPanelRangeChange}
+                  />
+                </ChartErrorBoundary>
               )}
             </>
+          )}
+          
+          {!loading && candles.length === 0 && !error && (
+            <div className={`flex items-center justify-center h-64 ${
+              theme === 'dark' ? 'text-gray-400' : 'text-gray-400'
+            }`}>
+              <div className="flex flex-col items-center gap-2">
+                <div className={`text-sm ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
+                  No chart data available
+                </div>
+              </div>
+            </div>
           )}
         </div>
 

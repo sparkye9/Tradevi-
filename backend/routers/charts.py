@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
-from services.yfinance_service import fetch_candles, PERIOD_MAP
+from services.market_data import get_candles, get_health_status
+from services.yfinance_service import PERIOD_MAP
 from services.indicators import analyze_candles
 import time
 
@@ -19,23 +20,14 @@ async def candles(
         auto_period, auto_interval = PERIOD_MAP.get(period, ("3mo", "1d"))
         use_interval = interval or auto_interval
 
-        candle_list = fetch_candles(sym, auto_period, use_interval)
-        result: dict = {
-            "symbol": sym,
-            "period": period,
-            "interval": use_interval,
-            "candles": candle_list,
-            "meta": {
-                "dataSource": "yahoo_delayed",
-                "fetchedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "delayNote": "~15-20 min delayed via Yahoo Finance",
-                "count": len(candle_list),
-            },
-        }
+        # Use market_data service with provider fallback
+        result = await get_candles(sym, auto_period, use_interval, use_provider="auto")
+        candle_list = result["candles"]
 
         if indicators and candle_list:
             result["analysis"] = analyze_candles(candle_list)
 
         return result
     except Exception as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        # Return 503 Service Unavailable instead of 500 to indicate temporary provider issue
+        raise HTTPException(status_code=503, detail=f"Market data unavailable: {str(e)}")

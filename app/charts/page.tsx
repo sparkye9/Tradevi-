@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { AlertTriangle } from 'lucide-react';
 import { ChartContainer } from '@/components/charts/ChartContainer';
+import { ChartErrorBoundary } from '@/components/charts/ChartErrorBoundary';
 
 const SYMBOLS = ['SPY', 'QQQ', 'TSLA', 'NVDA', 'AAPL', 'MSFT', 'AMZN', 'META', 'AMD', 'PLTR'];
 
@@ -62,7 +63,9 @@ export default function ChartsPage() {
 
       {/* Chart */}
       <div className="mb-6">
-        <ChartContainer symbol={symbol} />
+        <ChartErrorBoundary onReset={() => setSymbol(symbol)}>
+          <ChartContainer symbol={symbol} />
+        </ChartErrorBoundary>
       </div>
 
       {/* Disclaimer */}

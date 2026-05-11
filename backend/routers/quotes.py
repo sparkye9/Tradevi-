@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
-from services.finnhub_service import get_quote as finnhub_quote, get_news
-from services.yfinance_service import fetch_quote_yf
+from services.market_data import get_quote
+from services.finnhub_service import get_news
 from config import settings
 import datetime
 
@@ -11,13 +11,11 @@ router = APIRouter(prefix="/api/quotes", tags=["quotes"])
 async def quote(symbol: str):
     sym = symbol.upper()
     try:
-        if settings.finnhub_api_key:
-            data = await finnhub_quote(sym)
-        else:
-            data = fetch_quote_yf(sym)
+        # Use market_data service with provider fallback (Finnhub > YFinance)
+        data = await get_quote(sym, use_provider="auto")
         return data
     except Exception as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=503, detail=f"Quote unavailable: {str(e)}")
 
 
 @router.get("/{symbol}/news")

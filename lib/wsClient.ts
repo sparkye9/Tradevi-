@@ -44,7 +44,9 @@ export function useTickerPrice({ symbol, enabled = true }: UseTickerOptions) {
         if (msg.type === 'trade' && msg.symbol === symbol.toUpperCase() && typeof msg.price === 'number') {
           setPrice(msg.price);
         }
-      } catch {}
+      } catch (err) {
+        console.error(`Failed to parse WebSocket message for ${symbol}:`, err, event.data);
+      }
     };
 
     ws.onerror = () => setConnected(false);
@@ -101,7 +103,9 @@ export function useTradeStream(
         try {
           const msg: WsMessage = JSON.parse(event.data);
           onMessageRef.current(msg);
-        } catch {}
+        } catch (err) {
+          console.error('Failed to parse WebSocket message:', err, event.data);
+        }
       };
 
       ws.onerror = () => setConnected(false);

@@ -198,3 +198,60 @@ async def fetch_options_chain(symbol: str, expiration: Optional[str] = None) -> 
         except Exception as e:
             logger.warning(f"Polygon options failed for {symbol}: {e}, falling back to yfinance")
     return fetch_options_chain_yf(symbol, expiration)
+
+
+async def get_aggregates(
+    symbol: str,
+    timespan: str = "day",
+    multiplier: int = 1,
+    period_days: int = 90
+) -> List[Dict[str, Any]]:
+    """
+    Fetch aggregate/candle data from Polygon.io.
+    
+    Args:
+        symbol: Stock symbol (e.g., 'SPY')
+        timespan: 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'
+        multiplier: Number of timespan units per candle (e.g., 5 for 5-minute bars)
+        period_days: Number of days of historical data to fetch
+    
+    Returns:
+        List of candle dictionaries with time, open, high, low, close, volume
+    """
+    if not settings.polygon_api_key:
+        raise ValueError("POLYGON_API_KEY not configured")
+    
+    import datetime
+    end_date = datetime.date.today()
+    start_date = end_date - datetime.timedelta(days=period_days)
+    
+    params = {
+        "timespan": timespan,
+        "apiKey": settings.polygon_api_key,
+        "limit": 50000,
+    }
+    
+    url = f"{POLYGON_BASE}/v2/aggs/ticker/{symbol.upper()}/range/{multiplier}/{timespan}/{start_date}/{end_date}"
+    
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(url, params=params)
+        resp.raise_for_status()
+        data = resp.json()
+    
+    results = data.get("results", [])
+    if not results:
+        raise ValueError(f"No candle data from Polygon for {symbol}")
+    
+    candles = []
+    for r in results:
+        candles.append({
+            "time": int(r.get("t", 0) / 1000),  # Convert milliseconds to seconds
+            "timestamp": datetime.datetime.fromtimestamp(r.get("t", 0) / 1000).isoformat(),
+            "open": round(float(r.get("o", 0)), 4),
+            "high": round(float(r.get("h", 0)), 4),
+            "low": round(float(r.get("l", 0)), 4),
+            "close": round(float(r.get("c", 0)), 4),
+            "volume": int(r.get("v", 0)),
+        })
+    
+    return candles

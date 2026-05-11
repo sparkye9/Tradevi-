@@ -3,6 +3,7 @@ import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHand
 import type { CandleData, StockAnalysis } from '@/lib/apiClient';
 import type { IndicatorConfig, RRSetup, ChartTheme } from './chartTypes';
 import { THEME_COLORS } from './chartTypes';
+import { validateCandles } from '@/lib/candleValidation';
 
 export interface CoreChartHandle {
   fitContent: () => void;
@@ -42,6 +43,7 @@ export const CoreChart = forwardRef<CoreChartHandle, Props>(function CoreChart(
   const [tooltip, setTooltip] = useState<CandleTooltip | null>(null);
   const rrOverlayRef = useRef<HTMLDivElement>(null);
   const syncing = useRef(false);
+  const [error, setError] = useState<string | null>(null);
 
   useImperativeHandle(ref, () => ({
     fitContent() { chartRef.current?.timeScale().fitContent(); },
@@ -60,102 +62,153 @@ export const CoreChart = forwardRef<CoreChartHandle, Props>(function CoreChart(
 
   // Build/rebuild chart when candles, theme, or grid change
   useEffect(() => {
-    if (!containerRef.current || candles.length === 0) return;
+    if (!containerRef.current || candles.length === 0) {
+      setError(null);
+      return;
+    }
+
+    // Validate candles before attempting to render
+    const validation = validateCandles(candles);
+    if (!validation.isValid) {
+      const errorMsg = validation.errors.slice(0, 2).join('; ');
+      setError(`Invalid chart data: ${errorMsg}`);
+      console.error('Chart validation failed:', validation.errors);
+      return;
+    }
+
     let tv: typeof import('lightweight-charts') | null = null;
     let cleanupResize: (() => void) | undefined;
 
     async function init() {
-      tv = await import('lightweight-charts');
-      const { createChart, ColorType, CrosshairMode, CandlestickSeries, LineSeries, HistogramSeries } = tv!;
-      const colors = THEME_COLORS[theme];
+      try {
+        setError(null);
 
-      // Destroy old chart
-      if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
-      seriesMapRef.current.clear();
+        // Dynamic import with explicit error handling
+        try {
+          tv = await import('lightweight-charts');
+        } catch (importErr) {
+          throw new Error(`Failed to load chart library: ${importErr instanceof Error ? importErr.message : 'Unknown error'}`);
+        }
 
-      const el = containerRef.current!;
-      const chart = createChart(el, {
-        width: el.clientWidth,
-        height,
-        layout: {
-          background: { type: ColorType.Solid, color: colors.bg },
-          textColor: colors.text,
-          fontSize: 12,
-        },
-        grid: {
-          vertLines: { color: showGrid ? colors.grid : 'transparent' },
-          horzLines: { color: showGrid ? colors.grid : 'transparent' },
-        },
-        crosshair: {
-          mode: CrosshairMode.Normal,
-          vertLine: { color: colors.crosshair, labelBackgroundColor: colors.panel },
-          horzLine: { color: colors.crosshair, labelBackgroundColor: colors.panel },
-        },
-        rightPriceScale: { borderColor: colors.border },
-        timeScale: { borderColor: colors.border, timeVisible: true, secondsVisible: false },
-      });
-      chartRef.current = chart;
+        const { createChart, ColorType, CrosshairMode, CandlestickSeries, LineSeries, HistogramSeries } = tv!;
+        const colors = THEME_COLORS[theme];
 
-      // ── Candlestick series ──────────────────────────────────────────────────
-      const cs = chart.addSeries(CandlestickSeries, {
-        upColor: '#26a69a', downColor: '#ef5350',
-        borderUpColor: '#26a69a', borderDownColor: '#ef5350',
-        wickUpColor: '#26a69a', wickDownColor: '#ef5350',
-      });
-      cs.setData(candles.map(c => ({ time: c.time as any, open: c.open, high: c.high, low: c.low, close: c.close })));
-      candleRef.current = cs;
+        // Destroy old chart
+        if (chartRef.current) { 
+          try {
+            chartRef.current.remove(); 
+          } catch (e) {
+            console.error('Error removing old chart:', e);
+          }
+          chartRef.current = null; 
+        }
+        seriesMapRef.current.clear();
 
-      // ── Volume ──────────────────────────────────────────────────────────────
-      const volCfg = indicators.find(i => i.id === 'volume');
-      if (volCfg?.enabled) {
-        const volSeries = chart.addSeries(HistogramSeries, {
-          priceFormat: { type: 'volume' },
-          priceScaleId: 'vol',
+        const el = containerRef.current!;
+        if (!el || el.clientWidth === 0) {
+          throw new Error('Chart container not ready or invisible');
+        }
+
+        const chart = createChart(el, {
+          width: el.clientWidth,
+          height,
+          layout: {
+            background: { type: ColorType.Solid, color: colors.bg },
+            textColor: colors.text,
+            fontSize: 12,
+          },
+          grid: {
+            vertLines: { color: showGrid ? colors.grid : 'transparent' },
+            horzLines: { color: showGrid ? colors.grid : 'transparent' },
+          },
+          crosshair: {
+            mode: CrosshairMode.Normal,
+            vertLine: { color: colors.crosshair, labelBackgroundColor: colors.panel },
+            horzLine: { color: colors.crosshair, labelBackgroundColor: colors.panel },
+          },
+          rightPriceScale: { borderColor: colors.border },
+          timeScale: { borderColor: colors.border, timeVisible: true, secondsVisible: false },
         });
-        chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
-        volSeries.setData(candles.map(c => ({
-          time: c.time as any,
-          value: c.volume,
-          color: c.close >= c.open ? '#26a69a55' : '#ef535055',
-        })));
-        seriesMapRef.current.set('volume', volSeries);
+        chartRef.current = chart;
+
+        // ── Candlestick series ──────────────────────────────────────────────────
+        const cs = chart.addSeries(CandlestickSeries, {
+          upColor: '#26a69a', downColor: '#ef5350',
+          borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+          wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+        });
+        cs.setData(validation.validCandles.map(c => ({ time: c.time as any, open: c.open, high: c.high, low: c.low, close: c.close })));
+        candleRef.current = cs;
+
+        // ── Volume ──────────────────────────────────────────────────────────────
+        const volCfg = indicators.find(i => i.id === 'volume');
+        if (volCfg?.enabled) {
+          const volSeries = chart.addSeries(HistogramSeries, {
+            priceFormat: { type: 'volume' },
+            priceScaleId: 'vol',
+          });
+          chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+          volSeries.setData(validation.validCandles.map(c => ({
+            time: c.time as any,
+            value: Math.max(0, c.volume ?? 0),
+            color: c.close >= c.open ? '#26a69a55' : '#ef535055',
+          })));
+          seriesMapRef.current.set('volume', volSeries);
+        }
+
+        // ── Indicator overlays ──────────────────────────────────────────────────
+        renderOverlays(chart, cs, LineSeries, HistogramSeries, indicators, analysis, validation.validCandles);
+
+        // ── Crosshair tooltip ───────────────────────────────────────────────────
+        chart.subscribeCrosshairMove((params: any) => {
+          if (!params?.point) { setTooltip(null); return; }
+          const bar = params.seriesData?.get(cs);
+          if (!bar) { setTooltip(null); return; }
+          const idx = validation.validCandles.findIndex(c => c.time === (bar.time as any));
+          const prev = validation.validCandles[idx - 1];
+          const change = prev ? bar.close - prev.close : 0;
+          setTooltip({
+            x: params.point.x,
+            y: params.point.y,
+            open: bar.open, high: bar.high, low: bar.low, close: bar.close,
+            volume: validation.validCandles[idx]?.volume ?? 0,
+            time: bar.time as number,
+            change,
+          });
+        });
+
+        chart.timeScale().fitContent();
+
+        // Responsive resize
+        const observer = new ResizeObserver(() => {
+          if (containerRef.current && chart) {
+            try {
+              chart.applyOptions({ width: containerRef.current.clientWidth });
+            } catch (e) {
+              console.error('Error during chart resize:', e);
+            }
+          }
+        });
+        observer.observe(el);
+        cleanupResize = () => observer.disconnect();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(msg);
+        console.error('Chart initialization error:', err);
       }
-
-      // ── Indicator overlays ──────────────────────────────────────────────────
-      renderOverlays(chart, cs, LineSeries, HistogramSeries, indicators, analysis);
-
-      // ── Crosshair tooltip ───────────────────────────────────────────────────
-      chart.subscribeCrosshairMove((params: any) => {
-        if (!params?.point) { setTooltip(null); return; }
-        const bar = params.seriesData?.get(cs);
-        if (!bar) { setTooltip(null); return; }
-        const idx = candles.findIndex(c => c.time === (bar.time as any));
-        const prev = candles[idx - 1];
-        const change = prev ? bar.close - prev.close : 0;
-        setTooltip({
-          x: params.point.x,
-          y: params.point.y,
-          open: bar.open, high: bar.high, low: bar.low, close: bar.close,
-          volume: candles[idx]?.volume ?? 0,
-          time: bar.time as number,
-          change,
-        });
-      });
-
-      chart.timeScale().fitContent();
-
-      // Responsive resize
-      const observer = new ResizeObserver(() => {
-        if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
-      });
-      observer.observe(el);
-      cleanupResize = () => observer.disconnect();
     }
 
     init();
     return () => {
       cleanupResize?.();
-      if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
+      if (chartRef.current) { 
+        try {
+          chartRef.current.remove(); 
+        } catch (e) {
+          console.error('Error removing chart on unmount:', e);
+        }
+        chartRef.current = null; 
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candles, theme, showGrid, height]);
@@ -163,9 +216,14 @@ export const CoreChart = forwardRef<CoreChartHandle, Props>(function CoreChart(
   // Update overlays when indicator state changes (without rebuilding whole chart)
   useEffect(() => {
     if (!chartRef.current || !candleRef.current || candles.length === 0) return;
+    const validation = validateCandles(candles);
+    if (!validation.isValid) return;
+
     import('lightweight-charts').then(({ LineSeries, HistogramSeries }) => {
-      updateOverlays(chartRef.current, candleRef.current, LineSeries, HistogramSeries, seriesMapRef.current, indicators, analysis);
+      updateOverlays(chartRef.current, candleRef.current, LineSeries, HistogramSeries, seriesMapRef.current, indicators, analysis, validation.validCandles);
       updateVolumeMA(chartRef.current, seriesMapRef.current, indicators, analysis);
+    }).catch(err => {
+      console.error('Error updating overlays:', err);
     });
   }, [indicators, analysis]);
 
@@ -173,13 +231,17 @@ export const CoreChart = forwardRef<CoreChartHandle, Props>(function CoreChart(
   useEffect(() => {
     if (!livePrice || !candleRef.current || candles.length === 0) return;
     const last = candles[candles.length - 1];
-    candleRef.current.update({
-      time: last.time as any,
-      open: last.open,
-      high: Math.max(last.high, livePrice),
-      low: Math.min(last.low, livePrice),
-      close: livePrice,
-    });
+    try {
+      candleRef.current.update({
+        time: last.time as any,
+        open: last.open,
+        high: Math.max(last.high, livePrice),
+        low: Math.min(last.low, livePrice),
+        close: livePrice,
+      });
+    } catch (e) {
+      console.error('Error updating live price:', e);
+    }
   }, [livePrice]);
 
   // R/R price lines
@@ -187,14 +249,24 @@ export const CoreChart = forwardRef<CoreChartHandle, Props>(function CoreChart(
     if (!candleRef.current) return;
     const cs = candleRef.current;
     // Remove old price lines
-    if (priceLineRef.current.entry) cs.removePriceLine(priceLineRef.current.entry);
-    if (priceLineRef.current.stop) cs.removePriceLine(priceLineRef.current.stop);
-    if (priceLineRef.current.target) cs.removePriceLine(priceLineRef.current.target);
+    if (priceLineRef.current.entry) {
+      try { cs.removePriceLine(priceLineRef.current.entry); } catch (e) { console.error('Error removing entry line:', e); }
+    }
+    if (priceLineRef.current.stop) {
+      try { cs.removePriceLine(priceLineRef.current.stop); } catch (e) { console.error('Error removing stop line:', e); }
+    }
+    if (priceLineRef.current.target) {
+      try { cs.removePriceLine(priceLineRef.current.target); } catch (e) { console.error('Error removing target line:', e); }
+    }
 
     if (rrSetup && rrSetup.entry > 0) {
-      priceLineRef.current.entry = cs.createPriceLine({ price: rrSetup.entry, color: '#3b82f6', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: 'Entry' });
-      if (rrSetup.stop > 0) priceLineRef.current.stop = cs.createPriceLine({ price: rrSetup.stop, color: '#ef4444', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'Stop' });
-      if (rrSetup.target > 0) priceLineRef.current.target = cs.createPriceLine({ price: rrSetup.target, color: '#22c55e', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'Target' });
+      try {
+        priceLineRef.current.entry = cs.createPriceLine({ price: rrSetup.entry, color: '#3b82f6', lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: 'Entry' });
+        if (rrSetup.stop > 0) priceLineRef.current.stop = cs.createPriceLine({ price: rrSetup.stop, color: '#ef4444', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'Stop' });
+        if (rrSetup.target > 0) priceLineRef.current.target = cs.createPriceLine({ price: rrSetup.target, color: '#22c55e', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: 'Target' });
+      } catch (e) {
+        console.error('Error creating price lines:', e);
+      }
     }
   }, [rrSetup]);
 
@@ -204,36 +276,55 @@ export const CoreChart = forwardRef<CoreChartHandle, Props>(function CoreChart(
     let frame: number;
     const update = () => {
       if (!candleRef.current || !rrOverlayRef.current) return;
-      const entryY = candleRef.current.priceToCoordinate(rrSetup.entry);
-      const stopY  = candleRef.current.priceToCoordinate(rrSetup.stop);
-      const targetY = candleRef.current.priceToCoordinate(rrSetup.target);
-      const el = rrOverlayRef.current;
-      const profitDiv = el.querySelector('.rr-profit') as HTMLElement;
-      const lossDiv   = el.querySelector('.rr-loss') as HTMLElement;
-      if (!profitDiv || !lossDiv) return;
-      if (entryY === null || stopY === null || targetY === null) {
-        profitDiv.style.display = 'none';
-        lossDiv.style.display = 'none';
-        return;
+      try {
+        const entryY = candleRef.current.priceToCoordinate(rrSetup.entry);
+        const stopY  = candleRef.current.priceToCoordinate(rrSetup.stop);
+        const targetY = candleRef.current.priceToCoordinate(rrSetup.target);
+        const el = rrOverlayRef.current;
+        const profitDiv = el.querySelector('.rr-profit') as HTMLElement;
+        const lossDiv   = el.querySelector('.rr-loss') as HTMLElement;
+        if (!profitDiv || !lossDiv) return;
+        if (entryY === null || stopY === null || targetY === null) {
+          profitDiv.style.display = 'none';
+          lossDiv.style.display = 'none';
+          return;
+        }
+        const isLong = rrSetup.direction === 'long';
+        // Profit zone
+        const profitTop = isLong ? targetY : entryY;
+        const profitH   = Math.abs(entryY - targetY);
+        profitDiv.style.display = 'block';
+        profitDiv.style.top  = `${profitTop}px`;
+        profitDiv.style.height = `${profitH}px`;
+        // Loss zone
+        const lossTop = isLong ? entryY : stopY;
+        const lossH   = Math.abs(entryY - stopY);
+        lossDiv.style.display = 'block';
+        lossDiv.style.top  = `${lossTop}px`;
+        lossDiv.style.height = `${lossH}px`;
+        frame = requestAnimationFrame(update);
+      } catch (e) {
+        console.error('Error updating RR overlay:', e);
       }
-      const isLong = rrSetup.direction === 'long';
-      // Profit zone
-      const profitTop = isLong ? targetY : entryY;
-      const profitH   = Math.abs(entryY - targetY);
-      profitDiv.style.display = 'block';
-      profitDiv.style.top  = `${profitTop}px`;
-      profitDiv.style.height = `${profitH}px`;
-      // Loss zone
-      const lossTop = isLong ? entryY : stopY;
-      const lossH   = Math.abs(entryY - stopY);
-      lossDiv.style.display = 'block';
-      lossDiv.style.top  = `${lossTop}px`;
-      lossDiv.style.height = `${lossH}px`;
-      frame = requestAnimationFrame(update);
     };
     frame = requestAnimationFrame(update);
     return () => cancelAnimationFrame(frame);
   }, [rrSetup]);
+
+  if (error) {
+    const colors = THEME_COLORS[theme];
+    return (
+      <div 
+        className="flex items-center justify-center rounded border-2 border-red-300 bg-red-50 text-red-700"
+        style={{ height }}
+      >
+        <div className="text-center p-4">
+          <p className="font-medium mb-1">Chart render failed</p>
+          <p className="text-sm">{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   const colors = THEME_COLORS[theme];
 
@@ -282,50 +373,45 @@ export const CoreChart = forwardRef<CoreChartHandle, Props>(function CoreChart(
   );
 });
 
+CoreChart.displayName = 'CoreChart';
+
 // ── Overlay management helpers ────────────────────────────────────────────────
 
-function addLine(chart: any, LineSeries: any, data: (number | null)[], candles: CandleData[], color: string, lineWidth: 1 | 2 | 3 | 4 = 1, lineStyle = 0, priceScaleId?: string) {
-  const opts: any = { color, lineWidth, lineStyle, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false };
-  if (priceScaleId) opts.priceScaleId = priceScaleId;
-  const series = chart.addSeries(LineSeries, opts);
-  const pts = data.map((v, i) => v !== null && candles[i] ? { time: candles[i].time as any, value: v } : null).filter(Boolean);
-  series.setData(pts);
-  return series;
+function renderOverlays(chart: any, _cs: any, LineSeries: any, HistogramSeries: any, indicators: IndicatorConfig[], analysis: StockAnalysis | null, candles: CandleData[]) {
+  // Overlays are handled by updateOverlays on indicator changes
 }
 
-function renderOverlays(chart: any, _cs: any, LineSeries: any, HistogramSeries: any, indicators: IndicatorConfig[], analysis: StockAnalysis | null) {
+function updateOverlays(chart: any, _cs: any, LineSeries: any, HistogramSeries: any, seriesMap: SeriesMap, indicators: IndicatorConfig[], analysis: StockAnalysis | null, candles: CandleData[]) {
   const ind = analysis?.indicators;
-  if (!ind) return;
-  const candles: CandleData[] = []; // placeholder — actual candles needed
-  // This is called once on init, updateOverlays handles ongoing updates
-}
-
-function updateOverlays(chart: any, _cs: any, LineSeries: any, HistogramSeries: any, seriesMap: SeriesMap, indicators: IndicatorConfig[], analysis: StockAnalysis | null) {
-  const ind = analysis?.indicators;
-
-  // Helper to get candle timestamps from existing series data
-  const candles = (() => {
-    // We need candle timestamps; we reconstruct from existing series
-    if (!_cs) return [] as CandleData[];
-    const d = _cs.data();
-    return (d ?? []) as CandleData[];
-  })();
 
   if (!ind || candles.length === 0) return;
 
+  // Only calculate indicators if we have enough candles
+  const minCandlesRSI = 14;
+  const minCandlesMACD = 26;
+  const minCandlesEMA = 20;
+
   type OverlaySpec = { id: string; color: string; data: (number | null)[]; style?: number; panel?: string };
 
-  const specs: OverlaySpec[] = [
-    { id: 'ema9',    color: indicators.find(i => i.id === 'ema9')?.color    ?? '#f0c040', data: ind.ema9   },
-    { id: 'ema20',   color: indicators.find(i => i.id === 'ema20')?.color   ?? '#4fc3f7', data: ind.ema20  },
-    { id: 'ema50',   color: indicators.find(i => i.id === 'ema50')?.color   ?? '#ffb74d', data: ind.ema50  },
-    { id: 'ema200',  color: indicators.find(i => i.id === 'ema200')?.color  ?? '#ce93d8', data: ind.ema200, style: 2 },
+  const specs: OverlaySpec[] = [];
+
+  // Only add overlays if we have enough candles
+  if (candles.length >= minCandlesEMA) {
+    specs.push(
+      { id: 'ema9',    color: indicators.find(i => i.id === 'ema9')?.color    ?? '#f0c040', data: ind.ema9   },
+      { id: 'ema20',   color: indicators.find(i => i.id === 'ema20')?.color   ?? '#4fc3f7', data: ind.ema20  },
+      { id: 'ema50',   color: indicators.find(i => i.id === 'ema50')?.color   ?? '#ffb74d', data: ind.ema50  },
+      { id: 'ema200',  color: indicators.find(i => i.id === 'ema200')?.color  ?? '#ce93d8', data: ind.ema200, style: 2 }
+    );
+  }
+
+  specs.push(
     { id: 'vwap',    color: indicators.find(i => i.id === 'vwap')?.color    ?? '#00e676', data: ind.vwap,   style: 2 },
     { id: 'bbUpper', color: indicators.find(i => i.id === 'bbands')?.color  ?? '#78909c', data: ind.bbUpper, style: 1 },
     { id: 'bbMid',   color: indicators.find(i => i.id === 'bbands')?.color  ?? '#78909c', data: ind.bbMid  },
     { id: 'bbLower', color: indicators.find(i => i.id === 'bbands')?.color  ?? '#78909c', data: ind.bbLower, style: 1 },
-    { id: 'stLine',  color: indicators.find(i => i.id === 'supertrend')?.color ?? '#a0c4ff', data: ind.stFastLine },
-  ];
+    { id: 'stLine',  color: indicators.find(i => i.id === 'supertrend')?.color ?? '#a0c4ff', data: ind.stFastLine }
+  );
 
   // ORB levels
   const orbCfg = indicators.find(i => i.id === 'orb');
@@ -351,21 +437,32 @@ function updateOverlays(chart: any, _cs: any, LineSeries: any, HistogramSeries: 
     const existing = seriesMap.get(spec.id);
 
     if (!enabled) {
-      if (existing) { try { chart.removeSeries(existing); } catch {} seriesMap.delete(spec.id); }
+      if (existing) { 
+        try { chart.removeSeries(existing); } catch (e) { console.error(`Error removing ${spec.id}:`, e); }
+        seriesMap.delete(spec.id); 
+      }
       continue;
     }
     if (!existing) {
       const pts = spec.data.map((v, i) => v !== null && candles[i] ? { time: candles[i].time as any, value: v } : null).filter(Boolean);
       if (!pts.length) continue;
-      const s = chart.addSeries(LineSeries, {
-        color: spec.color, lineWidth: 1, lineStyle: spec.style ?? 0,
-        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-      });
-      s.setData(pts);
-      seriesMap.set(spec.id, s);
+      try {
+        const s = chart.addSeries(LineSeries, {
+          color: spec.color, lineWidth: 1, lineStyle: spec.style ?? 0,
+          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        });
+        s.setData(pts);
+        seriesMap.set(spec.id, s);
+      } catch (e) {
+        console.error(`Error adding series ${spec.id}:`, e);
+      }
     } else {
       // Update color if changed
-      existing.applyOptions({ color: spec.color });
+      try {
+        existing.applyOptions({ color: spec.color });
+      } catch (e) {
+        console.error(`Error updating series ${spec.id}:`, e);
+      }
     }
   }
 }
@@ -373,3 +470,4 @@ function updateOverlays(chart: any, _cs: any, LineSeries: any, HistogramSeries: 
 function updateVolumeMA(chart: any, seriesMap: SeriesMap, indicators: IndicatorConfig[], analysis: StockAnalysis | null) {
   // Volume MA handled if needed — placeholder
 }
+
