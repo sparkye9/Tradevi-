@@ -1,7 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
-import { MainChart } from '@/components/dashboard/MainChart';
 import { BiasCard } from '@/components/dashboard/BiasCard';
 import { KeyLevels } from '@/components/dashboard/KeyLevels';
 import { BiblePanel } from '@/components/dashboard/BiblePanel';
@@ -9,74 +8,78 @@ import { FocusTimer } from '@/components/dashboard/FocusTimer';
 import { Card, CardHeader, StatCard } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { DataSourceBanner, DataSourceBadge, type DataSource } from '@/components/ui/DataSourceBanner';
-import type { StockQuote, StockAnalysis, CandleData, NewsItem } from '@/lib/types';
-import { RefreshCw, TrendingUp, TrendingDown, Newspaper, Search, WifiOff } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, Newspaper, Search, WifiOff, Zap } from 'lucide-react';
+import { fetchChart, fetchQuote, fetchNews, type ChartResponse, type QuoteData } from '@/lib/apiClient';
+import { useTickerPrice } from '@/lib/wsClient';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
+
+const TradingViewChart = dynamic(() => import('@/components/charts/TradingViewChart'), { ssr: false });
 
 const SYMBOLS = ['SPY', 'QQQ', 'TSLA', 'NVDA', 'AAPL'];
 const PERIODS = ['1d', '5d', '1mo', '3mo', '1y'] as const;
 
 export default function DashboardPage() {
   const [selectedSymbol, setSelectedSymbol] = useState('SPY');
-  const [selectedPeriod, setSelectedPeriod] = useState<'1d' | '5d' | '1mo' | '3mo' | '1y'>('3mo');
-  const [quote, setQuote] = useState<StockQuote | null>(null);
-  const [analysis, setAnalysis] = useState<StockAnalysis | null>(null);
-  const [candles, setCandles] = useState<CandleData[]>([]);
-  const [news, setNews] = useState<NewsItem[]>([]);
+  const [selectedPeriod, setSelectedPeriod] = useState<(typeof PERIODS)[number]>('3mo');
+  const [quote, setQuote] = useState<QuoteData | null>(null);
+  const [chartData, setChartData] = useState<ChartResponse | null>(null);
+  const [news, setNews] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState('');
-  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<DataSource>(null);
 
-  const fetchData = useCallback(async () => {
+  // Live price from WebSocket (updates last candle)
+  const { price: livePrice, connected: wsConnected } = useTickerPrice({
+    symbol: selectedSymbol,
+    enabled: true,
+  });
+
+  const displayPrice = livePrice ?? quote?.price ?? null;
+
+  const loadData = useCallback(async () => {
     setLoading(true);
     setFetchError('');
     try {
-      const [quoteRes, chartRes, newsRes] = await Promise.all([
-        fetch(`/api/quote?symbol=${selectedSymbol}`),
-        fetch(`/api/chart?symbol=${selectedSymbol}&period=${selectedPeriod}&interval=${selectedPeriod === '1d' ? '5m' : '1d'}`),
-        fetch(`/api/news?symbol=${selectedSymbol}`),
+      const [chart, newsData] = await Promise.all([
+        fetchChart(selectedSymbol, selectedPeriod),
+        fetchNews(selectedSymbol).catch(() => ({ news: [] })),
       ]);
-      const quoteData = await quoteRes.json();
-      const chartData = await chartRes.json();
-      const newsData = await newsRes.json();
-      if (quoteData.error) throw new Error(quoteData.error);
-      setQuote(quoteData.quote);
-      setAnalysis(quoteData.analysis);
-      setCandles(chartData.candles ?? []);
+      setChartData(chart);
       setNews(newsData.news ?? []);
-      setDataSource(quoteData.meta?.dataSource ?? 'yahoo_delayed');
-      setFetchedAt(quoteData.meta?.fetchedAt ?? new Date().toISOString());
+      setDataSource((chart.meta.dataSource as DataSource) ?? 'yahoo_delayed');
+
+      // Also fetch quote for stats
+      const q = await fetchQuote(selectedSymbol).catch(() => null);
+      if (q) setQuote(q);
     } catch (err: any) {
-      setFetchError(err?.message ?? 'Failed to load live data. Check your connection.');
+      setFetchError(err?.message ?? 'Failed to load data. Check connection and API keys.');
       setDataSource(null);
     }
     setLoading(false);
   }, [selectedSymbol, selectedPeriod]);
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 60000);
+    loadData();
+    const interval = setInterval(loadData, 60000);
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [loadData]);
 
-  const lastUpdated = fetchedAt
-    ? new Date(fetchedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    : '';
+  const analysis = chartData?.analysis ?? null;
 
   return (
     <AppShell title="Dashboard">
       {/* Data freshness banner */}
-      <DataSourceBanner dataSource={dataSource} fetchedAt={fetchedAt} className="mb-4" />
+      <DataSourceBanner dataSource={dataSource} fetchedAt={chartData?.meta.fetchedAt ?? null} className="mb-4" />
 
-      {/* Error state when Yahoo Finance is unreachable */}
+      {/* Error state */}
       {fetchError && (
         <div className="flex items-start gap-3 p-4 mb-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-800">
           <WifiOff size={16} className="flex-shrink-0 mt-0.5 text-red-600" />
           <div>
-            <p className="font-bold">Live data unavailable</p>
+            <p className="font-bold">Data unavailable</p>
             <p className="text-xs mt-0.5">{fetchError}</p>
-            <p className="text-xs mt-1 text-red-600">No prices are shown until Yahoo Finance responds. This app does not use demo data.</p>
+            <p className="text-xs mt-1 text-red-600">Configure API keys in backend/.env to enable live data.</p>
           </div>
         </div>
       )}
@@ -112,7 +115,7 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
-          <Button size="sm" variant="outline" onClick={fetchData} loading={loading}>
+          <Button size="sm" variant="outline" onClick={loadData} loading={loading}>
             <RefreshCw size={13} />
           </Button>
         </div>
@@ -123,49 +126,59 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           <StatCard
             label="Price"
-            value={`$${quote.price.toFixed(2)}`}
+            value={`$${(displayPrice ?? quote.price).toFixed(2)}`}
             change={quote.changePercent}
             changeLabel="today"
             color={quote.changePercent >= 0 ? 'green' : 'red'}
           />
-          <StatCard label="Day High" value={`$${(quote.regularMarketDayHigh ?? quote.price).toFixed(2)}`} />
-          <StatCard label="Day Low" value={`$${(quote.regularMarketDayLow ?? quote.price).toFixed(2)}`} />
-          <StatCard label="Volume" value={`${((quote.volume ?? 0) / 1000000).toFixed(1)}M`} />
+          <StatCard label="Day High" value={`$${quote.high.toFixed(2)}`} />
+          <StatCard label="Day Low" value={`$${quote.low.toFixed(2)}`} />
+          <StatCard label="Prev Close" value={`$${quote.prevClose.toFixed(2)}`} />
         </div>
       )}
 
       {/* Main chart */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-6">
+      <div className="bg-[#0f1117] rounded-xl border border-gray-800 shadow-sm p-4 mb-6">
         <div className="flex items-center justify-between mb-3">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="font-bold text-gray-900">{selectedSymbol}</h2>
+              <h2 className="font-bold text-white">{selectedSymbol}</h2>
               <DataSourceBadge dataSource={dataSource} />
+              {wsConnected && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-900 text-green-300 border border-green-700">
+                  <Zap size={9} /> Live
+                </span>
+              )}
             </div>
             {quote && (
-              <p className="text-xs text-gray-500">
-                {quote.shortName} • Fetched {lastUpdated}
-                {dataSource === 'yahoo_delayed' && ' · ~15–20min delayed'}
+              <p className="text-xs text-gray-400">
+                {dataSource === 'yahoo_delayed' ? '~15–20min delayed' : 'Real-time via Finnhub'}
               </p>
             )}
           </div>
-          {quote && (
+          {displayPrice && (
             <div className="flex items-center gap-2">
-              <span className="text-2xl font-bold text-gray-900">${quote.price.toFixed(2)}</span>
-              <span className={`flex items-center gap-1 text-sm font-medium ${quote.changePercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {quote.changePercent >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                {quote.changePercent >= 0 ? '+' : ''}{quote.changePercent.toFixed(2)}%
-              </span>
+              <span className="text-2xl font-bold text-white">${displayPrice.toFixed(2)}</span>
+              {quote && (
+                <span className={`flex items-center gap-1 text-sm font-medium ${quote.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {quote.changePercent >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                  {quote.changePercent >= 0 ? '+' : ''}{quote.changePercent.toFixed(2)}%
+                </span>
+              )}
             </div>
           )}
         </div>
-        <MainChart candles={candles} analysis={analysis} period={selectedPeriod} />
+        <TradingViewChart
+          candles={chartData?.candles ?? []}
+          analysis={analysis}
+          livePrice={livePrice}
+        />
       </div>
 
       {/* Grid: Bias + Key Levels + Bible + Timer */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        <BiasCard analysis={analysis} symbol={selectedSymbol} />
-        <KeyLevels analysis={analysis} />
+        <BiasCard analysis={analysis as any} symbol={selectedSymbol} />
+        <KeyLevels analysis={analysis as any} />
         <BiblePanel />
         <FocusTimer />
       </div>
@@ -176,18 +189,25 @@ export default function DashboardPage() {
           <Card>
             <CardHeader title={`${selectedSymbol} News`} icon={<Newspaper size={16} />} />
             {news.length === 0 ? (
-              <p className="text-sm text-gray-400">Loading news...</p>
+              <p className="text-sm text-gray-400">
+                {fetchError ? 'News unavailable — configure FINNHUB_API_KEY.' : 'Loading news…'}
+              </p>
             ) : (
               <div className="space-y-3">
                 {news.slice(0, 5).map((item, i) => (
                   <div key={i} className="flex items-start gap-3 pb-3 border-b border-gray-50 last:border-0">
                     <div className="flex-1 min-w-0">
-                      <a href={item.link} target="_blank" rel="noopener noreferrer"
-                        className="text-sm font-medium text-gray-800 hover:text-purple-700 line-clamp-2 transition-colors">
+                      <a
+                        href={item.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium text-gray-800 hover:text-purple-700 line-clamp-2 transition-colors"
+                      >
                         {item.title}
                       </a>
                       <p className="text-xs text-gray-400 mt-0.5">
-                        {item.publisher} • {new Date(item.publishedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                        {item.publisher} •{' '}
+                        {new Date(item.publishedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
                   </div>
@@ -218,6 +238,11 @@ export default function DashboardPage() {
             <Link href="/risk">
               <Button variant="outline" size="md" className="w-full justify-start mt-2">
                 Risk Calculator
+              </Button>
+            </Link>
+            <Link href="/broker">
+              <Button variant="outline" size="md" className="w-full justify-start mt-2">
+                Portfolio (Alpaca)
               </Button>
             </Link>
           </div>

@@ -2,57 +2,53 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { OptionsChainTable } from '@/components/options/OptionsChainTable';
-import { Card, CardHeader } from '@/components/ui/Card';
+import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import type { OptionContract } from '@/lib/types';
-import { SCANNER_SYMBOLS } from '@/lib/mock';
-import { BarChart2, RefreshCw } from 'lucide-react';
 import { DataSourceBanner, type DataSource } from '@/components/ui/DataSourceBanner';
+import { fetchOptionsChain, fetchQuote, type OptionsChainResponse } from '@/lib/apiClient';
+import { BarChart2, RefreshCw } from 'lucide-react';
 
 export default function OptionsChainPage() {
   const [symbol, setSymbol] = useState('SPY');
   const [customSymbol, setCustomSymbol] = useState('');
-  const [expirations, setExpirations] = useState<string[]>([]);
+  const [chainData, setChainData] = useState<OptionsChainResponse | null>(null);
   const [selectedExpiry, setSelectedExpiry] = useState('');
-  const [calls, setCalls] = useState<OptionContract[]>([]);
-  const [puts, setPuts] = useState<OptionContract[]>([]);
   const [stockPrice, setStockPrice] = useState(0);
   const [activeTab, setActiveTab] = useState<'calls' | 'puts'>('calls');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [dataSource, setDataSource] = useState<DataSource>(null);
-  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
 
-  const fetch = useCallback(async (sym: string, expiry?: string) => {
+  const load = useCallback(async (sym: string, expiry?: string) => {
     setLoading(true);
+    setError('');
     try {
-      const url = `/api/options-chain?symbol=${sym}${expiry ? `&expiration=${expiry}` : ''}`;
-      const res = await window.fetch(url);
-      const data = await res.json();
-      setExpirations(data.expirationDates ?? []);
-      setCalls(data.calls ?? []);
-      setPuts(data.puts ?? []);
-      setDataSource(data.meta?.dataSource ?? 'yahoo_delayed');
-      setFetchedAt(data.meta?.fetchedAt ?? new Date().toISOString());
-      if (!expiry && data.expirationDates?.length) setSelectedExpiry(data.expirationDates[0]);
-    } catch { setDataSource(null); }
-    try {
-      const qRes = await window.fetch(`/api/quote?symbol=${sym}`);
-      const qData = await qRes.json();
-      setStockPrice(qData.quote?.price ?? 0);
-    } catch { }
+      const [chain, quote] = await Promise.all([
+        fetchOptionsChain(sym, expiry),
+        fetchQuote(sym).catch(() => null),
+      ]);
+      setChainData(chain);
+      setDataSource((chain.meta.dataSource as DataSource) ?? 'yahoo_delayed');
+      if (!expiry && chain.expirationDates.length) setSelectedExpiry(chain.expirationDates[0]);
+      if (quote) setStockPrice(quote.price);
+    } catch (err: any) {
+      setError(err?.message ?? 'Failed to load options chain');
+      setDataSource(null);
+    }
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetch(symbol); }, [symbol, fetch]);
+  useEffect(() => { load(symbol); }, [symbol, load]);
 
-  const handleExpiry = (expiry: string) => {
-    setSelectedExpiry(expiry);
-    fetch(symbol, expiry);
+  const handleExpiry = (exp: string) => {
+    setSelectedExpiry(exp);
+    load(symbol, exp);
   };
 
   return (
     <AppShell title="Options Chain">
-      <DataSourceBanner dataSource={dataSource} fetchedAt={fetchedAt} className="mb-4" />
+      <DataSourceBanner dataSource={dataSource} fetchedAt={chainData?.meta.fetchedAt ?? null} className="mb-4" />
+
       <div className="mb-6 flex flex-wrap gap-3 items-end">
         {/* Symbol quick select */}
         <div>
@@ -71,6 +67,7 @@ export default function OptionsChainPage() {
             ))}
           </div>
         </div>
+
         {/* Custom symbol */}
         <div className="flex gap-2">
           <div>
@@ -87,7 +84,8 @@ export default function OptionsChainPage() {
             Load
           </Button>
         </div>
-        <Button size="sm" variant="ghost" onClick={() => fetch(symbol, selectedExpiry)} loading={loading} className="mt-5">
+
+        <Button size="sm" variant="ghost" onClick={() => load(symbol, selectedExpiry)} loading={loading} className="mt-5">
           <RefreshCw size={13} />
         </Button>
       </div>
@@ -97,15 +95,25 @@ export default function OptionsChainPage() {
         <div className="mb-4 flex items-center gap-3">
           <h2 className="font-bold text-2xl text-gray-900">{symbol}</h2>
           <span className="text-lg text-gray-600">${stockPrice.toFixed(2)}</span>
+          {chainData?.meta.dataSource === 'polygon_realtime' && (
+            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+              Real-time · Polygon.io
+            </span>
+          )}
         </div>
       )}
 
+      {/* Error */}
+      {error && (
+        <div className="p-4 mb-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">{error}</div>
+      )}
+
       {/* Expiration dates */}
-      {expirations.length > 0 && (
+      {chainData && chainData.expirationDates.length > 0 && (
         <div className="mb-4">
           <p className="text-xs text-gray-500 mb-2">Expiration Date</p>
           <div className="flex flex-wrap gap-2">
-            {expirations.map(exp => {
+            {chainData.expirationDates.map(exp => {
               const dte = Math.ceil((new Date(exp).getTime() - Date.now()) / 86400000);
               return (
                 <button
@@ -141,14 +149,23 @@ export default function OptionsChainPage() {
           {loading && (
             <div className="w-4 h-4 border-2 border-purple-200 border-t-purple-600 rounded-full animate-spin ml-2" />
           )}
+          {chainData && (
+            <span className="ml-auto text-xs text-gray-400">
+              {activeTab === 'calls' ? chainData.calls.length : chainData.puts.length} contracts
+            </span>
+          )}
         </div>
 
-        {!loading && (
+        {!loading && chainData && (
           <OptionsChainTable
-            contracts={activeTab === 'calls' ? calls : puts}
+            contracts={(activeTab === 'calls' ? chainData.calls : chainData.puts) as any}
             type={activeTab === 'calls' ? 'call' : 'put'}
             stockPrice={stockPrice}
           />
+        )}
+
+        {!loading && !chainData && !error && (
+          <p className="text-sm text-gray-400 py-4 text-center">Select a symbol to load the options chain.</p>
         )}
       </Card>
     </AppShell>
