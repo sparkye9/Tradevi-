@@ -12,8 +12,10 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`API ${res.status}: ${text || res.statusText}`);
+    // Try JSON error body first; never surface raw HTML to callers
+    const json = await res.json().catch(() => null);
+    const msg  = json?.error ?? json?.message ?? json?.detail ?? null;
+    throw new Error(msg ?? `Request failed (${res.status} ${res.statusText})`);
   }
   return res.json();
 }
@@ -154,7 +156,7 @@ export const fetchOptionsChain = (symbol: string, expiration?: string) =>
 
 export const runScanner = (filters: Record<string, unknown>) =>
   apiFetch<{ opportunities: unknown[]; symbolsScanned: number; scannedAt: string; meta: unknown }>(
-    '/api/scanner/run',
+    '/api/scanner',
     { method: 'POST', body: JSON.stringify(filters) }
   );
 

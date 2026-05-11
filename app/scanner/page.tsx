@@ -177,7 +177,15 @@ export default function ScannerPage() {
           )}
 
           {error && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">{error}</div>
+            <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+              <AlertTriangle size={18} className="flex-shrink-0 text-red-500 mt-0.5" />
+              <div>
+                <p className="font-semibold text-red-800 text-sm">Scanner unavailable</p>
+                <p className="text-red-700 text-xs mt-1">
+                  {error.length > 120 ? 'Market data temporarily unavailable. Please try again in a moment.' : error}
+                </p>
+              </div>
+            </div>
           )}
 
           {!loading && !scannedAt && !error && (

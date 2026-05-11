@@ -19,8 +19,13 @@ const YF_HEADERS = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function yfFetch(url: string): Promise<any> {
   const res = await fetch(url, { headers: YF_HEADERS, cache: 'no-store' });
-  if (!res.ok) throw new Error(`Yahoo Finance ${res.status} for ${url}`);
-  return res.json();
+  if (!res.ok) throw new Error(`Yahoo Finance ${res.status}`);
+  const text = await res.text();
+  // Yahoo sometimes returns a 200 HTML consent/CAPTCHA page when rate-limited
+  if (text.trimStart().startsWith('<')) {
+    throw new Error('Yahoo Finance returned an HTML page — likely rate-limited or blocked');
+  }
+  return JSON.parse(text);
 }
 
 // ── Quote ─────────────────────────────────────────────────────────────────────

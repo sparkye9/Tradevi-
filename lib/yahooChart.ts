@@ -49,7 +49,11 @@ export async function fetchYahooCandles(
     throw new Error(`Yahoo Finance ${res.status} for ${symbol} — market may be closed or symbol invalid`);
   }
 
-  const json = await res.json();
+  const text = await res.text();
+  if (text.trimStart().startsWith('<')) {
+    throw new Error(`Yahoo Finance returned an HTML page for ${symbol} — rate-limited or blocked`);
+  }
+  const json = JSON.parse(text);
   const result = json?.chart?.result?.[0];
   if (!result) {
     const errMsg = json?.chart?.error?.description ?? 'No data returned';
