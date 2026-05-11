@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchFinnhubCandles } from '@/lib/finnhub';
+import { fetchYahooCandles } from '@/lib/yahooChart';
 import { calcAllIndicators } from '@/lib/clientIndicators';
 import type { CandleData } from '@/lib/types';
 
@@ -16,8 +17,33 @@ export async function GET(
   const interval = VALID_INTERVALS.includes(sp.get('interval') ?? '') ? (sp.get('interval') as string) : '1d';
 
   try {
-    const { candles, dataSource } = await fetchFinnhubCandles(symbol, period, interval);
-    const { indicatorData, analysis } = calcAllIndicators(candles as CandleData[]);
+    // Try Finnhub first if API key is configured, fall back to Yahoo Finance
+    let candles: CandleData[];
+    let dataSource: string;
+    let delayNote: string;
+
+    if (process.env.FINNHUB_API_KEY) {
+      try {
+        const result = await fetchFinnhubCandles(symbol, period, interval);
+        candles    = result.candles as CandleData[];
+        dataSource = result.dataSource;
+        delayNote  = 'Real-time via Finnhub';
+      } catch (finnhubErr: any) {
+        // Finnhub failed — fall through to Yahoo Finance
+        console.warn(`Finnhub failed for ${symbol}: ${finnhubErr.message} — falling back to Yahoo Finance`);
+        const result = await fetchYahooCandles(symbol, period, interval);
+        candles    = result.candles as CandleData[];
+        dataSource = result.dataSource;
+        delayNote  = '~15–20 min delayed (Yahoo Finance fallback — check FINNHUB_API_KEY)';
+      }
+    } else {
+      const result = await fetchYahooCandles(symbol, period, interval);
+      candles    = result.candles as CandleData[];
+      dataSource = result.dataSource;
+      delayNote  = '~15–20 min delayed via Yahoo Finance (set FINNHUB_API_KEY for real-time)';
+    }
+
+    const { indicatorData, analysis } = calcAllIndicators(candles);
 
     return NextResponse.json(
       {
@@ -26,7 +52,7 @@ export async function GET(
         meta: {
           dataSource,
           fetchedAt: new Date().toISOString(),
-          delayNote: 'Real-time via Finnhub',
+          delayNote,
           count: candles.length,
         },
       },
