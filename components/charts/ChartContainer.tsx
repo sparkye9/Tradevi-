@@ -41,6 +41,15 @@ export function ChartContainer({ symbol }: Props) {
   const [loading, setLoading]                 = useState(false);
   const [error, setError]                     = useState('');
   const [dataSource, setDataSource]           = useState<DataSource>(null);
+  const [viewportH, setViewportH]             = useState(800);
+
+  // Track viewport height safely (window only exists on client)
+  useEffect(() => {
+    const update = () => setViewportH(window.innerHeight);
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
 
   // ── Refs ──────────────────────────────────────────────────────────────────
   const coreRef   = useRef<CoreChartHandle>(null);
@@ -249,7 +258,7 @@ export function ChartContainer({ symbol }: Props) {
                 showGrid={showGrid}
                 rrSetup={rrSetup}
                 livePrice={livePrice}
-                height={fullscreen ? Math.max(window.innerHeight - 300, 400) : 460}
+                height={fullscreen ? Math.max(viewportH - 300, 400) : 460}
               />
               {activeSubPanels.includes('rsi') && (
                 <SubPanel
