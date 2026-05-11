@@ -9,7 +9,9 @@ import {
   estimateTargetForDoubling, estimateGainPct, calcSpreadPct, calcRiskLabel,
 } from './optionsAnalysis';
 
-const YF_BASE = 'https://query1.finance.yahoo.com';
+// query1 for chart/quote endpoints; query2 for options (more reliable for v7)
+const YF_BASE         = 'https://query1.finance.yahoo.com';
+const YF_OPTIONS_BASE = 'https://query2.finance.yahoo.com';
 
 const YF_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (compatible; TradingApp/1.0)',
@@ -21,7 +23,7 @@ async function yfFetch(url: string): Promise<any> {
   const res = await fetch(url, { headers: YF_HEADERS, cache: 'no-store' });
   if (!res.ok) throw new Error(`Yahoo Finance ${res.status}`);
   const text = await res.text();
-  // Yahoo sometimes returns a 200 HTML consent/CAPTCHA page when rate-limited
+  // Yahoo sometimes returns 200 OK with an HTML consent/CAPTCHA page
   if (text.trimStart().startsWith('<')) {
     throw new Error('Yahoo Finance returned an HTML page — likely rate-limited or blocked');
   }
@@ -128,16 +130,19 @@ function parseContracts(raw: any[], type: 'call' | 'put', stockPrice: number, no
 
 export async function fetchYahooOptionsChain(
   symbol: string,
-  expirationDate?: string,
+  expirationDate?: string | number,  // YYYY-MM-DD string OR Unix timestamp number
 ): Promise<{
   expirationDates: string[];
   calls: OptionContract[];
   puts: OptionContract[];
+  underlyingPrice: number;
   dataSource: 'yahoo_delayed';
 }> {
-  let url = `${YF_BASE}/v7/finance/options/${encodeURIComponent(symbol)}`;
-  if (expirationDate) {
-    const epoch = Math.floor(new Date(expirationDate).getTime() / 1000);
+  let url = `${YF_OPTIONS_BASE}/v7/finance/options/${encodeURIComponent(symbol)}`;
+  if (expirationDate !== undefined && expirationDate !== '') {
+    const epoch = typeof expirationDate === 'number'
+      ? expirationDate
+      : Math.floor(new Date(expirationDate).getTime() / 1000);
     url += `?date=${epoch}`;
   }
 
@@ -152,13 +157,13 @@ export async function fetchYahooOptionsChain(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const options: any = result.options?.[0];
-  if (!options) return { expirationDates, calls: [], puts: [], dataSource: 'yahoo_delayed' };
+  if (!options) return { expirationDates, calls: [], puts: [], underlyingPrice: stockPrice, dataSource: 'yahoo_delayed' };
 
   const nowSec = Date.now() / 1000;
   const calls  = parseContracts(options.calls ?? [], 'call', stockPrice, nowSec);
   const puts   = parseContracts(options.puts  ?? [], 'put',  stockPrice, nowSec);
 
-  return { expirationDates, calls, puts, dataSource: 'yahoo_delayed' };
+  return { expirationDates, calls, puts, underlyingPrice: stockPrice, dataSource: 'yahoo_delayed' };
 }
 
 // ── News ──────────────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { DataSourceBanner, type DataSource } from '@/components/ui/DataSourceBanner';
 import { fetchOptionsChain, fetchQuote, type OptionsChainResponse } from '@/lib/apiClient';
-import { BarChart2, RefreshCw } from 'lucide-react';
+import { AlertTriangle, BarChart2, RefreshCw } from 'lucide-react';
 
 export default function OptionsChainPage() {
   const [symbol, setSymbol] = useState('SPY');
@@ -28,9 +28,13 @@ export default function OptionsChainPage() {
         fetchQuote(sym).catch(() => null),
       ]);
       setChainData(chain);
-      setDataSource((chain.meta.dataSource as DataSource) ?? 'yahoo_delayed');
-      if (!expiry && chain.expirationDates.length) setSelectedExpiry(chain.expirationDates[0]);
+      setDataSource((chain.meta?.dataSource as DataSource) ?? 'yahoo_delayed');
+      // Use first available expiry when loading without a date
+      const dates = chain.expirationDates ?? chain.expirations ?? [];
+      if (!expiry && dates.length) setSelectedExpiry(dates[0]);
+      // Prefer live quote; fall back to underlying price from options response
       if (quote) setStockPrice(quote.price);
+      else if (chain.underlyingPrice) setStockPrice(chain.underlyingPrice);
     } catch (err: any) {
       setError(err?.message ?? 'Failed to load options chain');
       setDataSource(null);
@@ -105,7 +109,15 @@ export default function OptionsChainPage() {
 
       {/* Error */}
       {error && (
-        <div className="p-4 mb-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">{error}</div>
+        <div className="p-4 mb-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+          <AlertTriangle size={16} className="flex-shrink-0 text-red-500 mt-0.5" />
+          <div>
+            <p className="font-semibold text-red-800 text-sm">Options chain unavailable</p>
+            <p className="text-red-700 text-xs mt-0.5">
+              {error.length > 120 ? 'Yahoo Finance is temporarily unavailable. Please try again in a moment.' : error}
+            </p>
+          </div>
+        </div>
       )}
 
       {/* Expiration dates */}

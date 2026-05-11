@@ -1,7 +1,8 @@
 /**
- * Backend API client — points to the FastAPI backend.
- * Falls back to the Next.js API routes when NEXT_PUBLIC_API_URL is not set.
+ * Browser API client — calls our own Next.js API routes.
+ * Never calls Yahoo Finance, Finnhub, or any external service directly.
  */
+import type { OptionContract } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
@@ -98,34 +99,18 @@ export interface ChartResponse {
   meta: { dataSource: string; fetchedAt: string; delayNote?: string; count: number };
 }
 
-export interface OptionContract {
-  symbol: string;
-  strike: number;
-  expiration: string;
-  dte: number;
-  type: 'call' | 'put';
-  bid: number;
-  ask: number;
-  lastPrice: number;
-  iv: number;
-  delta: number;
-  gamma: number;
-  theta: number;
-  vega: number;
-  volume: number;
-  openInterest: number;
-  costPerContract: number;
-  spreadPercent: number;
-  riskLabel: string;
-  dataSource: string;
-}
+// Re-export from lib/types so callers don't need two imports
+export type { OptionContract };
 
 export interface OptionsChainResponse {
+  success?: boolean;
   symbol: string;
   calls: OptionContract[];
   puts: OptionContract[];
-  expirationDates: string[];
-  meta: { dataSource: string; fetchedAt: string };
+  expirationDates: string[];   // YYYY-MM-DD strings (backward compat)
+  expirations: string[];        // alias — same data
+  underlyingPrice: number;
+  meta: { dataSource: string; fetchedAt: string; delayNote?: string };
 }
 
 // ─── Quotes ──────────────────────────────────────────────────────────────────
@@ -149,7 +134,7 @@ export const fetchChart = (symbol: string, period = '3mo', interval = '') =>
 
 export const fetchOptionsChain = (symbol: string, expiration?: string) =>
   apiFetch<OptionsChainResponse>(
-    `/api/options/${symbol}/chain${expiration ? `?expiration=${expiration}` : ''}`
+    `/api/options-chain?symbol=${encodeURIComponent(symbol)}${expiration ? `&expiration=${encodeURIComponent(expiration)}` : ''}`
   );
 
 // ─── Scanner ─────────────────────────────────────────────────────────────────
