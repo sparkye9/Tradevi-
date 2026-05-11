@@ -8,7 +8,7 @@ import httpx
 
 from config import settings
 from services.yfinance_service import fetch_candles as fetch_candles_yf
-from services.finnhub_service import get_quote as get_quote_finnhub
+from services.finnhub_service import get_quote as get_quote_finnhub, get_candles as get_candles_finnhub
 from services.polygon_service import fetch_options_chain, get_aggregates
 
 
@@ -110,17 +110,21 @@ async def _get_candles_polygon(symbol: str, period: str, interval: str) -> Dict[
 
 
 async def _get_candles_finnhub(symbol: str, period: str, interval: str) -> Dict[str, Any]:
-    """
-    Fetch candles from Finnhub API - less detailed but real-time quotes available.
-    Note: Finnhub doesn't have a direct candle endpoint, so we fall back to YFinance.
-    This is more of a placeholder for future Finnhub candle support.
-    """
-    if not settings.finnhub_api_key:
-        raise ValueError("Finnhub API key not configured")
+    """Fetch candles from Finnhub API - real-time data."""
+    candles = await get_candles_finnhub(symbol, period, interval)
     
-    # Finnhub doesn't have a native candle endpoint yet
-    # In production, you'd use their candle data via WebSocket or premium endpoints
-    raise NotImplementedError("Finnhub candle API not yet implemented - using fallback")
+    return {
+        "symbol": symbol.upper(),
+        "period": period,
+        "interval": interval,
+        "candles": candles,
+        "meta": {
+            "dataSource": "finnhub_realtime",
+            "fetchedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "delayNote": "Real-time via Finnhub",
+            "count": len(candles),
+        },
+    }
 
 
 def _get_candles_yfinance(symbol: str, period: str, interval: str) -> Dict[str, Any]:

@@ -47,17 +47,71 @@ async def get_quote(symbol: str) -> Dict[str, Any]:
     }
 
 
-async def get_company_profile(symbol: str) -> Dict[str, Any]:
+async def get_candles(symbol: str, period: str = "3mo", interval: str = "1d") -> List[Dict[str, Any]]:
+    """Fetch historical candles from Finnhub."""
     if not settings.finnhub_api_key:
-        return {}
-    async with httpx.AsyncClient(timeout=10.0) as client:
+        raise ValueError("Market data unavailable — API key required")
+
+    # Calculate from/to timestamps
+    import time
+    to_ts = int(time.time())
+    
+    # Map period to seconds
+    period_seconds = {
+        "1d": 86400,
+        "5d": 5 * 86400,
+        "1mo": 30 * 86400,
+        "3mo": 90 * 86400,
+        "6mo": 180 * 86400,
+        "1y": 365 * 86400,
+        "2y": 2 * 365 * 86400,
+        "5y": 5 * 365 * 86400,
+    }
+    from_ts = to_ts - period_seconds.get(period, 90 * 86400)
+
+    # Map interval to Finnhub resolution
+    resolution_map = {
+        "1m": "1",
+        "5m": "5",
+        "15m": "15",
+        "30m": "30",
+        "1h": "60",
+        "1d": "D",
+        "1wk": "W",
+        "1mo": "M",
+    }
+    resolution = resolution_map.get(interval, "D")
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(
-            f"{FINNHUB_BASE}/stock/profile2",
-            params={"symbol": symbol, "token": settings.finnhub_api_key},
+            f"{FINNHUB_BASE}/stock/candle",
+            params={
+                "symbol": symbol,
+                "resolution": resolution,
+                "from": from_ts,
+                "to": to_ts,
+                "token": settings.finnhub_api_key,
+            },
         )
-        if resp.status_code == 200:
-            return resp.json()
-    return {}
+        resp.raise_for_status()
+        data = resp.json()
+
+    if data.get("s") != "ok" or not data.get("c"):
+        raise ValueError(f"Finnhub returned no candle data for {symbol}")
+
+    # Convert to candle format
+    candles = []
+    for i in range(len(data["c"])):
+        candles.append({
+            "time": data["t"][i],
+            "open": data["o"][i],
+            "high": data["h"][i],
+            "low": data["l"][i],
+            "close": data["c"][i],
+            "volume": data["v"][i] if i < len(data["v"]) else 0,
+        })
+
+    return candles
 
 
 async def get_news(symbol: str, from_date: str, to_date: str) -> list:

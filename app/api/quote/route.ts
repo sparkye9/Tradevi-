@@ -18,9 +18,9 @@ export async function GET(request: NextRequest) {
         quote,
         analysis,
         meta: {
-          dataSource: 'yahoo_delayed',
+          dataSource: 'finnhub_realtime',
           fetchedAt: new Date().toISOString(),
-          delayNote: 'Yahoo Finance data is typically 15–20 minutes delayed. Always verify in your broker before trading.',
+          delayNote: 'Real-time via Finnhub. Always verify in your broker before trading.',
         },
       },
       { headers: { 'Cache-Control': 'no-store' } }

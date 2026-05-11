@@ -20,8 +20,8 @@ async def candles(
         auto_period, auto_interval = PERIOD_MAP.get(period, ("3mo", "1d"))
         use_interval = interval or auto_interval
 
-        # Use market_data service with provider fallback
-        result = await get_candles(sym, auto_period, use_interval, use_provider="auto")
+        // Use Finnhub candle API for chart data
+        result = await get_candles(sym, auto_period, use_interval, use_provider="finnhub")
         candle_list = result["candles"]
 
         if indicators and candle_list:

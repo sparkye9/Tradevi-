@@ -32,7 +32,7 @@ export async function GET(
       meta: {
         dataSource,
         fetchedAt: new Date().toISOString(),
-        delayNote: '~15–20 min delayed via Yahoo Finance',
+        delayNote: dataSource === 'finnhub_realtime' ? 'Real-time via Finnhub' : '~15–20 min delayed via Yahoo Finance',
         count: candles.length,
       },
     });
