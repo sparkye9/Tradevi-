@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchCandles } from '@/lib/yahoo';
+import { fetchYahooCandles } from '@/lib/yahooChart';
 
+// Legacy route — redirects to /api/charts/[symbol] pattern.
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const symbol = searchParams.get('symbol')?.toUpperCase();
@@ -10,30 +11,13 @@ export async function GET(request: NextRequest) {
   if (!symbol) return NextResponse.json({ error: 'symbol required' }, { status: 400 });
 
   try {
-    if (!process.env.FINNHUB_API_KEY) {
-      return NextResponse.json(
-        { error: 'Market data unavailable — API key required' },
-        { status: 503 },
-      );
-    }
-
-    const { candles, dataSource } = await fetchCandles(symbol, period, interval);
+    const { candles, dataSource } = await fetchYahooCandles(symbol, period, interval);
     return NextResponse.json(
-      {
-        symbol,
-        candles,
-        meta: {
-          dataSource,
-          fetchedAt: new Date().toISOString(),
-          delayNote: 'Real-time via Finnhub',
-        },
-      },
+      { symbol, candles, meta: { dataSource, fetchedAt: new Date().toISOString() } },
       { headers: { 'Cache-Control': 'no-store' } }
     );
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: `Market data unavailable — API key required` },
-      { status: 503 }
-    );
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Chart data unavailable';
+    return NextResponse.json({ error: msg }, { status: 503 });
   }
 }
