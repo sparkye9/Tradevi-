@@ -252,7 +252,7 @@ export async function fetchAlpacaOptions(
     expirationDates,
     calls,
     puts,
-    underlyingPrice: parseFloat(chain.underlying_price ?? 0),
+    underlyingPrice: parseFloat(String(chain.underlying_price ?? 0)),
     dataSource: 'alpaca',
   };
 }

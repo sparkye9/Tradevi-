@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchTwelveQuote } from '@/lib/twelveData';
 import { fetchAlpacaQuote } from '@/lib/alpaca';
-import { fetchYahooQuote } from '@/lib/yahoo';
+import { fetchYahooQuote } from '@/lib/yahooFinance';
 
 export async function GET(
   _req: NextRequest,
@@ -29,7 +29,21 @@ export async function GET(
 
   // Try Yahoo as final fallback
   try {
-    const quote = await fetchYahooQuote(symbol);
+    const raw = await fetchYahooQuote(symbol);
+    const quote = {
+      symbol:        raw.symbol,
+      price:         raw.price,
+      open:          raw.regularMarketOpen    ?? 0,
+      high:          raw.regularMarketDayHigh ?? 0,
+      low:           raw.regularMarketDayLow  ?? 0,
+      prevClose:     raw.price - raw.change,
+      change:        raw.change,
+      changePercent: raw.changePercent,
+      volume:        raw.volume,
+      shortName:     raw.shortName,
+      dataSource:    'yahoo_delayed',
+      fetchedAt:     new Date().toISOString(),
+    };
     return NextResponse.json(quote, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Yahoo failed';

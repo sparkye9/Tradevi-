@@ -108,6 +108,46 @@ export interface TDChartResult {
   dataSource:   'twelve_data';
 }
 
+// ─── Quote ────────────────────────────────────────────────────────────────────
+
+export interface TDQuote {
+  symbol: string;
+  price: number;
+  open: number;
+  high: number;
+  low: number;
+  prevClose: number;
+  change: number;
+  changePercent: number;
+  volume: number;
+  shortName: string;
+  dataSource: 'twelve_data';
+  fetchedAt: string;
+}
+
+export async function fetchTwelveQuote(symbol: string): Promise<TDQuote> {
+  const json = await tdGet('/quote', { symbol: symbol.toUpperCase() });
+  const price     = parseFloat(json.close ?? json.price ?? '0') || 0;
+  const prevClose = parseFloat(json.previous_close ?? '0') || price;
+  const change    = parseFloat(json.change ?? '0') || (price - prevClose);
+  const changePct = parseFloat(json.percent_change ?? '0') || (prevClose > 0 ? (change / prevClose) * 100 : 0);
+  if (!price) throw new Error(`No quote data for ${symbol} from Twelve Data`);
+  return {
+    symbol:        symbol.toUpperCase(),
+    price,
+    open:          parseFloat(json.open  ?? '0') || 0,
+    high:          parseFloat(json.high  ?? '0') || 0,
+    low:           parseFloat(json.low   ?? '0') || 0,
+    prevClose,
+    change,
+    changePercent: changePct,
+    volume:        parseInt(json.volume  ?? '0') || 0,
+    shortName:     json.name ?? symbol,
+    dataSource:    'twelve_data',
+    fetchedAt:     new Date().toISOString(),
+  };
+}
+
 // ─── Main fetch ───────────────────────────────────────────────────────────────
 
 export async function fetchTwelveChart(
