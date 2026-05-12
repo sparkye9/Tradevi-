@@ -12,8 +12,8 @@ import { Search, AlertTriangle, Plus, X } from 'lucide-react';
 import { DataSourceBanner, type DataSource } from '@/components/ui/DataSourceBanner';
 
 const SCANNER_SYMBOLS = [
-  'SPY', 'QQQ', 'IWM', 'TSLA', 'NVDA', 'AAPL', 'AMD',
-  'META', 'MSFT', 'F', 'SQQQ', 'TQQQ', 'SOFI', 'PLTR', 'USO', 'XLE',
+  'SPY', 'QQQ', 'SQQQ', 'TQQQ', 'IWM', 'TSLA', 'NVDA', 'AAPL', 'AMD',
+  'META', 'MSFT', 'F', 'SOFI', 'PLTR', 'USO', 'XLE',
 ];
 
 const defaultFilters: ScannerFilters = {

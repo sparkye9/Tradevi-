@@ -8,10 +8,10 @@ import { Badge } from '@/components/ui/Badge';
 import { DataSourceBanner, type DataSource } from '@/components/ui/DataSourceBanner';
 import { OptionsChainTable } from '@/components/options/OptionsChainTable';
 import { fetchOptionsChain, fetchQuote, type OptionsChainResponse } from '@/lib/apiClient';
-import { safeMoney, safePercent } from '@/lib/formatters';
+import { safeMoney, safeNumber, safePercent } from '@/lib/formatters';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
-const QUICK_SYMBOLS = ['SPY', 'QQQ', 'TSLA', 'NVDA', 'AAPL', 'AMD', 'META'];
+const QUICK_SYMBOLS = ['SPY', 'QQQ', 'SQQQ', 'TQQQ', 'TSLA', 'NVDA', 'AAPL', 'AMD', 'META'];
 
 function formatDateLabel(expiry: string) {
   return new Date(expiry).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -98,9 +98,9 @@ export default function OptionsChainPage() {
       underlying: safeMoney(chainData.underlyingPrice, 2),
       ivAtm: chainData.ivAtm != null ? safePercent(chainData.ivAtm, 0) : '--',
       expectedMove: chainData.expectedMove != null ? safeMoney(chainData.expectedMove, 2) : '--',
-      putCallRatio: chainData.putCallRatio != null ? chainData.putCallRatio.toFixed(2) : '--',
-      dte: chainData.dte != null ? `${chainData.dte}d` : '--',
-      ivRank: chainData.ivRank != null ? `${chainData.ivRank.toFixed(0)}%` : '--',
+      putCallRatio: chainData.putCallRatio != null ? safeNumber(chainData.putCallRatio, 2) : '--',
+      dte: chainData.dte != null ? `${safeNumber(chainData.dte, 0)}d` : '--',
+      ivRank: chainData.ivRank != null ? `${safeNumber(chainData.ivRank, 0)}%` : '--',
     };
   }, [chainData]);
 

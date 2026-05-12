@@ -5,7 +5,7 @@ import { AlertTriangle } from 'lucide-react';
 import { ChartContainer } from '@/components/charts/ChartContainer';
 import { ChartErrorBoundary } from '@/components/charts/ChartErrorBoundary';
 
-const SYMBOLS = ['SPY', 'QQQ', 'TSLA', 'NVDA', 'AAPL', 'MSFT', 'AMZN', 'META', 'AMD', 'PLTR'];
+const SYMBOLS = ['SPY', 'QQQ', 'SQQQ', 'TQQQ', 'TSLA', 'NVDA', 'AAPL', 'MSFT', 'AMZN', 'META', 'AMD', 'PLTR'];
 
 export default function ChartsPage() {
   const [symbol, setSymbol] = useState('SPY');

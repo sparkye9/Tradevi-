@@ -144,6 +144,10 @@ export const fetchOptionsChain = (symbol: string, expiration?: string) =>
     `/api/options-chain?symbol=${encodeURIComponent(symbol)}${expiration ? `&expiration=${encodeURIComponent(expiration)}` : ''}`
   );
 
+export const fetchMarketNews = () => apiFetch<{ success: boolean; sources: Array<{ name: string; status: string; count: number; error?: string }>; articles: Array<{ title: string; source: string; url: string; publishedAt: string; summary: string }>; fetchedAt: string; error?: string }>(
+  '/api/market-news'
+);
+
 // ─── Scanner ─────────────────────────────────────────────────────────────────
 
 export const runScanner = (filters: unknown = {}) =>

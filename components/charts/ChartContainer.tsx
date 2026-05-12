@@ -30,7 +30,7 @@ interface Props {
 
 export function ChartContainer({ symbol }: Props) {
   // ── State ─────────────────────────────────────────────────────────────────
-  const [timeframe, setTimeframe]             = useState<Timeframe>('1D');
+  const [timeframe, setTimeframe]             = useState<Timeframe>('5m');
   const [theme, setTheme]                     = useState<ChartTheme>('light');
   const [indicators, setIndicators]           = useState<IndicatorConfig[]>(INDICATOR_DEFAULTS);
   const [showGrid, setShowGrid]               = useState(true);

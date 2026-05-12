@@ -17,7 +17,7 @@ import Link from 'next/link';
 
 const TradingViewChart = dynamic(() => import('@/components/charts/TradingViewChart'), { ssr: false });
 
-const SYMBOLS = ['SPY', 'QQQ', 'TSLA', 'NVDA', 'AAPL'];
+const SYMBOLS = ['SPY', 'QQQ', 'SQQQ', 'TQQQ', 'TSLA', 'NVDA', 'AAPL', 'AMD', 'PLTR'];
 const PERIODS = ['1d', '5d', '1mo', '3mo', '1y'] as const;
 
 export default function DashboardPage() {

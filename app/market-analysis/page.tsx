@@ -1,9 +1,11 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { fetchMarketNews } from '@/lib/apiClient';
 import { Sparkles, TrendingUp, Shield, BookOpen } from 'lucide-react';
 
 const sections = [
@@ -29,8 +31,54 @@ const sections = [
   },
 ];
 
+interface NewsSourceStatus {
+  name: string;
+  status: 'ok' | 'unavailable' | 'api key required' | 'placeholder';
+  count: number;
+  error?: string;
+}
+
+interface MarketArticle {
+  title: string;
+  source: string;
+  url: string;
+  publishedAt: string;
+  summary: string;
+}
+
 export default function MarketAnalysisPage() {
-  const hasLiveMarketFeed = false;
+  const [newsSources, setNewsSources] = useState<NewsSourceStatus[]>([]);
+  const [marketArticles, setMarketArticles] = useState<MarketArticle[]>([]);
+  const [newsUpdatedAt, setNewsUpdatedAt] = useState<string | null>(null);
+  const [loadingNews, setLoadingNews] = useState(true);
+  const [newsError, setNewsError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    setLoadingNews(true);
+    fetchMarketNews()
+      .then((data) => {
+        if (!active) return;
+        if (data.success) {
+          setNewsSources((data.sources ?? []) as NewsSourceStatus[]);
+          setMarketArticles((data.articles ?? []) as MarketArticle[]);
+          setNewsUpdatedAt(data.fetchedAt ?? null);
+        } else {
+          setNewsError(data.error ?? 'Unable to load market news.');
+        }
+      })
+      .catch((error) => {
+        if (!active) return;
+        setNewsError(error?.message ?? 'Unable to load market news.');
+      })
+      .finally(() => {
+        if (!active) return;
+        setLoadingNews(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <AppShell title="Market Analysis">
@@ -88,7 +136,70 @@ export default function MarketAnalysisPage() {
           </Card>
         </div>
 
-        {hasLiveMarketFeed ? (
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-gray-500">Market News</p>
+              <h2 className="mt-2 text-xl font-semibold text-gray-900">News Source Health</h2>
+            </div>
+            <BookOpen className="text-purple-600" />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-3">
+            {newsSources.length > 0 ? (
+              newsSources.map((source) => (
+                <div key={source.name} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-gray-900">{source.name}</p>
+                    <span className="text-xs uppercase tracking-wide text-gray-500">{source.status}</span>
+                  </div>
+                  <p className="mt-3 text-3xl font-semibold text-purple-700">{source.count}</p>
+                  <p className="mt-1 text-sm text-gray-500">articles</p>
+                  {source.error ? <p className="mt-2 text-xs text-red-600">{source.error}</p> : null}
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 col-span-full">
+                <p className="text-sm text-gray-500">News source status is loading.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-6 space-y-4">
+            {loadingNews ? (
+              <p className="text-sm text-gray-500">Loading news aggregation…</p>
+            ) : newsError ? (
+              <p className="text-sm text-red-600">{newsError}</p>
+            ) : marketArticles.length > 0 ? (
+              <div className="space-y-3">
+                {marketArticles.map((article) => (
+                  <a
+                    key={article.url}
+                    href={article.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block rounded-2xl border border-gray-100 bg-white p-4 transition hover:border-purple-300"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-semibold text-gray-900">{article.title}</p>
+                      <span className="text-xs uppercase tracking-wide text-gray-500">{article.source}</span>
+                    </div>
+                    <p className="mt-2 text-sm text-gray-600 line-clamp-2">{article.summary}</p>
+                    <p className="mt-3 text-xs text-gray-400">{new Date(article.publishedAt).toLocaleString()}</p>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">No news articles available right now.</p>
+            )}
+          </div>
+
+          {newsUpdatedAt ? (
+            <p className="mt-4 text-xs text-gray-500">Last updated {new Date(newsUpdatedAt).toLocaleString()}</p>
+          ) : null}
+        </Card>
+
+        {false ? (
           <div className="grid gap-6 xl:grid-cols-3">
             {sections.map((section) => (
               <Card key={section.title}>
