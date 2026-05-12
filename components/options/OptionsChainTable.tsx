@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import type { OptionContract } from '@/lib/types';
 import { Badge, RiskBadge } from '@/components/ui/Badge';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { clsx } from 'clsx';
 
 interface Props {
@@ -14,20 +15,29 @@ export function OptionsChainTable({ contracts, type, stockPrice }: Props) {
   const [sortBy, setSortBy] = useState<'strike' | 'volume' | 'oi' | 'score'>('strike');
   const [filter, setFilter] = useState<'all' | 'highlighted'>('all');
 
+  const safeNumber = (value: any, digits = 2) =>
+    typeof value === 'number' && !Number.isNaN(value)
+      ? value.toFixed(digits)
+      : '--';
+
   const isHighlighted = (c: OptionContract) =>
-    Math.abs(c.delta) >= 0.30 && Math.abs(c.delta) <= 0.60 &&
-    c.spreadPercent <= 15 &&
-    c.volume >= 100 &&
-    c.costPerContract <= 300;
+    Math.abs(c.delta ?? 0) >= 0.30 && Math.abs(c.delta ?? 0) <= 0.60 &&
+    (c.spreadPercent ?? Number.MAX_VALUE) <= 15 &&
+    (c.volume ?? 0) >= 100 &&
+    (c.costPerContract ?? Number.POSITIVE_INFINITY) <= 300;
 
   const sorted = [...contracts]
     .filter(c => filter === 'all' || isHighlighted(c))
     .sort((a, b) => {
-      if (sortBy === 'volume') return b.volume - a.volume;
-      if (sortBy === 'oi') return b.openInterest - a.openInterest;
-      if (sortBy === 'score') return b.estimatedGainPercent - a.estimatedGainPercent;
-      return a.strike - b.strike;
+      if (sortBy === 'volume') return (b.volume ?? 0) - (a.volume ?? 0);
+      if (sortBy === 'oi') return (b.openInterest ?? 0) - (a.openInterest ?? 0);
+      if (sortBy === 'score') return (b.estimatedGainPercent ?? 0) - (a.estimatedGainPercent ?? 0);
+      return (a.strike ?? 0) - (b.strike ?? 0);
     });
+
+  if (!contracts || contracts.length === 0) {
+    return <EmptyState message="No options data available" />;
+  }
 
   const th = (label: string, key: typeof sortBy) => (
     <th
@@ -78,7 +88,20 @@ export function OptionsChainTable({ contracts, type, stockPrice }: Props) {
           <tbody>
             {sorted.map(c => {
               const highlighted = isHighlighted(c);
-              const atm = Math.abs(c.strike - stockPrice) / stockPrice < 0.02;
+              const inputDelta = c.delta ?? 0;
+              const atm = stockPrice > 0 && Math.abs(c.strike - stockPrice) / stockPrice < 0.02;
+              const bid = safeNumber(c?.bid, 2);
+              const ask = safeNumber(c?.ask, 2);
+              const spread = safeNumber(c?.spreadPercent, 0);
+              const cost = safeNumber(c?.costPerContract, 0);
+              const volume = safeNumber(c?.volume, 0);
+              const oi = safeNumber(c?.openInterest, 0);
+              const iv = safeNumber(c?.impliedVolatility != null ? c.impliedVolatility * 100 : undefined, 0);
+              const delta = safeNumber(c?.delta, 2);
+              const theta = safeNumber(c?.theta, 3);
+              const breakeven = safeNumber(c?.breakeven, 2);
+              const gain = safeNumber(c?.estimatedGainPercent, 0);
+
               return (
                 <tr
                   key={c.contractSymbol}
@@ -91,28 +114,28 @@ export function OptionsChainTable({ contracts, type, stockPrice }: Props) {
                 >
                   <td className="px-2 py-2">
                     <div className="flex items-center gap-1">
-                      <span className={atm ? 'text-purple-700' : ''}>${c.strike}</span>
+                      <span className={atm ? 'text-purple-700' : ''}>${safeNumber(c.strike, 2)}</span>
                       {atm && <span className="text-xs bg-purple-100 text-purple-700 px-1 rounded">ATM</span>}
                       {c.inTheMoney && <span className="text-xs text-green-600">ITM</span>}
                     </div>
                   </td>
                   <td className="px-2 py-2 text-gray-600">
-                    ${c.bid.toFixed(2)} / ${c.ask.toFixed(2)}
-                    <span className={clsx('ml-1 text-xs', c.spreadPercent > 15 ? 'text-red-500' : 'text-gray-400')}>
-                      ({c.spreadPercent.toFixed(0)}%)
+                    ${bid} / ${ask}
+                    <span className={clsx('ml-1 text-xs', (c.spreadPercent ?? 0) > 15 ? 'text-red-500' : 'text-gray-400')}>
+                      ({spread}%)
                     </span>
                   </td>
-                  <td className="px-2 py-2 font-medium text-purple-700">${c.costPerContract.toFixed(0)}</td>
-                  <td className={clsx('px-2 py-2', c.volume >= 500 ? 'text-green-700 font-medium' : '')}>
-                    {c.volume.toLocaleString()}
+                  <td className="px-2 py-2 font-medium text-purple-700">${cost}</td>
+                  <td className={clsx('px-2 py-2', (c.volume ?? 0) >= 500 ? 'text-green-700 font-medium' : '')}>
+                    {volume}
                   </td>
-                  <td className="px-2 py-2 text-gray-600">{c.openInterest.toLocaleString()}</td>
-                  <td className="px-2 py-2">{(c.impliedVolatility * 100).toFixed(0)}%</td>
-                  <td className={clsx('px-2 py-2', Math.abs(c.delta) >= 0.30 && Math.abs(c.delta) <= 0.60 ? 'text-green-700 font-medium' : '')}>{c.delta.toFixed(2)}</td>
-                  <td className="px-2 py-2 text-red-500">{c.theta.toFixed(3)}</td>
-                  <td className="px-2 py-2">${c.breakeven.toFixed(2)}</td>
-                  <td className={clsx('px-2 py-2 font-medium', c.estimatedGainPercent >= 100 ? 'text-green-700' : '')}>
-                    {c.estimatedGainPercent > 0 ? '+' : ''}{c.estimatedGainPercent.toFixed(0)}%
+                  <td className="px-2 py-2 text-gray-600">{oi}</td>
+                  <td className="px-2 py-2">{iv}%</td>
+                  <td className={clsx('px-2 py-2', Math.abs(inputDelta) >= 0.30 && Math.abs(inputDelta) <= 0.60 ? 'text-green-700 font-medium' : '')}>{delta}</td>
+                  <td className="px-2 py-2 text-red-500">{theta}</td>
+                  <td className="px-2 py-2">${breakeven}</td>
+                  <td className={clsx('px-2 py-2 font-medium', (c.estimatedGainPercent ?? 0) >= 100 ? 'text-green-700' : '')}>
+                    {(c.estimatedGainPercent ?? 0) > 0 ? '+' : ''}{gain}%
                     {c.is100PctPossible && <span className="ml-1 text-xs">⭐</span>}
                   </td>
                   <td className="px-2 py-2"><RiskBadge label={c.riskLabel} /></td>
