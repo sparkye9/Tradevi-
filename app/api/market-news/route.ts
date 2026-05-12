@@ -33,33 +33,39 @@ const NEWS_SOURCES = [
   { name: 'X', type: 'placeholder' },
 ] as const;
 
+function extractXmlText(xml: string, tag: string): string {
+  const m = xml.match(new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`, 'i'));
+  return m?.[1]?.trim() ?? '';
+}
+
+function extractXmlAttr(xml: string, tag: string, attr: string): string {
+  const m = xml.match(new RegExp(`<${tag}[^>]*\\s${attr}="([^"]*)"`, 'i'));
+  return m?.[1]?.trim() ?? '';
+}
+
 function parseRssItems(xmlText: string, sourceName: string): MarketArticle[] {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xmlText, 'application/xml');
-  const items = Array.from(doc.querySelectorAll('item, entry'));
+  const itemPattern = /<(?:item|entry)>([\s\S]*?)<\/(?:item|entry)>/gi;
+  const matches = Array.from(xmlText.matchAll(itemPattern));
 
-  return items
-    .map((item) => {
-      const title = item.querySelector('title')?.textContent?.trim() ?? '';
-      let link = item.querySelector('link')?.getAttribute('href')?.trim() ?? item.querySelector('link')?.textContent?.trim() ?? '';
-      if (!link && item.querySelector('guid')) {
-        link = item.querySelector('guid')?.textContent?.trim() ?? '';
-      }
-      const publishedAt = item.querySelector('pubDate')?.textContent?.trim()
-        || item.querySelector('published')?.textContent?.trim()
-        || item.querySelector('updated')?.textContent?.trim()
-        || new Date().toISOString();
-      const summary = item.querySelector('description')?.textContent?.trim()
-        || item.querySelector('summary')?.textContent?.trim()
-        || '';
+  return matches
+    .map((match) => {
+      const content = match[1];
+      const title = extractXmlText(content, 'title');
+      const link =
+        extractXmlAttr(content, 'link', 'href') ||
+        extractXmlText(content, 'link') ||
+        extractXmlText(content, 'guid');
+      const publishedAt =
+        extractXmlText(content, 'pubDate') ||
+        extractXmlText(content, 'published') ||
+        extractXmlText(content, 'updated') ||
+        new Date().toISOString();
+      const summary =
+        extractXmlText(content, 'description') ||
+        extractXmlText(content, 'summary') ||
+        '';
 
-      return {
-        title,
-        source: sourceName,
-        url: link,
-        publishedAt,
-        summary,
-      };
+      return { title, source: sourceName, url: link, publishedAt, summary };
     })
     .filter((article) => article.title && article.url);
 }

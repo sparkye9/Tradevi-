@@ -19,9 +19,8 @@ export function calcRisk(input: RiskCalculationInput): RiskCalculationResult {
   const warnings: string[] = [];
   if (contractAsk < 0.10) warnings.push('This is an extremely cheap option — high probability of going to zero.');
   if (contractAsk <= 0.25) warnings.push('Options under $0.25 are lottery tickets. Most expire worthless.');
-  const dte = input as typeof input & { dte?: number };
-  if ((dte.dte ?? 999) <= 1) warnings.push('0-1 DTE options decay extremely fast. Only experienced traders should use these.');
-  if ((dte.dte ?? 999) <= 3) warnings.push('Short-dated options (0-3 DTE) have very fast time decay. Price must move quickly.');
+  if ((input.dte ?? 999) <= 1) warnings.push('0-1 DTE options decay extremely fast. Only experienced traders should use these.');
+  if ((input.dte ?? 999) <= 3) warnings.push('Short-dated options (0-3 DTE) have very fast time decay. Price must move quickly.');
   if (riskPercent > 5) warnings.push(`You are risking ${riskPercent.toFixed(1)}% of your account — above the recommended 1-2% max.`);
   if (riskPercent > 2) warnings.push('Consider reducing position size to keep risk below 2% of account.');
   if (maxContractsAllowed === 0) warnings.push('Risk settings do not allow any contracts at this premium. Reduce position size or increase max risk.');

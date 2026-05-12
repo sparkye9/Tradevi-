@@ -169,6 +169,7 @@ export interface RiskCalculationInput {
   contractAsk: number;
   stopLossPercent: number; // e.g. 50 = 50% loss triggers stop
   numberOfContracts: number;
+  dte?: number;
 }
 
 export interface RiskCalculationResult {

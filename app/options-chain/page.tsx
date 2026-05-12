@@ -86,7 +86,7 @@ export default function OptionsChainPage() {
       .filter(c => !nearMoneyOnly || Math.abs((c.strike - stockPrice) / stockPrice) <= 0.05)
       .sort((a, b) => {
         if (activeTab === 'both') {
-          return b.estimatedGainPercent - a.estimatedGainPercent;
+          return (b.estimatedGainPercent ?? 0) - (a.estimatedGainPercent ?? 0);
         }
         return Math.abs(a.strike - stockPrice) - Math.abs(b.strike - stockPrice);
       });

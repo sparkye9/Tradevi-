@@ -1,22 +1,31 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardHeader } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
 import { calcRisk, formatCurrency, getRiskColor } from '@/lib/risk';
 import type { RiskCalculationInput } from '@/lib/types';
 import { useSettingsStore } from '@/store/settingsStore';
 import { Shield, AlertTriangle } from 'lucide-react';
 
 export function RiskCalculator() {
-  const settings = useSettingsStore();
+  const accountSize = useSettingsStore(s => s.accountSize);
+  const maxRiskPercent = useSettingsStore(s => s.maxRiskPercent);
   const [input, setInput] = useState<RiskCalculationInput>({
-    accountSize: settings.accountSize,
-    maxRiskPercent: settings.maxRiskPercent,
+    accountSize,
+    maxRiskPercent,
     contractAsk: 0.50,
     stopLossPercent: 50,
     numberOfContracts: 1,
   });
+
   const [result, setResult] = useState(() => calcRisk(input));
+
+  useEffect(() => {
+    setInput(prev => {
+      const next = { ...prev, accountSize, maxRiskPercent };
+      setResult(calcRisk(next));
+      return next;
+    });
+  }, [accountSize, maxRiskPercent]);
 
   const update = (field: keyof RiskCalculationInput, value: number) => {
     const newInput = { ...input, [field]: value };

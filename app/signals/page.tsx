@@ -24,9 +24,23 @@ export default function SignalsPage() {
     const symbols = SCANNER_SYMBOLS.slice(0, 10);
     const results = await Promise.allSettled(
       symbols.map(async sym => {
-        const res = await fetch(`/api/quote?symbol=${sym}`);
-        const data = await res.json();
-        return { symbol: sym, quote: data.quote, analysis: data.analysis } as SignalData;
+        const [quoteRes, chartRes] = await Promise.all([
+          fetch(`/api/quotes/${sym}`),
+          fetch(`/api/charts/${sym}`),
+        ]);
+        const qd = await quoteRes.json();
+        const cd = await chartRes.json();
+        if (!qd.price) throw new Error(`No quote for ${sym}`);
+        const quote: StockQuote = {
+          symbol: sym,
+          price: qd.price ?? 0,
+          change: qd.change ?? 0,
+          changePercent: qd.changePercent ?? 0,
+          volume: qd.volume ?? 0,
+          fiftyTwoWeekHigh: 0,
+          fiftyTwoWeekLow: 0,
+        };
+        return { symbol: sym, quote, analysis: cd.analysis } as SignalData;
       })
     );
     const ok = results
