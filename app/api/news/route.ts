@@ -13,6 +13,9 @@ export async function GET(request: NextRequest) {
     );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Yahoo Finance unreachable';
-    return NextResponse.json({ error: `Failed to fetch news: ${msg}` }, { status: 500 });
+    return NextResponse.json(
+      { symbol, news: [], error: msg, meta: { dataSource: 'yahoo_delayed', fetchedAt: new Date().toISOString() } },
+      { status: 503, headers: { 'Cache-Control': 'no-store' } },
+    );
   }
 }
