@@ -49,9 +49,10 @@ const VALID_PERIODS   = ['1d','5d','1mo','3mo','6mo','1y','2y','5y'];
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { symbol: string } },
+  { params }: { params: Promise<{ symbol: string }> },
 ) {
-  const symbol   = params.symbol.toUpperCase();
+  const { symbol: rawSymbol } = await params;
+  const symbol   = rawSymbol.toUpperCase();
   const sp       = request.nextUrl.searchParams;
   const period   = VALID_PERIODS.includes(sp.get('period') ?? '')     ? sp.get('period')!   : '3mo';
   const interval = VALID_INTERVALS.includes(sp.get('interval') ?? '') ? sp.get('interval')! : '1d';
