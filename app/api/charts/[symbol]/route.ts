@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchFinnhubCandles } from '@/lib/finnhub';
 import { fetchYahooCandles } from '@/lib/yahooChart';
+import { fetchStooqCandles } from '@/lib/stooq';
 import { calcAllIndicators } from '@/lib/clientIndicators';
 import type { CandleData } from '@/lib/types';
 
@@ -96,6 +97,29 @@ export async function GET(
           dataSource: 'yahoo_delayed',
           fetchedAt:  new Date().toISOString(),
           delayNote:  '~15–20 min delayed',
+          count:      candles.length,
+        },
+      },
+      { headers: { 'Cache-Control': 'no-store' } },
+    );
+  } catch {
+    // Fall through to Stooq
+  }
+
+  // Stooq fallback — free, no API key, EOD data
+  try {
+    const result  = await fetchStooqCandles(symbol, period, interval);
+    const candles = result.candles as CandleData[];
+    const { indicatorData, analysis } = calcAllIndicators(candles);
+
+    return NextResponse.json(
+      {
+        symbol, period, interval, candles,
+        analysis: { ...analysis, indicators: indicatorData },
+        meta: {
+          dataSource: 'stooq',
+          fetchedAt:  new Date().toISOString(),
+          delayNote:  'EOD data via Stooq',
           count:      candles.length,
         },
       },

@@ -1,7 +1,7 @@
 'use client';
 import { AlertTriangle, Clock, Zap } from 'lucide-react';
 
-export type DataSource = 'twelve_data' | 'finnhub_realtime' | 'yahoo_delayed' | 'demo' | null;
+export type DataSource = 'twelve_data' | 'finnhub_realtime' | 'yahoo_delayed' | 'stooq' | 'demo' | null;
 
 interface Props {
   dataSource: DataSource;
@@ -10,7 +10,7 @@ interface Props {
 }
 
 export function DataSourceBanner({ dataSource, fetchedAt, className = '' }: Props) {
-  if (dataSource !== 'yahoo_delayed' && dataSource !== 'demo') return null;
+  if (dataSource !== 'yahoo_delayed' && dataSource !== 'stooq' && dataSource !== 'demo') return null;
 
   const ago = fetchedAt
     ? Math.round((Date.now() - new Date(fetchedAt).getTime()) / 60000)
@@ -26,6 +26,12 @@ export function DataSourceBanner({ dataSource, fetchedAt, className = '' }: Prop
           <strong>Demo Data · No API keys configured.</strong>{' '}
           Charts show synthetic data for UI preview only. Configure API keys to see live prices.
         </span>
+      ) : dataSource === 'stooq' ? (
+        <span>
+          <strong>EOD Data via Stooq · End-of-day prices.</strong>{' '}
+          Data updates after market close. Always confirm live prices with your broker before trading.
+          {ago !== null && ago > 0 && ` Fetched ${ago}m ago.`}
+        </span>
       ) : (
         <span>
           <strong>Delayed Data · ~15–20 min behind real-time.</strong>{' '}
@@ -35,7 +41,7 @@ export function DataSourceBanner({ dataSource, fetchedAt, className = '' }: Prop
         </span>
       )}
       <span className="ml-auto flex items-center gap-1 text-amber-600 font-medium whitespace-nowrap">
-        <Clock size={11} /> {dataSource === 'demo' ? 'Demo' : 'Delayed'}
+        <Clock size={11} /> {dataSource === 'demo' ? 'Demo' : dataSource === 'stooq' ? 'EOD' : 'Delayed'}
       </span>
     </div>
   );
@@ -65,6 +71,15 @@ export function DataSourceBadge({ dataSource }: { dataSource: DataSource }) {
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
         <Zap size={9} />
         Live · Finnhub
+      </span>
+    );
+  }
+
+  if (dataSource === 'stooq') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200">
+        <Clock size={9} />
+        EOD · Stooq
       </span>
     );
   }

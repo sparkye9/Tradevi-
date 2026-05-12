@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchTwelveQuote } from '@/lib/twelveData';
 import { fetchAlpacaQuote } from '@/lib/alpaca';
 import { fetchYahooQuote } from '@/lib/yahooFinance';
+import { fetchStooqQuote } from '@/lib/stooq';
 
 export async function GET(
   _req: NextRequest,
@@ -27,7 +28,7 @@ export async function GET(
     lastError = err instanceof Error ? err.message : 'Alpaca failed';
   }
 
-  // Try Yahoo as final fallback
+  // Try Yahoo Finance
   try {
     const raw = await fetchYahooQuote(symbol);
     const quote = {
@@ -46,7 +47,15 @@ export async function GET(
     };
     return NextResponse.json(quote, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Yahoo failed';
+    lastError = err instanceof Error ? err.message : 'Yahoo failed';
+  }
+
+  // Try Stooq — free, no API key required (EOD data)
+  try {
+    const quote = await fetchStooqQuote(symbol);
+    return NextResponse.json(quote, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Stooq failed';
     return NextResponse.json(
       { error: `All providers failed: ${lastError}, ${msg}` },
       { status: 503 }

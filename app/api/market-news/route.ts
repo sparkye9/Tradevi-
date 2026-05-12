@@ -25,12 +25,14 @@ type NewsPayload = {
 };
 
 const NEWS_SOURCES = [
-  { name: 'Yahoo Finance', type: 'yahoo', symbol: 'SPY' },
+  // Primary — most reliable feeds first
+  { name: 'MarketWatch', type: 'rss', url: 'https://feeds.marketwatch.com/marketwatch/topstories/' },
+  { name: 'Investing.com', type: 'rss', url: 'https://www.investing.com/rss/news.rss' },
+  { name: 'Seeking Alpha', type: 'rss', url: 'https://seekingalpha.com/market_currents.xml' },
   { name: 'Reuters', type: 'rss', url: 'https://feeds.reuters.com/reuters/businessNews' },
   { name: 'CNBC', type: 'rss', url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html' },
-  { name: 'MarketWatch', type: 'rss', url: 'https://www.marketwatch.com/rss/topstories' },
-  { name: 'Barchart', type: 'placeholder' },
-  { name: 'X', type: 'placeholder' },
+  // Yahoo Finance via direct API (may require crumb auth)
+  { name: 'Yahoo Finance', type: 'yahoo', symbol: 'SPY' },
 ] as const;
 
 function extractXmlText(xml: string, tag: string): string {
@@ -81,7 +83,7 @@ async function fetchRssFeed(url: string, sourceName: string): Promise<{ articles
     }
 
     const text = await response.text();
-    const articles = parseRssItems(text, sourceName).slice(0, 6);
+    const articles = parseRssItems(text, sourceName).slice(0, 8);
 
     return {
       articles,
@@ -134,11 +136,6 @@ export async function GET() {
   const articleMap = new Map<string, MarketArticle>();
 
   for (const source of NEWS_SOURCES) {
-    if (source.type === 'placeholder') {
-      sourceStatuses.push({ name: source.name, status: 'placeholder', count: 0 });
-      continue;
-    }
-
     if (source.type === 'yahoo') {
       const result = await fetchYahooNewsSource();
       sourceStatuses.push(result.status);
@@ -164,7 +161,7 @@ export async function GET() {
 
   const articles = Array.from(articleMap.values())
     .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())
-    .slice(0, 12);
+    .slice(0, 20);
 
   return NextResponse.json({
     success: true,

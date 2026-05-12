@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchFinnhubQuote } from '@/lib/finnhub';
 import { fetchTwelveQuote } from '@/lib/twelveData';
 import { fetchYahooQuote } from '@/lib/yahooFinance';
+import { fetchStooqQuote } from '@/lib/stooq';
 
 export async function GET(request: NextRequest) {
   const symbol = request.nextUrl.searchParams.get('symbol')?.toUpperCase();
@@ -44,6 +45,14 @@ export async function GET(request: NextRequest) {
       dataSource: 'yahoo_delayed',
       fetchedAt: new Date().toISOString(),
     };
+    return NextResponse.json(quote, { headers: { 'Cache-Control': 'no-store' } });
+  } catch {
+    // fall through
+  }
+
+  // Stooq — free, no API key, EOD data
+  try {
+    const quote = await fetchStooqQuote(symbol);
     return NextResponse.json(quote, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Market data unavailable';
