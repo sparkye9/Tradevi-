@@ -72,7 +72,7 @@ export function FocusTimer() {
   const commitEdit = () => {
     const m = Math.max(1, Math.min(999, parseInt(editVal) || 1));
     setTotalSecs(m * 60);
-    setSecsLeft(m * 60 + seconds);
+    setSecsLeft(m * 60);
     setEditing(false);
   };
 

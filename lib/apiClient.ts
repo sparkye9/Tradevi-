@@ -127,7 +127,7 @@ export const fetchQuote = (symbol: string) =>
 
 export const fetchNews = (symbol: string) =>
   apiFetch<{ news: Array<{ title: string; link: string; publisher: string; publishedAt: number; summary: string }> }>(
-    `/api/quotes/${symbol}/news`
+    `/api/news?symbol=${encodeURIComponent(symbol)}`
   );
 
 // ─── Charts ──────────────────────────────────────────────────────────────────

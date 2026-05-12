@@ -199,8 +199,23 @@ export default function TradingViewChart({
         )
         .filter(Boolean);
       macdSeries.setData(macdData as any);
-      addLine(ind.macdLine,   '#4fc3f7', 1);
-      addLine(ind.macdSignal, '#ff7043', 1);
+
+      const addMacdLine = (values: (number | null)[], color: string) => {
+        const series = chart.addSeries(LineSeries, {
+          color,
+          lineWidth: 1,
+          priceScaleId: 'macd',
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        const data = values
+          .map((v, i) => (v !== null && candles[i] ? { time: candles[i].time as any, value: v } : null))
+          .filter(Boolean);
+        series.setData(data as any);
+      };
+      addMacdLine(ind.macdLine,   '#4fc3f7');
+      addMacdLine(ind.macdSignal, '#ff7043');
     }
 
     chart.timeScale().fitContent();

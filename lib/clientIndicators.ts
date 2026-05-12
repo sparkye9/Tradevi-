@@ -303,7 +303,7 @@ export function buildAnalysis(candles: CandleData[], ind: IndicatorData) {
   return {
     price, rsi: rsiVal, atr: atrVal, bias,
     trend: stUp ? 'bullish' as const : stDn ? 'bearish' as const : 'neutral' as const,
-    trendStrength: bullSignals,
+    trendStrength: bullSignals * 25,
     support: Math.round(support * 100) / 100,
     resistance: Math.round(resistance * 100) / 100,
     breakoutTrigger: Math.round(resistance * 1.002 * 100) / 100,
