@@ -233,19 +233,37 @@ export function analyzeOptionContract(
   const is100PctPossible = estimatedGainPct >= 100;
   const is100PctRealistic = is100PctPossible && Math.abs(delta) >= 0.25 && dte >= 3 && volume >= 100;
 
+  const lastPrice = raw.lastPrice ?? midPrice;
+  const change = raw.change ?? null;
+  const percentChange = raw.percentChange ?? null;
+  const moneyness = stockPrice > 0 ? ((type === 'call' ? stockPrice - strike : strike - stockPrice) / stockPrice) * 100 : null;
+
   return {
+    symbol: raw.symbol ?? '',
     contractSymbol: raw.contractSymbol ?? `${expiration.replace(/-/g,'')}${type[0].toUpperCase()}${strike}`,
     strike, expiration, dte, bid, ask,
-    lastPrice: raw.lastPrice ?? midPrice,
-    volume, openInterest, impliedVolatility: iv,
+    mid: midPrice,
+    lastPrice,
+    change,
+    percentChange,
+    volume, openInterest,
+    openInterestChange: raw.openInterestChange ?? null,
+    impliedVolatility: iv,
     delta: Math.round(delta * 1000) / 1000,
     theta: Math.round(theta * 1000) / 1000,
-    type, inTheMoney: intrinsicNow > 0,
+    gamma: raw.gamma,
+    vega: raw.vega,
+    type,
+    inTheMoney: intrinsicNow > 0,
+    moneyness,
+    lastTradeDate: raw.lastTradeDate ?? null,
     spreadPercent: Math.round(spreadPct * 10) / 10,
     breakeven: Math.round(breakeven * 100) / 100,
     costPerContract,
     estimatedTargetPrice: Math.round(targetStockPrice * 100) / 100,
     estimatedGainPercent: Math.round(estimatedGainPct * 10) / 10,
-    is100PctPossible, is100PctRealistic, riskLabel,
+    is100PctPossible,
+    is100PctRealistic,
+    riskLabel,
   };
 }

@@ -2,7 +2,7 @@
  * Browser API client — calls our own Next.js API routes.
  * Never calls Yahoo Finance, Finnhub, or any external service directly.
  */
-import type { OptionContract } from './types';
+import type { OptionContract, ScannerResult } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
@@ -109,7 +109,14 @@ export interface OptionsChainResponse {
   puts: OptionContract[];
   expirationDates: string[];   // YYYY-MM-DD strings (backward compat)
   expirations: string[];        // alias — same data
+  selectedExpiration?: string | null;
+  dte?: number | null;
   underlyingPrice: number;
+  ivAtm?: number | null;
+  historicalVolatility?: number | null;
+  ivRank?: number | null;
+  expectedMove?: number | null;
+  putCallRatio?: number | null;
   meta: { dataSource: string; fetchedAt: string; delayNote?: string };
 }
 
@@ -139,10 +146,10 @@ export const fetchOptionsChain = (symbol: string, expiration?: string) =>
 
 // ─── Scanner ─────────────────────────────────────────────────────────────────
 
-export const runScanner = (filters: Record<string, unknown>) =>
-  apiFetch<{ opportunities: unknown[]; symbolsScanned: number; scannedAt: string; meta: unknown }>(
+export const runScanner = (filters: unknown = {}) =>
+  apiFetch<ScannerResult>(
     '/api/scanner',
-    { method: 'POST', body: JSON.stringify(filters) }
+    { method: 'POST', body: JSON.stringify(filters as Record<string, unknown>) }
   );
 
 // ─── Broker ──────────────────────────────────────────────────────────────────

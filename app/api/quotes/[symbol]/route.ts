@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchFinnhubQuote } from '@/lib/finnhub';
-import { fetchYahooQuote } from '@/lib/yahooFinance';
 
 export async function GET(
   _req: NextRequest,
@@ -8,18 +7,17 @@ export async function GET(
 ) {
   const symbol = params.symbol.toUpperCase();
   try {
-    if (process.env.FINNHUB_API_KEY) {
-      try {
-        const quote = await fetchFinnhubQuote(symbol);
-        return NextResponse.json(quote, { headers: { 'Cache-Control': 'no-store' } });
-      } catch {
-        // fall through to Yahoo Finance
-      }
+    if (!process.env.FINNHUB_API_KEY) {
+      return NextResponse.json(
+        { error: 'Market data unavailable — API key required' },
+        { status: 503 },
+      );
     }
-    const quote = await fetchYahooQuote(symbol);
+
+    const quote = await fetchFinnhubQuote(symbol);
     return NextResponse.json(quote, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : `Failed to fetch quote for ${symbol}`;
+    const msg = err instanceof Error ? err.message : 'Market data unavailable — API key required';
     return NextResponse.json({ error: msg }, { status: 503 });
   }
 }

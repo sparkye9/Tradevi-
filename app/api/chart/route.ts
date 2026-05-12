@@ -10,6 +10,13 @@ export async function GET(request: NextRequest) {
   if (!symbol) return NextResponse.json({ error: 'symbol required' }, { status: 400 });
 
   try {
+    if (!process.env.FINNHUB_API_KEY) {
+      return NextResponse.json(
+        { error: 'Market data unavailable — API key required' },
+        { status: 503 },
+      );
+    }
+
     const { candles, dataSource } = await fetchCandles(symbol, period, interval);
     return NextResponse.json(
       {
@@ -18,14 +25,14 @@ export async function GET(request: NextRequest) {
         meta: {
           dataSource,
           fetchedAt: new Date().toISOString(),
-          delayNote: 'Yahoo Finance chart data is typically 15–20 minutes delayed.',
+          delayNote: 'Real-time via Finnhub',
         },
       },
       { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (err: any) {
     return NextResponse.json(
-      { error: `Failed to fetch chart data for ${symbol}: ${err?.message ?? 'Yahoo Finance unreachable'}` },
+      { error: `Market data unavailable — API key required` },
       { status: 503 }
     );
   }

@@ -1,9 +1,10 @@
 'use client';
 import { useState } from 'react';
 import type { OptionContract } from '@/lib/types';
-import { Badge, RiskBadge } from '@/components/ui/Badge';
+import { RiskBadge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { clsx } from 'clsx';
+import { safeMoney, safeNumber, safePercent, safeInteger } from '@/lib/formatters';
 
 interface Props {
   contracts: OptionContract[];
@@ -69,38 +70,38 @@ export function OptionsChainTable({ contracts, type, stockPrice }: Props) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-xs min-w-[700px]">
+        <table className="w-full text-xs min-w-[840px]">
           <thead>
             <tr className="border-b border-gray-100">
               {th('Strike', 'strike')}
               <th className="px-2 py-2 text-left text-xs font-medium text-gray-500">Bid/Ask</th>
+              <th className="px-2 py-2 text-left text-xs font-medium text-gray-500">Mid</th>
               <th className="px-2 py-2 text-left text-xs font-medium text-gray-500">Cost</th>
-              {th('Volume', 'volume')}
+              {th('Vol', 'volume')}
               {th('OI', 'oi')}
               <th className="px-2 py-2 text-left text-xs font-medium text-gray-500">IV</th>
-              <th className="px-2 py-2 text-left text-xs font-medium text-gray-500">Delta</th>
-              <th className="px-2 py-2 text-left text-xs font-medium text-gray-500">Theta</th>
-              <th className="px-2 py-2 text-left text-xs font-medium text-gray-500">Breakeven</th>
-              {th('Est. Gain', 'score')}
+              <th className="px-2 py-2 text-left text-xs font-medium text-gray-500">Δ</th>
+              <th className="px-2 py-2 text-left text-xs font-medium text-gray-500">Θ</th>
+              <th className="px-2 py-2 text-left text-xs font-medium text-gray-500">Moneyness</th>
               <th className="px-2 py-2 text-left text-xs font-medium text-gray-500">Risk</th>
             </tr>
           </thead>
           <tbody>
-            {sorted.map(c => {
+            {sorted.map((c) => {
               const highlighted = isHighlighted(c);
               const inputDelta = c.delta ?? 0;
               const atm = stockPrice > 0 && Math.abs(c.strike - stockPrice) / stockPrice < 0.02;
               const bid = safeNumber(c?.bid, 2);
               const ask = safeNumber(c?.ask, 2);
+              const mid = safeNumber(c?.mid, 2);
               const spread = safeNumber(c?.spreadPercent, 0);
-              const cost = safeNumber(c?.costPerContract, 0);
-              const volume = safeNumber(c?.volume, 0);
-              const oi = safeNumber(c?.openInterest, 0);
-              const iv = safeNumber(c?.impliedVolatility != null ? c.impliedVolatility * 100 : undefined, 0);
+              const cost = safeMoney(c?.costPerContract, 0);
+              const volume = safeInteger(c?.volume);
+              const oi = safeInteger(c?.openInterest);
+              const iv = safePercent(c?.impliedVolatility, 0);
               const delta = safeNumber(c?.delta, 2);
               const theta = safeNumber(c?.theta, 3);
-              const breakeven = safeNumber(c?.breakeven, 2);
-              const gain = safeNumber(c?.estimatedGainPercent, 0);
+              const moneyness = c.moneyness != null ? `${c.moneyness.toFixed(1)}%` : '--';
 
               return (
                 <tr
@@ -125,19 +126,16 @@ export function OptionsChainTable({ contracts, type, stockPrice }: Props) {
                       ({spread}%)
                     </span>
                   </td>
-                  <td className="px-2 py-2 font-medium text-purple-700">${cost}</td>
+                  <td className="px-2 py-2 text-gray-700">{mid}</td>
+                  <td className="px-2 py-2 font-medium text-purple-700">{cost}</td>
                   <td className={clsx('px-2 py-2', (c.volume ?? 0) >= 500 ? 'text-green-700 font-medium' : '')}>
                     {volume}
                   </td>
                   <td className="px-2 py-2 text-gray-600">{oi}</td>
-                  <td className="px-2 py-2">{iv}%</td>
+                  <td className="px-2 py-2">{iv}</td>
                   <td className={clsx('px-2 py-2', Math.abs(inputDelta) >= 0.30 && Math.abs(inputDelta) <= 0.60 ? 'text-green-700 font-medium' : '')}>{delta}</td>
                   <td className="px-2 py-2 text-red-500">{theta}</td>
-                  <td className="px-2 py-2">${breakeven}</td>
-                  <td className={clsx('px-2 py-2 font-medium', (c.estimatedGainPercent ?? 0) >= 100 ? 'text-green-700' : '')}>
-                    {(c.estimatedGainPercent ?? 0) > 0 ? '+' : ''}{gain}%
-                    {c.is100PctPossible && <span className="ml-1 text-xs">⭐</span>}
-                  </td>
+                  <td className="px-2 py-2">{moneyness}</td>
                   <td className="px-2 py-2"><RiskBadge label={c.riskLabel} /></td>
                 </tr>
               );

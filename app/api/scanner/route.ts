@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runScanner } from '@/lib/scanner';
-import type { ScannerFilters } from '@/lib/types';
 
-function safeJson(
-  body: unknown,
-  status = 200,
-): NextResponse {
+function safeJson(body: unknown, status = 200) {
   return NextResponse.json(body, {
     status,
     headers: { 'Cache-Control': 'no-store', 'Content-Type': 'application/json' },
@@ -13,53 +9,32 @@ function safeJson(
 }
 
 export async function POST(request: NextRequest) {
-  let filters: Partial<ScannerFilters> = {};
   try {
-    filters = await request.json().catch(() => ({})) as Partial<ScannerFilters>;
-  } catch {
-    // malformed body — use defaults
-  }
-
-  try {
+    const filters = (await request.json()) as Record<string, unknown>;
     const result = await runScanner(filters);
+    return safeJson(result);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Scanner request failed';
     return safeJson({
-      success: true,
-      ...result,
-      meta: {
-        dataSource: 'yahoo_delayed',
-        fetchedAt: new Date().toISOString(),
-        delayNote: 'Options data is ~15-20 min delayed. Verify prices in your broker before trading.',
-      },
-    });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Market data temporarily unavailable';
-    console.error('[Scanner API]', msg);
-    return safeJson(
-      { success: false, error: 'Market data temporarily unavailable', opportunities: [], results: [] },
-      503,
-    );
+      success: false,
+      error: message,
+      opportunities: [],
+      symbolsScanned: 0,
+      scannedAt: new Date().toISOString(),
+      totalContractsAnalyzed: 0,
+      filters: {},
+    }, 503);
   }
 }
 
-export async function GET(request: NextRequest) {
-  const sp         = new URL(request.url).searchParams;
-  const maxPremium = Number(sp.get('maxPremium') ?? 100);
-  const optionType = (sp.get('optionType') as 'calls' | 'puts' | 'both') ?? 'both';
-  const tradeType  = (sp.get('tradeType')  as 'day' | 'swing' | 'both') ?? 'both';
-
-  try {
-    const result = await runScanner({ maxPremium, optionType, tradeType });
-    return safeJson({
-      success: true,
-      ...result,
-      meta: { dataSource: 'yahoo_delayed', fetchedAt: new Date().toISOString() },
-    });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Market data temporarily unavailable';
-    console.error('[Scanner API GET]', msg);
-    return safeJson(
-      { success: false, error: 'Market data temporarily unavailable', opportunities: [], results: [] },
-      503,
-    );
-  }
+export async function GET() {
+  return safeJson({
+    success: false,
+    error: 'Scanner requires a POST request with filters.',
+    opportunities: [],
+    symbolsScanned: 0,
+    scannedAt: new Date().toISOString(),
+    totalContractsAnalyzed: 0,
+    filters: {},
+  }, 405);
 }

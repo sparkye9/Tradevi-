@@ -114,6 +114,41 @@ export function ScannerFiltersPanel({ filters, onChange, onScan, loading }: Prop
           </div>
         </div>
 
+        {/* Min Open Interest */}
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">Min Open Interest</label>
+          <input
+            type="number"
+            min={0}
+            value={filters.minOpenInterest}
+            onChange={e => onChange({ minOpenInterest: Number(e.target.value) })}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200"
+          />
+        </div>
+
+        {/* DTE Range */}
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">DTE Range</label>
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              type="number"
+              min={0}
+              value={filters.minDTE}
+              onChange={e => onChange({ minDTE: Number(e.target.value) })}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200"
+              placeholder="Min"
+            />
+            <input
+              type="number"
+              min={0}
+              value={filters.maxDTE}
+              onChange={e => onChange({ maxDTE: Number(e.target.value) })}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200"
+              placeholder="Max"
+            />
+          </div>
+        </div>
+
         {/* Include Lottery */}
         <div className="flex items-center justify-between">
           <div>

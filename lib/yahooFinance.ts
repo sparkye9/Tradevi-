@@ -159,6 +159,12 @@ function parseContracts(raw: any[], type: 'call' | 'put', stockPrice: number, no
       const oi      = (c.openInterest  ?? 0)     as number;
       const itm     = (c.inTheMoney    ?? false)  as boolean;
       const mid     = ask > 0 ? (bid + ask) / 2 : ((c.lastPrice ?? 0) as number);
+      const lastPrice = (c.lastPrice ?? mid) as number;
+      const prevClose = (c.previousClose ?? c.strike ?? lastPrice) as number;
+      const change = Number.isFinite(lastPrice - prevClose) ? lastPrice - prevClose : null;
+      const percentChange = prevClose ? (change !== null ? (change / prevClose) * 100 : null) : null;
+      const moneyness = stockPrice > 0 ? ((type === 'call' ? stockPrice - strike : strike - stockPrice) / stockPrice) * 100 : null;
+      const lastTradeDate = c.lastTradeDate ? new Date(c.lastTradeDate).toISOString() : null;
 
       const delta           = estimateDelta(stockPrice, strike, dte, iv, type);
       const theta           = estimateTheta(mid, iv, dte, delta);
@@ -170,22 +176,29 @@ function parseContracts(raw: any[], type: 'call' | 'put', stockPrice: number, no
       const riskLabel       = calcRiskLabel(dte, delta, spreadPercent, iv);
 
       return {
-        contractSymbol:       (c.contractSymbol ?? '') as string,
+        symbol:              c.symbol ?? '',
+        contractSymbol:      (c.contractSymbol ?? '') as string,
         strike,
-        expiration:           tsToDate(expTs),
+        expiration:          tsToDate(expTs),
         dte,
         bid,
         ask,
-        lastPrice:            (c.lastPrice ?? mid)      as number,
+        mid,
+        lastPrice,
+        change,
+        percentChange,
         volume,
-        openInterest:         oi,
-        impliedVolatility:    iv,
+        openInterest:        oi,
+        openInterestChange:  null,
+        impliedVolatility:   iv,
         delta,
         theta,
-        gamma:                c.gamma as number | undefined,
-        vega:                 c.vega  as number | undefined,
+        gamma:               c.gamma as number | undefined,
+        vega:                c.vega  as number | undefined,
         type,
-        inTheMoney:           itm,
+        inTheMoney:          itm,
+        moneyness,
+        lastTradeDate,
         spreadPercent,
         breakeven,
         costPerContract,

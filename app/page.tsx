@@ -233,6 +233,11 @@ export default function DashboardPage() {
                 View Options Chain
               </Button>
             </Link>
+            <Link href="/market-analysis">
+              <Button variant="primary" size="md" className="w-full justify-start mt-2">
+                <TrendingUp size={14} className="mr-2" /> Market Analysis
+              </Button>
+            </Link>
             <Link href="/alerts">
               <Button variant="outline" size="md" className="w-full justify-start mt-2">
                 Trade Alerts
@@ -241,11 +246,6 @@ export default function DashboardPage() {
             <Link href="/risk">
               <Button variant="outline" size="md" className="w-full justify-start mt-2">
                 Risk Calculator
-              </Button>
-            </Link>
-            <Link href="/broker">
-              <Button variant="outline" size="md" className="w-full justify-start mt-2">
-                Portfolio (Alpaca)
               </Button>
             </Link>
           </div>

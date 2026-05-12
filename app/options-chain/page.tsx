@@ -1,12 +1,31 @@
-'use client';
-import { useState, useEffect, useCallback } from 'react';
+﻿'use client';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
-import { OptionsChainTable } from '@/components/options/OptionsChainTable';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
 import { DataSourceBanner, type DataSource } from '@/components/ui/DataSourceBanner';
+import { OptionsChainTable } from '@/components/options/OptionsChainTable';
 import { fetchOptionsChain, fetchQuote, type OptionsChainResponse } from '@/lib/apiClient';
-import { AlertTriangle, BarChart2, RefreshCw } from 'lucide-react';
+import { safeMoney, safePercent } from '@/lib/formatters';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
+
+const QUICK_SYMBOLS = ['SPY', 'QQQ', 'TSLA', 'NVDA', 'AAPL', 'AMD', 'META'];
+
+function formatDateLabel(expiry: string) {
+  return new Date(expiry).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function summaryCard(label: string, value: string, hint?: string) {
+  return (
+    <div className="bg-white border border-gray-100 rounded-3xl p-5 shadow-sm">
+      <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">{label}</p>
+      <p className="text-2xl font-semibold text-gray-900">{value}</p>
+      {hint ? <p className="text-xs text-gray-400 mt-2">{hint}</p> : null}
+    </div>
+  );
+}
 
 export default function OptionsChainPage() {
   const [symbol, setSymbol] = useState('SPY');
@@ -14,172 +33,231 @@ export default function OptionsChainPage() {
   const [chainData, setChainData] = useState<OptionsChainResponse | null>(null);
   const [selectedExpiry, setSelectedExpiry] = useState('');
   const [stockPrice, setStockPrice] = useState(0);
-  const [activeTab, setActiveTab] = useState<'calls' | 'puts'>('calls');
+  const [activeTab, setActiveTab] = useState<'calls' | 'puts' | 'both'>('both');
+  const [minDTE, setMinDTE] = useState(0);
+  const [nearMoneyOnly, setNearMoneyOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [dataSource, setDataSource] = useState<DataSource>(null);
 
-  const load = useCallback(async (sym: string, expiry?: string) => {
+  const loadChain = useCallback(async (symbolToLoad: string, expiry?: string) => {
     setLoading(true);
     setError('');
+
     try {
       const [chain, quote] = await Promise.all([
-        fetchOptionsChain(sym, expiry),
-        fetchQuote(sym).catch(() => null),
+        fetchOptionsChain(symbolToLoad, expiry),
+        fetchQuote(symbolToLoad).catch(() => null),
       ]);
+
       setChainData(chain);
       setDataSource((chain.meta?.dataSource as DataSource) ?? 'yahoo_delayed');
-      // Use first available expiry when loading without a date
       const dates = chain.expirationDates ?? chain.expirations ?? [];
-      if (!expiry && dates.length) setSelectedExpiry(dates[0]);
-      // Prefer live quote; fall back to underlying price from options response
-      if (quote) setStockPrice(quote.price);
-      else if (chain.underlyingPrice) setStockPrice(chain.underlyingPrice);
-    } catch (err: any) {
-      setError(err?.message ?? 'Failed to load options chain');
+      if (!expiry && dates.length) {
+        setSelectedExpiry(dates[0]);
+      } else if (expiry) {
+        setSelectedExpiry(expiry);
+      }
+      setStockPrice(quote?.price ?? chain.underlyingPrice ?? 0);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load options chain');
       setDataSource(null);
+      setChainData(null);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
-  useEffect(() => { load(symbol); }, [symbol, load]);
+  useEffect(() => {
+    loadChain(symbol);
+  }, [symbol, loadChain]);
 
-  const handleExpiry = (exp: string) => {
-    setSelectedExpiry(exp);
-    load(symbol, exp);
+  const filteredContracts = useMemo(() => {
+    if (!chainData) return [];
+
+    const contracts = activeTab === 'calls'
+      ? chainData.calls
+      : activeTab === 'puts'
+      ? chainData.puts
+      : [...chainData.calls, ...chainData.puts];
+
+    return contracts
+      .filter(c => c.dte >= minDTE)
+      .filter(c => !nearMoneyOnly || Math.abs((c.strike - stockPrice) / stockPrice) <= 0.05)
+      .sort((a, b) => {
+        if (activeTab === 'both') {
+          return b.estimatedGainPercent - a.estimatedGainPercent;
+        }
+        return Math.abs(a.strike - stockPrice) - Math.abs(b.strike - stockPrice);
+      });
+  }, [chainData, activeTab, minDTE, nearMoneyOnly, stockPrice]);
+
+  const summary = useMemo(() => {
+    if (!chainData) return null;
+    return {
+      underlying: safeMoney(chainData.underlyingPrice, 2),
+      ivAtm: chainData.ivAtm != null ? safePercent(chainData.ivAtm, 0) : '--',
+      expectedMove: chainData.expectedMove != null ? safeMoney(chainData.expectedMove, 2) : '--',
+      putCallRatio: chainData.putCallRatio != null ? chainData.putCallRatio.toFixed(2) : '--',
+      dte: chainData.dte != null ? `${chainData.dte}d` : '--',
+      ivRank: chainData.ivRank != null ? `${chainData.ivRank.toFixed(0)}%` : '--',
+    };
+  }, [chainData]);
+
+  const handleLoadCustom = () => {
+    if (!customSymbol.trim()) return;
+    setSymbol(customSymbol.trim().toUpperCase());
+    setCustomSymbol('');
   };
 
   return (
     <AppShell title="Options Chain">
       <DataSourceBanner dataSource={dataSource} fetchedAt={chainData?.meta.fetchedAt ?? null} className="mb-4" />
 
-      <div className="mb-6 flex flex-wrap gap-3 items-end">
-        {/* Symbol quick select */}
-        <div>
-          <label className="text-xs text-gray-500 block mb-1">Symbol</label>
-          <div className="flex flex-wrap gap-1.5">
-            {['SPY', 'QQQ', 'TSLA', 'NVDA', 'AAPL', 'AMD', 'PLTR'].map(s => (
+      <div className="space-y-6">
+        <Card className="p-6">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold text-gray-900">Options Chain Analytics</span>
+                <Badge variant="purple">Professional</Badge>
+              </div>
+              <p className="text-sm text-gray-500 max-w-2xl">
+                Analyze expiries, filter by DTE and moneyness, and compare calls and puts with contract-level signal clarity.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2 items-center">
+              {QUICK_SYMBOLS.map((quick) => (
+                <button
+                  key={quick}
+                  type="button"
+                  onClick={() => setSymbol(quick)}
+                  className={`px-3 py-2 rounded-full text-xs font-semibold border transition ${symbol === quick ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300'}`}
+                >
+                  {quick}
+                </button>
+              ))}
+              <Button size="sm" onClick={() => loadChain(symbol, selectedExpiry)} loading={loading}>
+                <RefreshCw size={14} className="mr-2" /> Refresh
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 xl:grid-cols-4">
+            {summary && summaryCard('Underlying', summary.underlying, 'Current stock price')}
+            {summary && summaryCard('ATM IV', summary.ivAtm, 'Nearest implied volatility')}
+            {summary && summaryCard('Expected Move', summary.expectedMove, '1σ price move')}
+            {summary && summaryCard('Put/Call', summary.putCallRatio, 'Volume ratio')}
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <div className="grid gap-4 xl:grid-cols-3">
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Custom symbol</label>
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={customSymbol}
+                  onChange={(event) => setCustomSymbol(event.target.value.toUpperCase())}
+                  onKeyDown={(event) => event.key === 'Enter' && handleLoadCustom()}
+                  placeholder="Enter ticker"
+                  className="flex-1 min-w-0 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200"
+                />
+                <Button size="sm" onClick={handleLoadCustom}>Load</Button>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Expiry</label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {(chainData?.expirationDates ?? []).slice(0, 8).map((expiry) => (
+                  <button
+                    key={expiry}
+                    type="button"
+                    onClick={() => loadChain(symbol, expiry)}
+                    className={`px-3 py-2 rounded-xl text-xs font-medium border transition ${selectedExpiry === expiry ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300'}`}
+                  >
+                    {formatDateLabel(expiry)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Min DTE</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={minDTE}
+                  onChange={(event) => setMinDTE(Number(event.target.value))}
+                  className="mt-2 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200"
+                />
+              </div>
+              <div className="flex flex-col justify-end">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Near-money</label>
+                <button
+                  type="button"
+                  onClick={() => setNearMoneyOnly((value) => !value)}
+                  className={`mt-2 inline-flex items-center justify-center rounded-xl px-3 py-2 text-xs font-semibold border transition ${nearMoneyOnly ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300'}`}
+                >
+                  {nearMoneyOnly ? 'Enabled' : 'Off'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        {error ? (
+          <div className="rounded-3xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">
+            <div className="font-semibold mb-2">Options chain unavailable</div>
+            <p>{error}</p>
+          </div>
+        ) : null}
+
+        <Card className="p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-wide">{symbol} Options</p>
+              <p className="text-sm text-gray-700">{filteredContracts.length} contracts showing</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+              <span>{activeTab === 'both' ? 'Calls + Puts' : activeTab === 'calls' ? 'Calls only' : 'Puts only'}</span>
+              <span>•</span>
+              <span>{selectedExpiry ? formatDateLabel(selectedExpiry) : 'Select expiry'}</span>
+            </div>
+          </div>
+
+          <div className="mb-4 flex flex-wrap gap-2">
+            {(['both', 'calls', 'puts'] as const).map((tab) => (
               <button
-                key={s}
-                onClick={() => setSymbol(s)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                  symbol === s ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-200 text-gray-600 hover:border-purple-300'
-                }`}
+                type="button"
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition ${activeTab === tab ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300'}`}
               >
-                {s}
+                {tab === 'both' ? 'Calls + Puts' : tab === 'calls' ? 'Calls' : 'Puts'}
               </button>
             ))}
           </div>
-        </div>
 
-        {/* Custom symbol */}
-        <div className="flex gap-2">
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Custom Symbol</label>
-            <input
-              value={customSymbol}
-              onChange={e => setCustomSymbol(e.target.value.toUpperCase())}
-              onKeyDown={e => e.key === 'Enter' && customSymbol && setSymbol(customSymbol)}
-              placeholder="e.g. AMZN"
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-28 focus:ring-2 focus:ring-purple-200 focus:border-purple-400 outline-none"
-            />
-          </div>
-          <Button size="sm" variant="outline" onClick={() => customSymbol && setSymbol(customSymbol)} className="mt-5">
-            Load
-          </Button>
-        </div>
-
-        <Button size="sm" variant="ghost" onClick={() => load(symbol, selectedExpiry)} loading={loading} className="mt-5">
-          <RefreshCw size={13} />
-        </Button>
+          {loading ? (
+            <div className="text-center py-16 text-gray-500">
+              <div className="inline-flex flex-col items-center gap-3">
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-purple-200 border-t-purple-600" />
+                <p>Loading options contracts…</p>
+              </div>
+            </div>
+          ) : filteredContracts.length > 0 ? (
+            <OptionsChainTable contracts={filteredContracts} type={activeTab === 'puts' ? 'put' : 'call'} stockPrice={stockPrice} />
+          ) : (
+            <div className="text-center py-16 text-gray-500">
+              <p>No options contracts available for the current filters. Try a different expiry or widen DTE.</p>
+            </div>
+          )}
+        </Card>
       </div>
-
-      {/* Stock price header */}
-      {stockPrice > 0 && (
-        <div className="mb-4 flex items-center gap-3">
-          <h2 className="font-bold text-2xl text-gray-900">{symbol}</h2>
-          <span className="text-lg text-gray-600">${stockPrice.toFixed(2)}</span>
-          {chainData?.meta.dataSource === 'polygon_realtime' && (
-            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
-              Real-time · Polygon.io
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div className="p-4 mb-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
-          <AlertTriangle size={16} className="flex-shrink-0 text-red-500 mt-0.5" />
-          <div>
-            <p className="font-semibold text-red-800 text-sm">Options chain unavailable</p>
-            <p className="text-red-700 text-xs mt-0.5">
-              {error.length > 120 ? 'Yahoo Finance is temporarily unavailable. Please try again in a moment.' : error}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Expiration dates */}
-      {chainData && chainData.expirationDates.length > 0 && (
-        <div className="mb-4">
-          <p className="text-xs text-gray-500 mb-2">Expiration Date</p>
-          <div className="flex flex-wrap gap-2">
-            {chainData.expirationDates.map(exp => {
-              const dte = Math.ceil((new Date(exp).getTime() - Date.now()) / 86400000);
-              return (
-                <button
-                  key={exp}
-                  onClick={() => handleExpiry(exp)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                    selectedExpiry === exp ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-200 text-gray-600 hover:border-purple-300'
-                  }`}
-                >
-                  {new Date(exp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  <span className="ml-1 opacity-70">({dte}d)</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Calls / Puts tab */}
-      <Card>
-        <div className="flex items-center gap-4 mb-4">
-          {(['calls', 'puts'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors capitalize ${
-                activeTab === tab ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-200 text-gray-600 hover:border-purple-300'
-              }`}
-            >
-              {tab === 'calls' ? '📈 Calls' : '📉 Puts'}
-            </button>
-          ))}
-          {loading && (
-            <div className="w-4 h-4 border-2 border-purple-200 border-t-purple-600 rounded-full animate-spin ml-2" />
-          )}
-          {chainData && (
-            <span className="ml-auto text-xs text-gray-400">
-              {activeTab === 'calls' ? chainData.calls.length : chainData.puts.length} contracts
-            </span>
-          )}
-        </div>
-
-        {!loading && chainData && (
-          <OptionsChainTable
-            contracts={(activeTab === 'calls' ? chainData.calls : chainData.puts) as any}
-            type={activeTab === 'calls' ? 'call' : 'put'}
-            stockPrice={stockPrice}
-          />
-        )}
-
-        {!loading && !chainData && !error && (
-          <p className="text-sm text-gray-400 py-4 text-center">Select a symbol to load the options chain.</p>
-        )}
-      </Card>
     </AppShell>
   );
 }

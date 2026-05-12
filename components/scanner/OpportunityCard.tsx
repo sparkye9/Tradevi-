@@ -7,6 +7,7 @@ import type { Opportunity } from '@/lib/types';
 import { opportunityToAlert } from '@/lib/alerts';
 import { useAlertsStore } from '@/store/alertsStore';
 import { useAuditStore } from '@/store/auditStore';
+import { safeInteger, safeMoney, safePercent, safeNumber } from '@/lib/formatters';
 import { ChevronDown, ChevronUp, Bell, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
 
 const wouldTakeConfig = {
@@ -69,8 +70,8 @@ export function OpportunityCard({ opp }: { opp: Opportunity }) {
         </div>
         <div className="bg-gray-50 rounded-lg p-2 text-center">
           <p className="text-xs text-gray-400">Cost</p>
-          <p className="font-bold text-purple-700 text-sm">${opp.costPerContract.toFixed(0)}</p>
-          <p className="text-xs text-gray-500">${opp.contract.ask.toFixed(2)}/contract</p>
+          <p className="font-bold text-purple-700 text-sm">{safeMoney(opp.costPerContract, 0)}</p>
+          <p className="text-xs text-gray-500">{safeMoney(opp.contract.ask, 2)}/contract</p>
         </div>
       </div>
 
@@ -79,28 +80,28 @@ export function OpportunityCard({ opp }: { opp: Opportunity }) {
         <div className="flex items-center justify-between">
           <span className="text-gray-500">Est. Gain</span>
           <span className={`font-bold ${opp.estimatedGainPercent >= 100 ? 'text-green-700' : 'text-gray-800'}`}>
-            {opp.estimatedGainPercent > 0 ? '+' : ''}{opp.estimatedGainPercent.toFixed(0)}%
+            {opp.estimatedGainPercent > 0 ? '+' : ''}{safeNumber(opp.estimatedGainPercent, 0)}%
           </span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-gray-500">Breakeven</span>
-          <span className="font-medium">${opp.contract.breakeven.toFixed(2)}</span>
+          <span className="font-medium">{safeMoney(opp.contract.breakeven, 2)}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-gray-500">Delta</span>
-          <span className="font-medium">{opp.contract.delta.toFixed(2)}</span>
+          <span className="font-medium">{safeNumber(opp.contract.delta, 2)}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-gray-500">IV</span>
-          <span className="font-medium">{(opp.contract.impliedVolatility * 100).toFixed(0)}%</span>
+          <span className="font-medium">{safePercent(opp.contract.impliedVolatility, 0)}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-gray-500">Target 1</span>
-          <span className="font-medium">${opp.target1.toFixed(2)}</span>
+          <span className="text-gray-500">Volume</span>
+          <span className="font-medium">{safeInteger(opp.contract.volume)}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-gray-500">Target 2</span>
-          <span className="font-medium">${opp.target2.toFixed(2)}</span>
+          <span className="text-gray-500">Open Interest</span>
+          <span className="font-medium">{safeInteger(opp.contract.openInterest)}</span>
         </div>
       </div>
 

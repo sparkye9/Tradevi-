@@ -49,15 +49,20 @@ export interface StockAnalysis {
 }
 
 export interface OptionContract {
+  symbol: string;
   contractSymbol: string;
   strike: number;
   expiration: string; // YYYY-MM-DD
   dte: number;
   bid: number;
   ask: number;
+  mid: number | null;
   lastPrice: number;
+  change: number | null;
+  percentChange: number | null;
   volume: number;
   openInterest: number;
+  openInterestChange: number | null;
   impliedVolatility: number; // decimal, e.g. 0.45 = 45%
   delta: number;
   theta: number;
@@ -65,6 +70,8 @@ export interface OptionContract {
   vega?: number;
   type: 'call' | 'put';
   inTheMoney: boolean;
+  moneyness: number | null;
+  lastTradeDate: string | null;
   spreadPercent: number;
   breakeven: number;
   costPerContract: number; // ask * 100
