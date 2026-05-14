@@ -5,13 +5,14 @@ import { clsx } from 'clsx';
 import {
   LayoutDashboard, Search, BarChart2, Eye, Zap, Shield,
   Bell, BookOpen, FlaskConical, BookMarked, ClipboardList, X, TrendingUp,
-  CandlestickChart
+  CandlestickChart, Crosshair,
 } from 'lucide-react';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/charts', label: 'Technical Charts', icon: CandlestickChart },
   { href: '/market-analysis', label: 'Market Analysis', icon: TrendingUp },
+  { href: '/orb-analysis', label: 'ORB Analysis', icon: Crosshair },
   { href: '/scanner', label: 'Opportunities', icon: Search },
   { href: '/options-chain', label: 'Options Chain', icon: BarChart2 },
   { href: '/watchlist', label: 'Watchlist', icon: Eye },
