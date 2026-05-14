@@ -199,9 +199,9 @@ function MNQChart({ data, orb, vwap, ema9, ema21 }: {
           labelStyle={{ color: '#9ca3af' }}
           itemStyle={{ color: '#e5e7eb' }}
           formatter={(v: unknown, name: string) => [
-            typeof v === 'number' ? name === 'volume' ? `${(v as number).toFixed(0)}K` : (v as number).toFixed(2) : v,
+            typeof v === 'number' ? name === 'volume' ? `${(v as number).toFixed(0)}K` : (v as number).toFixed(2) : String(v),
             name,
-          ]}
+          ] as [string, string]}
         />
 
         {/* ORB zone */}
