@@ -161,10 +161,16 @@ function OptionPickCard({
   );
 }
 
+// ─── Timeframe options ────────────────────────────────────────────────────────
+
+const TIMEFRAMES = [1, 5, 10, 15, 30] as const;
+type Timeframe = typeof TIMEFRAMES[number];
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function OrbAnalysisPage() {
   const [symbol,    setSymbol]    = useState('QQQ');
+  const [timeframe, setTimeframe] = useState<Timeframe>(5);
   const [budget,    setBudget]    = useState(500);
   const [contracts, setContracts] = useState(1);
   const [orbData,   setOrbData]   = useState<ORBData | null>(null);
@@ -179,7 +185,7 @@ export default function OrbAnalysisPage() {
     setError('');
     try {
       const [orbRes, optRes] = await Promise.all([
-        fetch(`/api/orb?symbol=${symbol}`),
+        fetch(`/api/orb?symbol=${symbol}&timeframe=${timeframe}`),
         fetch(`/api/options-chain?symbol=${symbol}`),
       ]);
 
@@ -211,7 +217,7 @@ export default function OrbAnalysisPage() {
       setError(err instanceof Error ? err.message : 'Analysis failed');
     }
     setLoading(false);
-  }, [symbol, budget, contracts]);
+  }, [symbol, timeframe, budget, contracts]);
 
   // Build scatter chart series from ORB data
   const chartLevels = orbData
@@ -265,6 +271,25 @@ export default function OrbAnalysisPage() {
         </div>
 
         <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">ORB Timeframe</label>
+          <div className="flex gap-1">
+            {TIMEFRAMES.map(tf => (
+              <button
+                key={tf}
+                onClick={() => setTimeframe(tf)}
+                className={`px-2.5 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                  timeframe === tf
+                    ? 'bg-purple-600 text-white border-purple-600'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300 hover:text-purple-700'
+                }`}
+              >
+                {tf}m
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
           <label className="text-xs font-medium text-gray-600 block mb-1">Budget ($)</label>
           <input
             type="number"
@@ -310,7 +335,7 @@ export default function OrbAnalysisPage() {
       {loading && (
         <div className="text-center py-20">
           <div className="w-8 h-8 border-[3px] border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto" />
-          <p className="mt-3 text-gray-500 text-sm">Fetching 8AM candle and options chain for {symbol}…</p>
+          <p className="mt-3 text-gray-500 text-sm">Fetching {symbol} {timeframe}m ORB candle and options chain…</p>
         </div>
       )}
 
@@ -373,7 +398,7 @@ export default function OrbAnalysisPage() {
             {/* Scatter chart */}
             <Card className="lg:col-span-3">
               <CardHeader
-                title={`${orbData.symbol} ORB 8AM — Range Extensions`}
+                title={`${orbData.symbol} ORB ${timeframe}m — Range Extensions`}
                 icon={<Target size={16} />}
                 subtitle={`Candle at ${new Date(orbData.candleTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${orbData.hasValidOrb ? 'Valid' : 'Approximate'}`}
               />

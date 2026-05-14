@@ -5,10 +5,8 @@ import { NextRequest, NextResponse } from 'next/server';
 function getETOffsetHours(): number {
   const now = new Date();
   const year = now.getFullYear();
-  // 2nd Sunday of March (EDT starts)
   const mar1Day = new Date(year, 2, 1).getDay();
   const dstStart = new Date(year, 2, (mar1Day === 0 ? 8 : 15 - mar1Day));
-  // 1st Sunday of November (EST starts)
   const nov1Day = new Date(year, 10, 1).getDay();
   const dstEnd = new Date(year, 10, (nov1Day === 0 ? 1 : 8 - nov1Day));
   return now >= dstStart && now < dstEnd ? -4 : -5;
@@ -20,7 +18,6 @@ function get8amETTimestampForToday(): number {
   const utcHour = 8 - etOffset; // 12 during EDT, 13 during EST
   const utcMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   const target = utcMidnight + utcHour * 3600 * 1000;
-  // If 8am ET hasn't happened yet today, step back one day
   return target > now.getTime()
     ? Math.floor((target - 86400 * 1000) / 1000)
     : Math.floor(target / 1000);
@@ -33,7 +30,7 @@ function round2(n: number) {
 // ─── Candle type ──────────────────────────────────────────────────────────────
 
 interface Candle {
-  time: number; // unix seconds
+  time: number;
   open: number;
   high: number;
   low: number;
@@ -41,21 +38,24 @@ interface Candle {
   volume: number;
 }
 
-// ─── TwelveData fetch — real-time, includes extended hours ───────────────────
+// ─── TwelveData fetch ─────────────────────────────────────────────────────────
 
-async function fetchTwelveCandles(symbol: string, fromSec: number): Promise<Candle[]> {
+async function fetchTwelveCandles(
+  symbol: string,
+  fromSec: number,
+  tdInterval: '1min' | '5min',
+): Promise<Candle[]> {
   const apiKey = process.env.TWELVE_DATA_API_KEY;
   if (!apiKey) throw new Error('TWELVE_DATA_API_KEY not set');
 
-  // start_date in ET local time (TwelveData uses exchange timezone)
   const etOffset = getETOffsetHours();
   const startDate = new Date((fromSec + etOffset * 3600) * 1000);
-  const startStr = startDate.toISOString().slice(0, 16).replace('T', ' '); // "YYYY-MM-DD HH:MM"
+  const startStr = startDate.toISOString().slice(0, 16).replace('T', ' ');
 
   const url = `https://api.twelvedata.com/time_series`
     + `?symbol=${encodeURIComponent(symbol)}`
-    + `&interval=5min`
-    + `&outputsize=40`
+    + `&interval=${tdInterval}`
+    + `&outputsize=60`
     + `&prepost=1`
     + `&start_date=${encodeURIComponent(startStr)}`
     + `&order=ASC`
@@ -69,11 +69,8 @@ async function fetchTwelveCandles(symbol: string, fromSec: number): Promise<Cand
 
   const values: { datetime: string; open: string; high: string; low: string; close: string; volume: string }[] =
     json.values ?? [];
-
   if (!values.length) throw new Error('TwelveData returned no candles');
 
-  // TwelveData datetime strings are in exchange local time (ET for US equities)
-  // Convert back to UTC unix by reversing the ET offset
   return values.map(v => {
     const localMs = new Date(v.datetime.replace(' ', 'T') + ':00').getTime();
     const utcSec  = Math.floor(localMs / 1000) - etOffset * 3600;
@@ -88,22 +85,25 @@ async function fetchTwelveCandles(symbol: string, fromSec: number): Promise<Cand
   }).filter(c => c.close > 0 && c.high > 0);
 }
 
-// ─── Yahoo Finance fallback — ~15-20 min delayed ──────────────────────────────
+// ─── Yahoo Finance fallback ───────────────────────────────────────────────────
 
-async function fetchYahooCandles(symbol: string, fromSec: number): Promise<Candle[]> {
+async function fetchYahooCandles(
+  symbol: string,
+  fromSec: number,
+  interval: '1m' | '5m',
+): Promise<Candle[]> {
   const nowSec = Math.floor(Date.now() / 1000);
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`
-    + `?period1=${fromSec}&period2=${nowSec}&interval=5m&includePrePost=true`;
+    + `?period1=${fromSec}&period2=${nowSec}&interval=${interval}&includePrePost=true`;
 
   const res = await fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TradingApp/1.0)', Accept: 'application/json' },
     cache: 'no-store',
   });
-
   if (!res.ok) throw new Error(`Yahoo Finance HTTP ${res.status}`);
 
   const text = await res.text();
-  if (text.trimStart().startsWith('<')) throw new Error('Yahoo Finance returned HTML — possibly rate-limited');
+  if (text.trimStart().startsWith('<')) throw new Error('Yahoo Finance returned HTML');
 
   const json = JSON.parse(text);
   const result = json?.chart?.result?.[0];
@@ -126,42 +126,58 @@ async function fetchYahooCandles(symbol: string, fromSec: number): Promise<Candl
 
 // ─── Route handler ────────────────────────────────────────────────────────────
 
+const VALID_TIMEFRAMES = [1, 5, 10, 15, 30] as const;
+type Timeframe = typeof VALID_TIMEFRAMES[number];
+
 export async function GET(request: NextRequest) {
-  const sp     = request.nextUrl.searchParams;
-  const symbol = sp.get('symbol')?.toUpperCase()?.trim() ?? 'QQQ';
+  const sp        = request.nextUrl.searchParams;
+  const symbol    = sp.get('symbol')?.toUpperCase()?.trim() ?? 'QQQ';
+  const tfRaw     = parseInt(sp.get('timeframe') ?? '5', 10);
+  const timeframe = (VALID_TIMEFRAMES.includes(tfRaw as Timeframe) ? tfRaw : 5) as Timeframe;
+
+  // Base candle interval: use 1-min for 1-min ORB, 5-min for everything else
+  const useMins = timeframe === 1 ? 1 : 5;
 
   try {
     const target8am = get8amETTimestampForToday();
-    const fromSec   = target8am - 2 * 3600; // 2h before 8am ET
+    const fromSec   = target8am - 2 * 3600;
 
-    // Try TwelveData (real-time + extended hours) first, fall back to Yahoo
+    // Fetch candles (TwelveData preferred, Yahoo fallback)
     let candles: Candle[];
     let dataSource: string;
 
     try {
-      candles    = await fetchTwelveCandles(symbol, fromSec);
+      candles    = await fetchTwelveCandles(symbol, fromSec, useMins === 1 ? '1min' : '5min');
       dataSource = 'twelve_data';
     } catch {
-      candles    = await fetchYahooCandles(symbol, fromSec);
+      candles    = await fetchYahooCandles(symbol, fromSec, useMins === 1 ? '1m' : '5m');
       dataSource = 'yahoo_delayed';
     }
 
     if (candles.length === 0) {
-      throw new Error('No valid candles returned — market may be closed or symbol invalid');
+      throw new Error('No valid candles — market may be closed or symbol invalid');
     }
 
-    // Find the candle closest to 8am ET
-    const orbCandle = candles.reduce((best, c) =>
-      Math.abs(c.time - target8am) < Math.abs(best.time - target8am) ? c : best,
-      candles[0]
-    );
+    // Collect candles that fall within the ORB window: [8:00am, 8:00am + timeframe mins)
+    const windowEnd = target8am + timeframe * 60;
+    const orbWindow = candles.filter(c => c.time >= target8am - useMins * 30 && c.time < windowEnd);
 
-    const timeDiffMinutes = Math.round(Math.abs(orbCandle.time - target8am) / 60);
+    // Fallback: if no candles in exact window, use the single closest to 8am
+    const orbCandles = orbWindow.length > 0
+      ? orbWindow
+      : [candles.reduce((best, c) =>
+          Math.abs(c.time - target8am) < Math.abs(best.time - target8am) ? c : best,
+          candles[0]
+        )];
 
-    const orbHigh  = orbCandle.high;
-    const orbLow   = orbCandle.low;
+    const orbHigh  = Math.max(...orbCandles.map(c => c.high));
+    const orbLow   = Math.min(...orbCandles.map(c => c.low));
     const orbMid   = (orbHigh + orbLow) / 2;
     const orbRange = orbHigh - orbLow;
+
+    // How far was the anchor candle from 8am?
+    const anchorCandle = orbCandles[0];
+    const timeDiffMinutes = Math.round(Math.abs(anchorCandle.time - target8am) / 60);
 
     const currentPrice = candles[candles.length - 1].close;
     const bias: 'bullish' | 'bearish' | 'neutral' =
@@ -179,22 +195,24 @@ export async function GET(request: NextRequest) {
     ];
 
     return NextResponse.json({
-      success:          true,
+      success:         true,
       symbol,
-      orbHigh:          round2(orbHigh),
-      orbLow:           round2(orbLow),
-      orbMid:           round2(orbMid),
-      orbRange:         round2(orbRange),
-      currentPrice:     round2(currentPrice),
+      timeframe,
+      orbHigh:         round2(orbHigh),
+      orbLow:          round2(orbLow),
+      orbMid:          round2(orbMid),
+      orbRange:        round2(orbRange),
+      currentPrice:    round2(currentPrice),
       bias,
       extensions,
-      candleTime:       new Date(orbCandle.time * 1000).toISOString(),
-      candleTimestamp:  orbCandle.time,
+      candleTime:      new Date(anchorCandle.time * 1000).toISOString(),
+      candleTimestamp: anchorCandle.time,
       timeDiffMinutes,
-      hasValidOrb:      timeDiffMinutes <= 15,
-      recentCandles:    candles.slice(-12),
+      hasValidOrb:     timeDiffMinutes <= timeframe + 5,
+      orbCandleCount:  orbCandles.length,
+      recentCandles:   candles.slice(-12),
       dataSource,
-      fetchedAt:        new Date().toISOString(),
+      fetchedAt:       new Date().toISOString(),
     }, { headers: { 'Cache-Control': 'no-store' } });
 
   } catch (err) {
