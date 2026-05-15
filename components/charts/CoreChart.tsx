@@ -203,6 +203,16 @@ export const CoreChart = forwardRef<CoreChartHandle, Props>(function CoreChart(
         cs.setData(validation.validCandles.map(c => ({ time: c.time as any, open: c.open, high: c.high, low: c.low, close: c.close })));
         candleRef.current = cs;
 
+        // ── Signal markers ──────────────────────────────────────────────────
+        const markers = detectSignals(validation.validCandles, analysis);
+        if (markers.length) {
+          try {
+            (cs as any).setMarkers(markers.map(m => ({ ...m, time: m.time as any })));
+          } catch (e) {
+            console.warn('setMarkers not supported in this chart version');
+          }
+        }
+
         // ── Volume ──────────────────────────────────────────────────────────────
         const volCfg = indicators.find(i => i.id === 'volume');
         if (volCfg?.enabled) {
@@ -285,6 +295,13 @@ export const CoreChart = forwardRef<CoreChartHandle, Props>(function CoreChart(
     import('lightweight-charts').then(({ LineSeries, HistogramSeries }) => {
       updateOverlays(chartRef.current, candleRef.current, LineSeries, HistogramSeries, seriesMapRef.current, indicators, analysis, validation.validCandles);
       updateVolumeMA(chartRef.current, seriesMapRef.current, indicators, analysis);
+      // Refresh signal markers when analysis updates
+      const markers = detectSignals(validation.validCandles, analysis);
+      if (markers.length && candleRef.current) {
+        try {
+          (candleRef.current as any).setMarkers(markers.map((m: ChartMarker) => ({ ...m, time: m.time as any })));
+        } catch (_) { /* ignore if API unavailable */ }
+      }
     }).catch(err => {
       console.error('Error updating overlays:', err);
     });
