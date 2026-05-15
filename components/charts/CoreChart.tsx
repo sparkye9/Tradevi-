@@ -31,6 +31,69 @@ interface Props {
 // Keep series refs between renders so we can add/remove selectively
 type SeriesMap = Map<string, any>;
 
+type ChartMarker = {
+  time: number;
+  position: 'belowBar' | 'aboveBar';
+  color: string;
+  shape: 'arrowUp' | 'arrowDown' | 'circle';
+  text: string;
+  size: number;
+};
+
+function detectSignals(candles: CandleData[], analysis: StockAnalysis | null): ChartMarker[] {
+  if (!analysis || candles.length < 2) return [];
+  const markers: ChartMarker[] = [];
+  const ind  = analysis.indicators;
+  const N    = candles.length;
+  const lookback = Math.min(N, 50); // only scan recent candles for cross signals
+  const start50  = N - lookback;
+
+  // ORB Breakout — first candle closing above ORB high
+  if (analysis.orb?.orb_high != null) {
+    for (let i = 1; i < N; i++) {
+      if (candles[i - 1].close <= analysis.orb.orb_high! && candles[i].close > analysis.orb.orb_high!) {
+        markers.push({ time: candles[i].time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'ORB Break ↑', size: 1 });
+        break;
+      }
+    }
+  }
+
+  // ORB Breakdown — first candle closing below ORB low
+  if (analysis.orb?.orb_low != null) {
+    for (let i = 1; i < N; i++) {
+      if (candles[i - 1].close >= analysis.orb.orb_low! && candles[i].close < analysis.orb.orb_low!) {
+        markers.push({ time: candles[i].time, position: 'aboveBar', color: '#ef4444', shape: 'arrowDown', text: 'ORB Break ↓', size: 1 });
+        break;
+      }
+    }
+  }
+
+  // EMA9 × EMA20 crossover (recent 50 candles only)
+  const ema9  = ind?.ema9  ?? [];
+  const ema20 = ind?.ema20 ?? [];
+  for (let i = Math.max(1, start50); i < N; i++) {
+    const e9p = ema9[i - 1]; const e9c = ema9[i];
+    const e2p = ema20[i - 1]; const e2c = ema20[i];
+    if (e9p != null && e9c != null && e2p != null && e2c != null) {
+      if (e9p <= e2p && e9c > e2c)
+        markers.push({ time: candles[i].time, position: 'belowBar', color: '#f59e0b', shape: 'arrowUp',   text: 'EMA×', size: 1 });
+      else if (e9p >= e2p && e9c < e2c)
+        markers.push({ time: candles[i].time, position: 'aboveBar', color: '#f59e0b', shape: 'arrowDown', text: 'EMA×', size: 1 });
+    }
+  }
+
+  // SuperTrend flip (recent 50 candles only)
+  const stDir = ind?.stFastDir ?? [];
+  for (let i = Math.max(1, start50); i < N; i++) {
+    if (stDir[i - 1] === -1 && stDir[i] === 1)
+      markers.push({ time: candles[i].time, position: 'belowBar', color: '#a78bfa', shape: 'arrowUp',   text: 'ST Flip', size: 1 });
+    else if (stDir[i - 1] === 1 && stDir[i] === -1)
+      markers.push({ time: candles[i].time, position: 'aboveBar', color: '#a78bfa', shape: 'arrowDown', text: 'ST Flip', size: 1 });
+  }
+
+  return markers.sort((a, b) => a.time - b.time);
+}
+
 export const CoreChart = forwardRef<CoreChartHandle, Props>(function CoreChart(
   { candles, analysis, indicators, theme, showGrid, rrSetup, livePrice, height = 460 },
   ref
