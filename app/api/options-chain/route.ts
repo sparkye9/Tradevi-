@@ -2,11 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchMassiveOptionsChain } from '@/lib/massiveFinance';
 import { fetchYahooOptionsChain } from '@/lib/yahooFinance';
 
-const ALPACA_BASE_URL = process.env.ALPACA_BASE_URL?.replace(/\/$/, '') ?? 'https://data.alpaca.markets';
-const ALPACA_API_KEY = process.env.ALPACA_API_KEY;
-const ALPACA_SECRET_KEY = process.env.ALPACA_SECRET_KEY;
-const ALPACA_ENABLED = Boolean(ALPACA_API_KEY && ALPACA_SECRET_KEY);
-
 function safeJson(body: unknown, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -47,74 +42,6 @@ function getNearestIV(calls: any[], puts: any[], price: number): number | null {
   return best.iv;
 }
 
-async function fetchAlpacaOptionsChain(symbol: string, expiration?: string | number) {
-  if (!ALPACA_ENABLED) {
-    throw new Error('Alpaca credentials are not configured.');
-  }
-
-  const url = new URL(`${ALPACA_BASE_URL}/v2/options/chains`);
-  url.searchParams.set('underlying_symbol', symbol);
-  url.searchParams.set('limit', '500');
-  if (expiration) {
-    const dateString = toDateString(expiration) ?? String(expiration);
-    url.searchParams.set('expiration_date', dateString);
-  }
-
-  const response = await fetch(url.toString(), {
-    headers: {
-      'APCA-API-KEY-ID': ALPACA_API_KEY ?? '',
-      'APCA-API-SECRET-KEY': ALPACA_SECRET_KEY ?? '',
-      Accept: 'application/json',
-    },
-    cache: 'no-store',
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(`Alpaca request failed (${response.status}) ${text}`);
-  }
-
-  const json = await response.json();
-  const chain = Array.isArray(json.chains) ? json.chains[0] : json.chain ?? json;
-  if (!chain || !Array.isArray(chain.calls) || !Array.isArray(chain.puts)) {
-    throw new Error('Invalid Alpaca options response format.');
-  }
-
-  const parseContract = (item: any, type: 'call' | 'put') => {
-    const bid = Number(item.bid_price ?? item.bid ?? 0);
-    const ask = Number(item.ask_price ?? item.ask ?? 0);
-    return {
-      contractSymbol: item.symbol ?? item.contract_symbol ?? item.contractSymbol ?? '',
-      strike: Number(item.strike_price ?? item.strike ?? 0),
-      expiration: toDateString(item.expiration_date ?? item.expiration ?? item.expirationDate),
-      type,
-      bid,
-      ask,
-      mid: Number(item.mid_price ?? item.mid ?? (bid + ask) / 2),
-      lastPrice: Number(item.last_trade_price ?? item.last_price ?? item.last ?? 0),
-      volume: Number(item.volume ?? 0),
-      openInterest: Number(item.open_interest ?? item.openInterest ?? 0),
-      impliedVolatility: Number(item.implied_volatility ?? item.impliedVolatility ?? item.iv ?? 0),
-      delta: typeof item.delta === 'number' ? item.delta : null,
-      gamma: typeof item.gamma === 'number' ? item.gamma : null,
-      theta: typeof item.theta === 'number' ? item.theta : null,
-      bidAskSpread: ask - bid,
-      inTheMoney: Boolean(item.in_the_money ?? item.inTheMoney ?? false),
-      moneyness: item.moneyness != null ? Number(item.moneyness) : null,
-      costPerContract: ask * 100,
-      estimatedGainPercent: null,
-      dte: calcDTE(toDateString(item.expiration_date ?? item.expiration ?? item.expirationDate)),
-    };
-  };
-
-  return {
-    expirationDates: chain.expiration_dates ?? chain.expirations ?? [],
-    calls: chain.calls.map((item: any) => parseContract(item, 'call')),
-    puts: chain.puts.map((item: any) => parseContract(item, 'put')),
-    underlyingPrice: Number(chain.underlying_price ?? chain.underlyingPrice ?? 0),
-    dataSource: 'alpaca',
-  };
-}
 
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
@@ -156,40 +83,18 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  if (!chain) try {
-    chain = await fetchYahooOptionsChain(symbol, dateParam);
-    source = chain.dataSource ?? 'yahoo_delayed';
-  } catch (baseError) {
-    if (ALPACA_ENABLED) {
-      try {
-        chain = await fetchAlpacaOptionsChain(symbol, dateParam);
-        source = 'alpaca';
-      } catch (alpacaError) {
-        const message = alpacaError instanceof Error ? alpacaError.message : 'Unable to load options chain from Alpaca fallback.';
-        return safeJson({
-          success: false,
-          error: `Yahoo failed and Alpaca fallback also failed: ${message}`,
-          symbol,
-          expirations: [],
-          expirationDates: [],
-          calls: [],
-          puts: [],
-          underlyingPrice: null,
-          ivAtm: null,
-          historicalVolatility: null,
-          ivRank: null,
-          expectedMove: null,
-          putCallRatio: null,
-          selectedExpiration: null,
-          dte: null,
-          meta: { dataSource: 'alpaca', fetchedAt: new Date().toISOString() },
-        }, 503);
-      }
-    } else {
-      const message = baseError instanceof Error ? baseError.message : 'Unable to load options chain from Yahoo.';
+  // Yahoo fallback when Massive is unavailable
+  if (!chain) {
+    try {
+      chain = await fetchYahooOptionsChain(symbol, dateParam);
+      source = chain.dataSource ?? 'yahoo_delayed';
+    } catch (yahooError) {
+      const message = yahooError instanceof Error ? yahooError.message : 'Options data unavailable';
       return safeJson({
         success: false,
-        error: `Yahoo failed and Alpaca is not configured: ${message}`,
+        error: process.env.MASSIVE_API_KEY
+          ? `Massive and Yahoo Finance both failed to return options data for ${symbol}: ${message}`
+          : `Options chain unavailable for ${symbol}. Set MASSIVE_API_KEY for reliable data. Yahoo error: ${message}`,
         symbol,
         expirations: [],
         expirationDates: [],
@@ -203,7 +108,7 @@ export async function GET(request: NextRequest) {
         putCallRatio: null,
         selectedExpiration: null,
         dte: null,
-        meta: { dataSource: 'yahoo_delayed', fetchedAt: new Date().toISOString() },
+        meta: { dataSource: 'none', fetchedAt: new Date().toISOString() },
       }, 503);
     }
   }

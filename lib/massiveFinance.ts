@@ -134,7 +134,7 @@ export async function fetchMassiveOptionsChain(
     const volume = parseInt(day.volume ?? 0);
     const oi     = parseInt(r.open_interest ?? 0);
 
-    const stockPrice = parseFloat(r.underlying?.price ?? 0) || underlyingPrice;
+    const stockPrice = parseFloat(r.underlying_asset?.price ?? r.underlying?.price ?? 0) || underlyingPrice;
     if (stockPrice) underlyingPrice = stockPrice;
 
     const delta           = greeks.delta != null ? parseFloat(greeks.delta) : estimateDelta(stockPrice, strike, dte, iv, type);
