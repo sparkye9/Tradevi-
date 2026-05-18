@@ -13,7 +13,18 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-POLYGON_BASE = "https://api.polygon.io"
+# Massive.com is the rebranded Polygon.io (since Oct 2025) — same API, new base URL.
+# We prefer massive_api_key; fall back to polygon_api_key for backwards compatibility.
+MASSIVE_BASE  = "https://api.massive.com"
+POLYGON_BASE  = "https://api.polygon.io"  # legacy fallback
+
+
+def _api_key() -> str:
+    return settings.massive_api_key or settings.polygon_api_key
+
+
+def _base_url() -> str:
+    return MASSIVE_BASE if settings.massive_api_key else POLYGON_BASE
 
 
 def _dte(expiration_str: str) -> int:
@@ -37,14 +48,15 @@ def _risk_label(cost: float, delta: float, dte: int) -> str:
 
 
 async def fetch_options_chain_polygon(symbol: str, expiration: Optional[str] = None) -> Dict[str, Any]:
-    """Fetch options chain from Polygon.io with Greeks."""
-    if not settings.polygon_api_key:
-        raise ValueError("POLYGON_API_KEY not configured")
+    """Fetch options chain from Massive (or Polygon fallback) with Greeks."""
+    key = _api_key()
+    if not key:
+        raise ValueError("MASSIVE_API_KEY not configured")
 
     params = {
         "underlying_ticker": symbol.upper(),
         "limit": 250,
-        "apiKey": settings.polygon_api_key,
+        "apiKey": key,
         "order": "asc",
         "sort": "strike_price",
     }
@@ -52,7 +64,7 @@ async def fetch_options_chain_polygon(symbol: str, expiration: Optional[str] = N
         params["expiration_date"] = expiration
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(f"{POLYGON_BASE}/v3/snapshot/options/{symbol}", params=params)
+        resp = await client.get(f"{_base_url()}/v3/snapshot/options/{symbol}", params=params)
         resp.raise_for_status()
         data = resp.json()
 
@@ -191,8 +203,8 @@ def fetch_options_chain_yf(symbol: str, expiration: Optional[str] = None) -> Dic
 
 
 async def fetch_options_chain(symbol: str, expiration: Optional[str] = None) -> Dict[str, Any]:
-    """Use Polygon if key is set, otherwise fall back to yfinance."""
-    if settings.polygon_api_key:
+    """Use Massive/Polygon if key is set, otherwise fall back to yfinance."""
+    if _api_key():
         try:
             return await fetch_options_chain_polygon(symbol, expiration)
         except Exception as e:
@@ -218,20 +230,22 @@ async def get_aggregates(
     Returns:
         List of candle dictionaries with time, open, high, low, close, volume
     """
-    if not settings.polygon_api_key:
-        raise ValueError("POLYGON_API_KEY not configured")
-    
+    key = _api_key()
+    if not key:
+        raise ValueError("MASSIVE_API_KEY not configured")
+
     import datetime
     end_date = datetime.date.today()
     start_date = end_date - datetime.timedelta(days=period_days)
-    
+
     params = {
         "timespan": timespan,
-        "apiKey": settings.polygon_api_key,
+        "apiKey": key,
         "limit": 50000,
+        "adjusted": "true",
     }
-    
-    url = f"{POLYGON_BASE}/v2/aggs/ticker/{symbol.upper()}/range/{multiplier}/{timespan}/{start_date}/{end_date}"
+
+    url = f"{_base_url()}/v2/aggs/ticker/{symbol.upper()}/range/{multiplier}/{timespan}/{start_date}/{end_date}"
     
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(url, params=params)

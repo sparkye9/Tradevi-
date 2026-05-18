@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { fetchMassiveOptionsChain } from '@/lib/massiveFinance';
 import { fetchYahooOptionsChain } from '@/lib/yahooFinance';
 
 const ALPACA_BASE_URL = process.env.ALPACA_BASE_URL?.replace(/\/$/, '') ?? 'https://data.alpaca.markets';
@@ -145,7 +146,17 @@ export async function GET(request: NextRequest) {
   let chain: any;
   let source = 'yahoo_delayed';
 
-  try {
+  // Try Massive first (real-time Greeks, requires MASSIVE_API_KEY)
+  if (process.env.MASSIVE_API_KEY) {
+    try {
+      chain = await fetchMassiveOptionsChain(symbol, dateParam);
+      source = 'massive';
+    } catch {
+      // fall through to Yahoo
+    }
+  }
+
+  if (!chain) try {
     chain = await fetchYahooOptionsChain(symbol, dateParam);
     source = chain.dataSource ?? 'yahoo_delayed';
   } catch (baseError) {

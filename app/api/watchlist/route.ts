@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { fetchMassiveQuote } from '@/lib/massiveFinance';
 import { fetchYahooQuote } from '@/lib/yahooFinance';
 
 export async function POST(request: NextRequest) {
@@ -6,8 +7,12 @@ export async function POST(request: NextRequest) {
     const { symbols } = await request.json();
     if (!Array.isArray(symbols)) return NextResponse.json({ error: 'symbols array required' }, { status: 400 });
 
+    const fetchQuote = process.env.MASSIVE_API_KEY
+      ? (s: string) => fetchMassiveQuote(s)
+      : (s: string) => fetchYahooQuote(s);
+
     const results = await Promise.allSettled(
-      symbols.slice(0, 20).map(s => fetchYahooQuote(String(s).toUpperCase()))
+      symbols.slice(0, 20).map(s => fetchQuote(String(s).toUpperCase()))
     );
 
     const quotes: Record<string, object> = {};

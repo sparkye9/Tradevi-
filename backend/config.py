@@ -3,8 +3,9 @@ from typing import List
 
 
 class Settings(BaseSettings):
+    massive_api_key: str = ""
     finnhub_api_key: str = ""
-    polygon_api_key: str = ""
+    polygon_api_key: str = ""  # legacy alias; massive_api_key takes priority
     alpaca_api_key: str = ""
     alpaca_secret_key: str = ""
     alpaca_base_url: str = "https://paper-api.alpaca.markets"

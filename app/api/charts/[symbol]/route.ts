@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { fetchMassiveCandles } from '@/lib/massiveChart';
 import { fetchFinnhubCandles } from '@/lib/finnhub';
 import { fetchYahooCandles } from '@/lib/yahooChart';
 import { fetchStooqCandles } from '@/lib/stooq';
@@ -58,7 +59,32 @@ export async function GET(
   const period   = VALID_PERIODS.includes(sp.get('period') ?? '')     ? sp.get('period')!   : '3mo';
   const interval = VALID_INTERVALS.includes(sp.get('interval') ?? '') ? sp.get('interval')! : '1d';
 
-  // Try Finnhub first (real-time)
+  // Try Massive first (real-time, requires MASSIVE_API_KEY)
+  if (process.env.MASSIVE_API_KEY) {
+    try {
+      const result  = await fetchMassiveCandles(symbol, period, interval);
+      const candles = result.candles as CandleData[];
+      const { indicatorData, analysis } = calcAllIndicators(candles);
+
+      return NextResponse.json(
+        {
+          symbol, period, interval, candles,
+          analysis: { ...analysis, indicators: indicatorData },
+          meta: {
+            dataSource: 'massive',
+            fetchedAt:  new Date().toISOString(),
+            delayNote:  'Real-time via Massive',
+            count:      candles.length,
+          },
+        },
+        { headers: { 'Cache-Control': 'no-store' } },
+      );
+    } catch {
+      // Fall through to Finnhub
+    }
+  }
+
+  // Try Finnhub (real-time)
   if (process.env.FINNHUB_API_KEY) {
     try {
       const result  = await fetchFinnhubCandles(symbol, period, interval);

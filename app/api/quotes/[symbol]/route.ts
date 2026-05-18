@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { fetchMassiveQuote } from '@/lib/massiveFinance';
 import { fetchTwelveQuote } from '@/lib/twelveData';
 import { fetchAlpacaQuote } from '@/lib/alpaca';
 import { fetchYahooQuote } from '@/lib/yahooFinance';
@@ -12,7 +13,31 @@ export async function GET(
   const symbol = rawSymbol.toUpperCase();
   let lastError = '';
 
-  // Try Twelve Data first
+  // Try Massive first (real-time, requires MASSIVE_API_KEY)
+  if (process.env.MASSIVE_API_KEY) {
+    try {
+      const raw = await fetchMassiveQuote(symbol);
+      const quote = {
+        symbol,
+        price:         raw.price,
+        open:          raw.regularMarketOpen    ?? 0,
+        high:          raw.regularMarketDayHigh ?? 0,
+        low:           raw.regularMarketDayLow  ?? 0,
+        prevClose:     raw.price - raw.change,
+        change:        raw.change,
+        changePercent: raw.changePercent,
+        volume:        raw.volume,
+        shortName:     raw.shortName,
+        dataSource:    'massive',
+        fetchedAt:     new Date().toISOString(),
+      };
+      return NextResponse.json(quote, { headers: { 'Cache-Control': 'no-store' } });
+    } catch (err: unknown) {
+      lastError = err instanceof Error ? err.message : 'Massive failed';
+    }
+  }
+
+  // Try Twelve Data
   try {
     const quote = await fetchTwelveQuote(symbol);
     return NextResponse.json(quote, { headers: { 'Cache-Control': 'no-store' } });

@@ -36,7 +36,7 @@ async def get_candles(
     providers_to_try = []
     
     if use_provider == "auto":
-        if settings.polygon_api_key:
+        if settings.massive_api_key or settings.polygon_api_key:
             providers_to_try.append("polygon")
         if settings.finnhub_api_key:
             providers_to_try.append("finnhub")
@@ -175,20 +175,23 @@ async def get_quote(symbol: str, use_provider: str = "auto") -> Dict[str, Any]:
     """
     
     providers_to_try = []
-    
+
     if use_provider == "auto":
+        if settings.massive_api_key or settings.polygon_api_key:
+            providers_to_try.append("massive")
         if settings.finnhub_api_key:
             providers_to_try.append("finnhub")
-        # YFinance is always available
         providers_to_try.append("yfinance")
     else:
         providers_to_try.append(use_provider)
-    
+
     last_error = None
-    
+
     for provider in providers_to_try:
         try:
-            if provider == "finnhub":
+            if provider == "massive":
+                return await _get_quote_massive(symbol)
+            elif provider == "finnhub":
                 return await get_quote_finnhub(symbol)
             elif provider == "yfinance":
                 from services.yfinance_service import fetch_quote_yf
@@ -203,10 +206,50 @@ async def get_quote(symbol: str, use_provider: str = "auto") -> Dict[str, Any]:
     raise Exception(f"Quote unavailable - no providers configured")
 
 
+async def _get_quote_massive(symbol: str) -> Dict[str, Any]:
+    """Real-time quote from Massive (Polygon rebranded) snapshot endpoint."""
+    from services.polygon_service import _api_key, _base_url
+    key = _api_key()
+    if not key:
+        raise ValueError("Massive API key not configured")
+
+    url = f"{_base_url()}/v2/snapshot/locale/us/markets/stocks/tickers/{symbol.upper()}?apiKey={key}"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        data = resp.json()
+
+    t = data.get("ticker", {})
+    day = t.get("day", {})
+    prev = t.get("prevDay", {})
+    last_trade = t.get("lastTrade", {})
+
+    price = float(last_trade.get("p", 0) or day.get("c", 0) or 0)
+    prev_close = float(prev.get("c", 0) or price)
+    change = price - prev_close
+    change_pct = (change / prev_close * 100) if prev_close else float(t.get("todaysChangePerc", 0))
+
+    return {
+        "symbol": symbol.upper(),
+        "price": round(price, 4),
+        "open": round(float(day.get("o", 0)), 4),
+        "high": round(float(day.get("h", 0)), 4),
+        "low": round(float(day.get("l", 0)), 4),
+        "prevClose": round(prev_close, 4),
+        "change": round(change, 4),
+        "changePercent": round(change_pct, 4),
+        "volume": int(day.get("v", 0)),
+        "shortName": symbol.upper(),
+        "dataSource": "massive_realtime",
+        "fetchedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+
 def get_health_status() -> Dict[str, Any]:
     """Get status of all market data providers."""
     return {
+        "massive": bool(settings.massive_api_key),
         "polygon": bool(settings.polygon_api_key),
         "finnhub": bool(settings.finnhub_api_key),
-        "yfinance": True,  # Always available
+        "yfinance": True,
     }
