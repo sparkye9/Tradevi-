@@ -6,7 +6,8 @@ import {
   TrendingUp, TrendingDown, Minus, RefreshCw, Clock,
   Target, AlertTriangle, ChevronUp, ChevronDown, Activity,
 } from 'lucide-react';
-import { createChart, CrosshairMode, LineStyle, PriceLineOptions } from 'lightweight-charts';
+import { createChart, CrosshairMode, LineStyle, CandlestickSeries, createSeriesMarkers } from 'lightweight-charts';
+import type { PriceLineOptions } from 'lightweight-charts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -417,7 +418,7 @@ export default function ICTDashboardPage() {
     chartInst.current = chart;
 
     // Candlestick
-    const cs = chart.addCandlestickSeries({
+    const cs = chart.addSeries(CandlestickSeries, {
       upColor: '#22c55e', downColor: '#ef4444',
       borderVisible: false, wickUpColor: '#22c55e', wickDownColor: '#ef4444',
     });
@@ -442,7 +443,7 @@ export default function ICTDashboardPage() {
       text:     s.type === 'bullish' ? `▲ ${s.levelName}` : `▼ ${s.levelName}`,
       size: 1,
     } as any));
-    if (markers.length) cs.setMarkers(markers);
+    if (markers.length) createSeriesMarkers(cs, markers);
 
     chart.timeScale().fitContent();
 
