@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+// ─── ET timezone ──────────────────────────────────────────────────────────────
+
 function getETOffsetHours(): number {
   const now = new Date();
   const year = now.getFullYear();
@@ -13,6 +15,8 @@ function getETOffsetHours(): number {
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Candle {
   time: number;
@@ -92,62 +96,82 @@ interface TickerAnalysis {
   candleCount: number;
   rankScore: number;
   lastAHTradeTime: string | null;
+  dataSource: string;
 }
 
-const SYMBOLS = ['SPY','QQQ','NVDA','TSLA','AAPL','META','AMD','MSFT','TQQQ','SQQQ','IWM','PLTR','AMZN','SOFI'];
-const ETF_SYMBOLS = new Set(['SPY','QQQ','TQQQ','SQQQ','IWM']);
+// ─── Symbols ──────────────────────────────────────────────────────────────────
 
-async function fetchBatchQuotes(symbols: string[]): Promise<QuoteResult[]> {
-  const csv = symbols.join(',');
-  const fields = [
-    'symbol','shortName','regularMarketPrice','regularMarketChange',
-    'regularMarketChangePercent','regularMarketVolume','averageDailyVolume3Month',
-    'postMarketPrice','postMarketChange','postMarketChangePercent','postMarketTime',
-    'bid','ask','regularMarketDayHigh','regularMarketDayLow',
-  ].join(',');
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(csv)}&fields=${fields}`;
+const SYMBOLS = ['SPY', 'QQQ', 'NVDA', 'TSLA', 'AAPL', 'META', 'AMD', 'MSFT', 'TQQQ', 'SQQQ', 'IWM', 'PLTR', 'AMZN', 'SOFI'];
+const ETF_SYMBOLS = new Set(['SPY', 'QQQ', 'TQQQ', 'SQQQ', 'IWM']);
 
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; TradingApp/1.0)',
-      'Accept': 'application/json',
-    },
-    cache: 'no-store',
-  });
-  if (!res.ok) throw new Error(`Yahoo v7 quote fetch HTTP ${res.status}`);
+// ─── Yahoo Finance v8 chart — same pattern as working ORB/power-hour routes ──
 
-  const text = await res.text();
-  if (text.trimStart().startsWith('<')) throw new Error('Yahoo v7 returned HTML');
+const YF_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer': 'https://finance.yahoo.com/',
+};
 
-  const json = JSON.parse(text);
-  return (json?.quoteResponse?.result ?? []) as QuoteResult[];
-}
+// Single request per symbol: returns both quote meta AND 1-min candles for today.
+// Uses range=1d (not period1/period2) so it works regardless of time of day.
+async function fetchSymbolData(
+  symbol: string,
+  ahStartSec: number,
+  ahEndSec: number,
+  nowSec: number,
+): Promise<{ quote: QuoteResult; candles: Candle[] }> {
+  const url =
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}` +
+    `?range=1d&interval=1m&includePrePost=true`;
 
-async function fetchAHCandles(symbol: string, ahStartSec: number): Promise<Candle[]> {
-  const nowSec = Math.floor(Date.now() / 1000);
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`
-    + `?period1=${ahStartSec}&period2=${nowSec}&interval=1m&includePrePost=true`;
-
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; TradingApp/1.0)',
-      'Accept': 'application/json',
-    },
-    cache: 'no-store',
-  });
-  if (!res.ok) throw new Error(`Yahoo chart HTTP ${res.status}`);
+  const res = await fetch(url, { headers: YF_HEADERS, cache: 'no-store' });
+  if (!res.ok) throw new Error(`Yahoo Finance HTTP ${res.status} for ${symbol}`);
 
   const text = await res.text();
-  if (text.trimStart().startsWith('<')) throw new Error('Yahoo chart returned HTML');
+  if (text.trimStart().startsWith('<')) throw new Error(`Yahoo Finance returned HTML for ${symbol} — rate limited`);
 
   const json = JSON.parse(text);
   const result = json?.chart?.result?.[0];
-  if (!result) throw new Error(json?.chart?.error?.description ?? 'No chart data');
+  if (!result) throw new Error(json?.chart?.error?.description ?? `No chart data for ${symbol}`);
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const meta: Record<string, any> = result.meta ?? {};
+
+  // Extract quote data from chart meta (v8 meta has postMarket fields)
+  const regularClose = round2(meta.regularMarketPrice ?? meta.chartPreviousClose ?? 0);
+  const postPrice    = meta.postMarketPrice != null ? round2(meta.postMarketPrice) : undefined;
+  const postChange   = postPrice != null ? round2(postPrice - regularClose) : undefined;
+  const postChangePct = postPrice != null && regularClose > 0
+    ? round2(((postPrice - regularClose) / regularClose) * 100)
+    : undefined;
+
+  const quote: QuoteResult = {
+    symbol,
+    shortName:                  meta.shortName ?? meta.longName ?? symbol,
+    regularMarketPrice:         regularClose,
+    regularMarketChange:        round2(meta.regularMarketChange ?? 0),
+    regularMarketChangePercent: round2(meta.regularMarketChangePercent ?? 0),
+    regularMarketVolume:        meta.regularMarketVolume ?? 0,
+    // v8 chart meta doesn't carry 3-month avg; use today's vol as stand-in
+    averageDailyVolume3Month:   meta.regularMarketVolume ?? 0,
+    regularMarketDayHigh:       round2(meta.regularMarketDayHigh ?? 0),
+    regularMarketDayLow:        round2(meta.regularMarketDayLow ?? 0),
+    postMarketPrice:            postPrice,
+    postMarketChange:           postChange,
+    postMarketChangePercent:    postChangePct,
+    postMarketTime:             meta.postMarketTime,
+    // v8 chart meta rarely carries bid/ask; default to 0 (spread shown as N/A)
+    bid:  meta.bid  ?? 0,
+    ask:  meta.ask  ?? 0,
+  };
+
+  // Extract 1-min candles and filter to AH window only
   const timestamps: number[] = result.timestamp ?? [];
   const q = result.indicators?.quote?.[0] ?? {};
+  const windowEnd = Math.min(nowSec, ahEndSec);
 
-  return timestamps
+  const candles: Candle[] = timestamps
     .map((ts, i) => ({
       time:   ts,
       open:   q.open?.[i]   ?? 0,
@@ -156,63 +180,55 @@ async function fetchAHCandles(symbol: string, ahStartSec: number): Promise<Candl
       close:  q.close?.[i]  ?? 0,
       volume: q.volume?.[i] ?? 0,
     }))
-    .filter(c => c.close > 0 && c.high > 0 && c.time >= ahStartSec);
+    .filter(c => c.close > 0 && c.high > 0 && c.time >= ahStartSec && c.time <= windowEnd);
+
+  return { quote, candles };
 }
 
-function calcLiquidity(
-  spreadPct: number,
-  isEtf: boolean,
-): 'SAFE' | 'MODERATE' | 'DANGEROUS' {
-  if (isEtf) {
-    return spreadPct < 0.03 ? 'SAFE' : spreadPct < 0.20 ? 'MODERATE' : 'DANGEROUS';
-  }
+// ─── Analysis helpers ─────────────────────────────────────────────────────────
+
+function calcLiquidity(spreadPct: number, isEtf: boolean): 'SAFE' | 'MODERATE' | 'DANGEROUS' {
+  if (spreadPct === 0) return 'MODERATE'; // no bid/ask data
+  if (isEtf) return spreadPct < 0.03 ? 'SAFE' : spreadPct < 0.20 ? 'MODERATE' : 'DANGEROUS';
   return spreadPct < 0.05 ? 'SAFE' : spreadPct < 0.20 ? 'MODERATE' : 'DANGEROUS';
 }
 
 function calcVwap(candles: Candle[]): number | null {
   if (!candles.length) return null;
-  let cumTPV = 0;
-  let cumVol = 0;
+  let cumTPV = 0, cumVol = 0;
   for (const c of candles) {
-    const tp = (c.high + c.low + c.close) / 3;
-    cumTPV += tp * c.volume;
+    cumTPV += ((c.high + c.low + c.close) / 3) * c.volume;
     cumVol += c.volume;
   }
   return cumVol > 0 ? cumTPV / cumVol : null;
 }
 
-function calcTrend(
-  candles: Candle[],
-  ahChangePct: number,
-  currentPrice: number,
-  vwap: number | null,
-): string {
-  const last5 = candles.slice(-5);
-  const bullishLast5 = last5.filter(c => c.close >= c.open).length;
-  const bearishLast5 = last5.length - bullishLast5;
-
+function calcTrend(candles: Candle[], ahChangePct: number, vwap: number | null): string {
   if (Math.abs(ahChangePct) < 0.3) return 'Range chop';
-  if (ahChangePct > 1.5 && bearishLast5 >= 3) return 'Exhaustion move';
 
-  const initialAHUp = ahChangePct > 0;
+  const last5 = candles.slice(-5);
+  const bullLast5 = last5.filter(c => c.close >= c.open).length;
+  const bearLast5 = last5.length - bullLast5;
+
+  if (ahChangePct > 1.5 && bearLast5 >= 3) return 'Exhaustion move';
+
   if (vwap !== null && candles.length >= 3) {
     const recent3 = candles.slice(-3);
-    const recentUp = recent3.every(c => c.close >= c.open);
-    const recentDown = recent3.every(c => c.close < c.open);
-    if (initialAHUp && recentDown) return 'Reversal setup';
-    if (!initialAHUp && recentUp) return 'Reversal setup';
+    const recentUp   = recent3.every(c => c.close >= c.open);
+    const recentDown = recent3.every(c => c.close  < c.open);
+    if (ahChangePct > 0 && recentDown) return 'Reversal setup';
+    if (ahChangePct < 0 && recentUp)   return 'Reversal setup';
   }
 
-  if (bullishLast5 >= 4 && ahChangePct > 0) return 'Bullish continuation';
-  if (bearishLast5 >= 4 && ahChangePct < 0) return 'Bearish continuation';
-
+  if (bullLast5 >= 4 && ahChangePct > 0) return 'Bullish continuation';
+  if (bearLast5 >= 4 && ahChangePct < 0) return 'Bearish continuation';
   return ahChangePct > 0 ? 'Bullish continuation' : 'Bearish continuation';
 }
 
 function calcMomentumScore(
   ahChangePct: number,
-  ahCandleVolume: number,
-  avgDailyVolume: number,
+  ahVolume: number,
+  regularVolume: number,
   candles: Candle[],
   trend: string,
 ): number {
@@ -226,8 +242,9 @@ function calcMomentumScore(
   else if (absChg > 0.2) score += 1;
   else                   score += 0.3;
 
-  const ahExpectedVol = avgDailyVolume * 0.05;
-  const volSurge = ahExpectedVol > 0 ? ahCandleVolume / ahExpectedVol : 0;
+  // AH volume vs ~5% of the day's regular volume
+  const ahExpected = regularVolume * 0.05;
+  const volSurge   = ahExpected > 0 ? ahVolume / ahExpected : 0;
   if (volSurge > 5)        score += 3;
   else if (volSurge > 3)   score += 2.5;
   else if (volSurge > 2)   score += 2;
@@ -236,23 +253,25 @@ function calcMomentumScore(
   else                     score += 0.3;
 
   const last8 = candles.slice(-8);
-  const bullishCount = last8.filter(c => c.close >= c.open).length;
-  const bullishPct = last8.length > 0 ? bullishCount / last8.length : 0;
-  const isBullishTrend = trend.toLowerCase().includes('bullish') || trend === 'Exhaustion move';
-  const consistency = isBullishTrend ? bullishPct : 1 - bullishPct;
-  if (consistency > 0.85)      score += 2;
-  else if (consistency > 0.70) score += 1.5;
-  else if (consistency > 0.55) score += 1;
-  else                         score += 0.3;
+  if (last8.length > 0) {
+    const bullPct  = last8.filter(c => c.close >= c.open).length / last8.length;
+    const isBull   = trend.toLowerCase().includes('bullish') || trend === 'Exhaustion move';
+    const consist  = isBull ? bullPct : 1 - bullPct;
+    if (consist > 0.85)      score += 2;
+    else if (consist > 0.70) score += 1.5;
+    else if (consist > 0.55) score += 1;
+    else                     score += 0.3;
+  } else {
+    score += 0.3;
+  }
 
   const last5 = candles.slice(-5);
   if (last5.length >= 2) {
-    const recentMove = (last5[last5.length - 1].close - last5[0].open) / last5[0].open * 100;
-    const absRecent = Math.abs(recentMove);
-    if (absRecent > 0.5)       score += 2;
-    else if (absRecent > 0.3)  score += 1.5;
-    else if (absRecent > 0.15) score += 1;
-    else                       score += 0.3;
+    const recentMove = Math.abs((last5[last5.length - 1].close - last5[0].open) / last5[0].open * 100);
+    if (recentMove > 0.5)       score += 2;
+    else if (recentMove > 0.3)  score += 1.5;
+    else if (recentMove > 0.15) score += 1;
+    else                        score += 0.3;
   } else {
     score += 0.3;
   }
@@ -260,10 +279,7 @@ function calcMomentumScore(
   return Math.min(10, Math.max(1, Math.round(score * 10) / 10));
 }
 
-function calcGrade(
-  score: number,
-  liquidity: 'SAFE' | 'MODERATE' | 'DANGEROUS',
-): 'A' | 'B' | 'C' | 'D' {
+function calcGrade(score: number, liquidity: 'SAFE' | 'MODERATE' | 'DANGEROUS'): 'A' | 'B' | 'C' | 'D' {
   if (score >= 8 && liquidity !== 'DANGEROUS') return 'A';
   if (score >= 6.5) return 'B';
   if (score >= 5)   return 'C';
@@ -276,14 +292,9 @@ function calcRankScore(
   grade: 'A' | 'B' | 'C' | 'D',
   ahChangePct: number,
 ): number {
-  const liqScore = liquidity === 'SAFE' ? 10 : liquidity === 'MODERATE' ? 6 : 2;
+  const liqScore   = liquidity === 'SAFE' ? 10 : liquidity === 'MODERATE' ? 6 : 2;
   const gradeScore = grade === 'A' ? 10 : grade === 'B' ? 7 : grade === 'C' ? 5 : 2;
-  return round2(
-    score * 0.40 +
-    liqScore * 0.20 +
-    gradeScore * 0.25 +
-    Math.min(10, Math.abs(ahChangePct)) * 0.15,
-  );
+  return round2(score * 0.40 + liqScore * 0.20 + gradeScore * 0.25 + Math.min(10, Math.abs(ahChangePct)) * 0.15);
 }
 
 function buildRiskWarnings(
@@ -292,25 +303,20 @@ function buildRiskWarnings(
   trend: string,
   liquidity: 'SAFE' | 'MODERATE' | 'DANGEROUS',
   candles: Candle[],
-  candleCount: number,
 ): string[] {
-  const warnings: string[] = [];
-
-  if (spreadPct > 0.15) warnings.push('Spread widening — execution risk elevated');
-  if (Math.abs(ahChangePct) > 5) warnings.push('Extended move — exhaustion/fade risk; avoid chasing');
-  if (trend === 'Range chop') warnings.push('Low momentum — chop conditions likely');
-  if (trend === 'Exhaustion move') warnings.push('Exhaustion detected — reversal risk is high');
-
+  const w: string[] = [];
+  if (spreadPct > 0.15 && spreadPct > 0) w.push('Spread widening — execution risk elevated');
+  if (Math.abs(ahChangePct) > 5)         w.push('Extended move — exhaustion/fade risk; avoid chasing');
+  if (trend === 'Range chop')            w.push('Low momentum — chop conditions likely');
+  if (trend === 'Exhaustion move')       w.push('Exhaustion detected — reversal risk is high');
   if (candles.length >= 6) {
-    const last3Vol  = candles.slice(-3).reduce((s, c) => s + c.volume, 0);
-    const prev3Vol  = candles.slice(-6, -3).reduce((s, c) => s + c.volume, 0);
-    if (last3Vol < prev3Vol) warnings.push('Volume collapsing — momentum fading');
+    const last3 = candles.slice(-3).reduce((s, c) => s + c.volume, 0);
+    const prev3 = candles.slice(-6, -3).reduce((s, c) => s + c.volume, 0);
+    if (last3 < prev3) w.push('Volume collapsing — momentum fading');
   }
-
-  if (liquidity === 'DANGEROUS') warnings.push('DANGEROUS spread — skip this setup');
-  if (candleCount < 3) warnings.push('Insufficient AH data — confidence low');
-
-  return warnings;
+  if (liquidity === 'DANGEROUS') w.push('DANGEROUS spread — skip this setup');
+  if (candles.length < 3)       w.push('Insufficient AH candle data — confidence low');
+  return w;
 }
 
 function analyzeSymbol(
@@ -318,57 +324,58 @@ function analyzeSymbol(
   candles: Candle[],
   qqqAHChangePct: number,
 ): TickerAnalysis {
-  const symbol = quote.symbol;
-  const isEtf = ETF_SYMBOLS.has(symbol);
+  const symbol   = quote.symbol;
+  const isEtf    = ETF_SYMBOLS.has(symbol);
 
-  const regularClose  = round2(quote.regularMarketPrice ?? 0);
-  const ahChangePct   = round2(quote.postMarketChangePercent ?? 0);
-  const ahChange      = round2(quote.postMarketChange ?? 0);
-  const currentPrice  = round2(quote.postMarketPrice ?? regularClose);
-  const avgDailyVolume = quote.averageDailyVolume3Month ?? 0;
+  const regularClose   = round2(quote.regularMarketPrice ?? 0);
+  const ahChangePct    = round2(quote.postMarketChangePercent ?? 0);
+  const ahChange       = round2(quote.postMarketChange ?? 0);
+  const currentPrice   = round2(quote.postMarketPrice ?? regularClose);
+  // Use today's regular volume as daily avg when 3-month avg unavailable
+  const avgDailyVolume = quote.averageDailyVolume3Month > 0
+    ? quote.averageDailyVolume3Month
+    : quote.regularMarketVolume;
 
   const bid = quote.bid ?? 0;
   const ask = quote.ask ?? 0;
-  const spread = round2(ask - bid);
-  const midpoint = (ask + bid) / 2;
+  const spread    = round2(Math.max(0, ask - bid));
+  const midpoint  = bid > 0 && ask > 0 ? (ask + bid) / 2 : 0;
   const spreadPct = round2(midpoint > 0 ? (spread / midpoint) * 100 : 0);
   const liquidity = calcLiquidity(spreadPct, isEtf);
 
-  const ahHigh   = candles.length > 0 ? round2(Math.max(...candles.map(c => c.high)))  : null;
-  const ahLow    = candles.length > 0 ? round2(Math.min(...candles.map(c => c.low)))   : null;
-  const ahRange  = ahHigh !== null && ahLow !== null ? round2(ahHigh - ahLow) : null;
-  const vwap     = candles.length > 0 ? (calcVwap(candles) !== null ? round2(calcVwap(candles)!) : null) : null;
+  const ahHigh  = candles.length > 0 ? round2(Math.max(...candles.map(c => c.high)))  : null;
+  const ahLow   = candles.length > 0 ? round2(Math.min(...candles.map(c => c.low)))   : null;
+  const ahRange = ahHigh !== null && ahLow !== null ? round2(ahHigh - ahLow) : null;
+  const vwapRaw = calcVwap(candles);
+  const vwap    = vwapRaw !== null ? round2(vwapRaw) : null;
 
-  const ahVolume = candles.reduce((s, c) => s + c.volume, 0);
-  const ahExpectedVol = avgDailyVolume * 0.05;
-  const volSurge = round2(ahExpectedVol > 0 ? ahVolume / ahExpectedVol : 0);
+  const ahVolume   = candles.reduce((s, c) => s + c.volume, 0);
+  const ahExpected = avgDailyVolume * 0.05;
+  const volSurge   = round2(ahExpected > 0 ? ahVolume / ahExpected : 0);
 
-  const trend = calcTrend(candles, ahChangePct, currentPrice, vwap);
-  const momentumScore = calcMomentumScore(ahChangePct, ahVolume, avgDailyVolume, candles, trend);
-  const grade = calcGrade(momentumScore, liquidity);
-  const setupQuality = grade === 'D' || liquidity === 'DANGEROUS' ? 'WAIT' : grade;
+  const trend         = calcTrend(candles, ahChangePct, vwap);
+  const momentumScore = calcMomentumScore(ahChangePct, ahVolume, quote.regularMarketVolume, candles, trend);
+  const grade         = calcGrade(momentumScore, liquidity);
+  const setupQuality  = grade === 'D' || liquidity === 'DANGEROUS' ? 'WAIT' : grade;
 
   const rsVsQQQPct = round2(ahChangePct - qqqAHChangePct);
-  const rsVsQQQ = rsVsQQQPct > 0.5 ? 'Outperforming' : rsVsQQQPct < -0.5 ? 'Underperforming' : 'Inline';
+  const rsVsQQQ    = rsVsQQQPct > 0.5 ? 'Outperforming' : rsVsQQQPct < -0.5 ? 'Underperforming' : 'Inline';
 
-  const isBullishTrend = trend === 'Bullish continuation' || trend === 'Exhaustion move';
+  const isBullish          = trend === 'Bullish continuation' || trend === 'Exhaustion move';
   const preferredDirection: 'long' | 'short' | 'neutral' =
-    trend === 'Range chop' ? 'neutral' : isBullishTrend ? 'long' : 'short';
+    trend === 'Range chop' ? 'neutral' : isBullish ? 'long' : 'short';
 
   const keyLevels: KeyLevels = {
-    ahHigh,
-    ahLow,
-    regularClose,
-    vwap,
-    breakoutLevel: ahHigh,
+    ahHigh, ahLow, regularClose, vwap,
+    breakoutLevel:  ahHigh,
     breakdownLevel: ahLow,
   };
 
   const longSetup: ScalpSetup = {
-    entry: ahHigh !== null
+    entry:  ahHigh !== null
       ? `1-min close above AH high ($${ahHigh}) with volume confirmation`
       : 'Insufficient AH data for long entry',
-    stop: ahRange !== null
+    stop:   ahRange !== null
       ? `Below previous 1-min candle low (est. $${round2(currentPrice - ahRange * 0.2)})`
       : 'N/A',
     tp1:    ahHigh !== null && ahRange !== null ? round2(ahHigh + ahRange * 0.5) : null,
@@ -377,10 +384,10 @@ function analyzeSymbol(
   };
 
   const shortSetup: ScalpSetup = {
-    entry: ahLow !== null
+    entry:  ahLow !== null
       ? `1-min close below AH low ($${ahLow}) with volume confirmation`
       : 'Insufficient AH data for short entry',
-    stop: ahRange !== null
+    stop:   ahRange !== null
       ? `Above previous 1-min candle high (est. $${round2(currentPrice + ahRange * 0.2)})`
       : 'N/A',
     tp1:    ahLow !== null && ahRange !== null ? round2(ahLow - ahRange * 0.5) : null,
@@ -388,21 +395,17 @@ function analyzeSymbol(
     runner: ahLow !== null && ahRange !== null ? round2(ahLow - ahRange * 1.5) : null,
   };
 
-  const isBullish = preferredDirection === 'long';
-  const confirmationLogic = isBullish
+  const confirmationLogic = preferredDirection === 'long'
     ? 'Wait for 1-min candle to close above AH high with 1.5x+ AH average volume; QQQ AH must be green or neutral'
     : preferredDirection === 'short'
       ? 'Wait for 1-min candle to close below AH low with 1.5x+ AH average volume; QQQ AH must be red or neutral'
       : 'No directional bias — wait for momentum to develop';
 
-  const candleCount = candles.length;
-  const riskWarnings = buildRiskWarnings(spreadPct, ahChangePct, trend, liquidity, candles, candleCount);
-
+  const riskWarnings = buildRiskWarnings(spreadPct, ahChangePct, trend, liquidity, candles);
+  const rankScore    = calcRankScore(momentumScore, liquidity, grade, ahChangePct);
   const lastAHTradeTime = quote.postMarketTime
     ? new Date(quote.postMarketTime * 1000).toISOString()
     : null;
-
-  const rankScore = calcRankScore(momentumScore, liquidity, grade, ahChangePct);
 
   return {
     symbol,
@@ -411,94 +414,84 @@ function analyzeSymbol(
     regularClose,
     ahChange,
     ahChangePct,
-    ahHigh,
-    ahLow,
-    ahRange,
-    vwap,
-    bid:              round2(bid),
-    ask:              round2(ask),
-    spread,
-    spreadPct,
-    liquidity,
-    trend,
-    momentumScore,
-    grade,
-    setupQuality,
-    rsVsQQQ,
-    rsVsQQQPct,
-    ahVolume,
-    avgDailyVolume,
-    volSurge,
-    keyLevels,
-    longSetup,
-    shortSetup,
-    preferredDirection,
-    confirmationLogic,
-    riskWarnings,
-    candleCount,
+    ahHigh, ahLow, ahRange, vwap,
+    bid: round2(bid), ask: round2(ask), spread, spreadPct,
+    liquidity, trend, momentumScore, grade, setupQuality,
+    rsVsQQQ, rsVsQQQPct,
+    ahVolume, avgDailyVolume, volSurge,
+    keyLevels, longSetup, shortSetup,
+    preferredDirection, confirmationLogic, riskWarnings,
+    candleCount: candles.length,
     rankScore,
     lastAHTradeTime,
+    dataSource: 'yahoo_finance_v8',
   };
 }
 
+// ─── Route handler ────────────────────────────────────────────────────────────
+
 export async function GET() {
   try {
-    const etOffset = getETOffsetHours();
-    const now = new Date();
-    const nowSec = Math.floor(now.getTime() / 1000);
+    const etOffset  = getETOffsetHours();
+    const now       = new Date();
+    const nowSec    = Math.floor(now.getTime() / 1000);
 
     const utcMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    // AH: 4:00 PM – 8:00 PM ET
+    const ahStartSec = Math.floor(utcMidnight / 1000) + (16 - etOffset) * 3600;
+    const ahEndSec   = Math.floor(utcMidnight / 1000) + (20 - etOffset) * 3600;
 
-    // AH window: 16:00 ET = 16 - etOffset hours UTC
-    const ahStartUTC = utcMidnight + (16 - etOffset) * 3600 * 1000;
-    const ahEndUTC   = utcMidnight + (20 - etOffset) * 3600 * 1000;
-    const ahStartSec = Math.floor(ahStartUTC / 1000);
-    const ahEndSec   = Math.floor(ahEndUTC / 1000);
+    const sessionPhase: 'pre_ah' | 'after_hours' | 'post_ah' =
+      nowSec < ahStartSec ? 'pre_ah' :
+      nowSec < ahEndSec   ? 'after_hours' :
+                            'post_ah';
 
-    const nowET = now.getTime() / 1000 - etOffset * 3600;
-    const nowHourET = new Date(nowET * 1000).getUTCHours();
-
-    let sessionPhase: 'pre_ah' | 'after_hours' | 'post_ah';
-    if (nowSec < ahStartSec)    sessionPhase = 'pre_ah';
-    else if (nowSec < ahEndSec) sessionPhase = 'after_hours';
-    else                        sessionPhase = 'post_ah';
-
-    const quotes = await fetchBatchQuotes(SYMBOLS);
-    if (!quotes.length) throw new Error('No quote data returned from Yahoo Finance');
-
-    const qqqQuote = quotes.find(q => q.symbol === 'QQQ');
-    const spyQuote = quotes.find(q => q.symbol === 'SPY');
-    const qqqAHChangePct = round2(qqqQuote?.postMarketChangePercent ?? 0);
-    const spyAHChangePct = round2(spyQuote?.postMarketChangePercent ?? 0);
-
-    const marketCondition: 'bullish' | 'bearish' | 'mixed' =
-      qqqAHChangePct > 0 && spyAHChangePct > 0 ? 'bullish' :
-      qqqAHChangePct < 0 && spyAHChangePct < 0 ? 'bearish' :
-      'mixed';
-
-    const activeQuotes = quotes.filter(q => {
-      if (!q.postMarketPrice) return false;
-      return Math.abs(q.postMarketChangePercent ?? 0) >= 0.1;
-    });
-
-    const candleResults = await Promise.allSettled(
-      activeQuotes.map(q => fetchAHCandles(q.symbol, ahStartSec)),
+    // Fetch all symbols in parallel — one request per symbol gives quote + candles
+    const results = await Promise.allSettled(
+      SYMBOLS.map(sym => fetchSymbolData(sym, ahStartSec, ahEndSec, nowSec)),
     );
 
-    const candleMap = new Map<string, Candle[]>();
-    activeQuotes.forEach((q, i) => {
-      const result = candleResults[i];
-      if (result.status === 'fulfilled') {
-        const filtered = result.value.filter(c => c.time >= ahStartSec && c.time <= Math.min(nowSec, ahEndSec));
-        candleMap.set(q.symbol, filtered);
-      } else {
-        candleMap.set(q.symbol, []);
-      }
-    });
+    // Build analysis for each symbol that succeeded
+    const analyses: TickerAnalysis[] = [];
+    const errors: string[] = [];
 
-    const allResults: TickerAnalysis[] = activeQuotes
-      .map(q => analyzeSymbol(q, candleMap.get(q.symbol) ?? [], qqqAHChangePct))
-      .sort((a, b) => b.rankScore - a.rankScore);
+    for (let i = 0; i < results.length; i++) {
+      const res = results[i];
+      if (res.status === 'rejected') {
+        errors.push(`${SYMBOLS[i]}: ${res.reason?.message ?? 'fetch failed'}`);
+        continue;
+      }
+      const { quote, candles } = res.value;
+      // Skip symbols with no meaningful AH movement
+      if ((quote.postMarketChangePercent ?? 0) === 0 && candles.length === 0) continue;
+      analyses.push(analyzeSymbol(quote, candles, 0)); // placeholder qqqAHChangePct
+    }
+
+    if (analyses.length === 0) {
+      throw new Error(
+        errors.length > 0
+          ? `Data fetch failed for all symbols. First error: ${errors[0]}`
+          : 'No AH data available — market may be closed or before AH session',
+      );
+    }
+
+    // Now that we have QQQ analysis, patch rsVsQQQ fields
+    const qqqAnalysis = analyses.find(a => a.symbol === 'QQQ');
+    const spyAnalysis = analyses.find(a => a.symbol === 'SPY');
+    const qqqAHChangePct = qqqAnalysis?.ahChangePct ?? 0;
+    const spyAHChangePct = spyAnalysis?.ahChangePct ?? 0;
+
+    // Re-run analysis with correct QQQ reference
+    const finalAnalyses: TickerAnalysis[] = [];
+    for (let i = 0; i < results.length; i++) {
+      const res = results[i];
+      if (res.status === 'rejected') continue;
+      const { quote, candles } = res.value;
+      if ((quote.postMarketChangePercent ?? 0) === 0 && candles.length === 0) continue;
+      finalAnalyses.push(analyzeSymbol(quote, candles, qqqAHChangePct));
+    }
+
+    const allResults = finalAnalyses.sort((a, b) => b.rankScore - a.rankScore);
 
     const top3: TickerAnalysis[] = [];
     for (const r of allResults) {
@@ -512,6 +505,10 @@ export async function GET() {
       }
     }
 
+    const marketCondition: 'bullish' | 'bearish' | 'mixed' =
+      qqqAHChangePct > 0 && spyAHChangePct > 0 ? 'bullish' :
+      qqqAHChangePct < 0 && spyAHChangePct < 0 ? 'bearish' : 'mixed';
+
     return NextResponse.json({
       success:             true,
       scannedAt:           now.toISOString(),
@@ -519,16 +516,17 @@ export async function GET() {
       qqqAHChange:         qqqAHChangePct,
       spyAHChange:         spyAHChangePct,
       marketCondition,
-      symbolsScanned:      quotes.length,
-      symbolsWithActivity: activeQuotes.length,
+      symbolsScanned:      SYMBOLS.length,
+      symbolsWithActivity: allResults.length,
       top3,
       allResults,
+      fetchErrors:         errors.length > 0 ? errors : undefined,
     }, { headers: { 'Cache-Control': 'no-store' } });
 
   } catch (err) {
-    return NextResponse.json({
-      success: false,
-      error:   err instanceof Error ? err.message : 'After-hours data unavailable',
-    }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json(
+      { success: false, error: err instanceof Error ? err.message : 'After-hours scan failed' },
+      { status: 503, headers: { 'Cache-Control': 'no-store' } },
+    );
   }
 }
