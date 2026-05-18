@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchYahooOptionsChain } from '@/lib/yahooFinance';
 import { analyzeOptionContract } from '@/lib/optionsAnalysis';
 
-const TRADIER_TOKEN = process.env.TRADIER_TOKEN;
-const TRADIER_ENABLED = Boolean(TRADIER_TOKEN);
-const TRADIER_BASE_URL = (process.env.TRADIER_API_URL ?? 'https://api.tradier.com/v1').replace(/\/$/, '');
+const POLYGON_API_KEY = process.env.POLYGON_API_KEY;
+const POLYGON_ENABLED = Boolean(POLYGON_API_KEY);
+const POLYGON_BASE = 'https://api.polygon.io';
 
 function safeJson(body: unknown, status = 200) {
   return NextResponse.json(body, {
@@ -46,92 +46,88 @@ function getNearestIV(calls: any[], puts: any[], price: number): number | null {
   return best.iv;
 }
 
-async function fetchTradierOptionsChain(symbol: string, expiration?: string | number) {
-  if (!TRADIER_ENABLED) {
-    throw new Error('Tradier token is not configured.');
+async function fetchPolygonOptionsChain(symbol: string, expiration?: string | number) {
+  if (!POLYGON_ENABLED) {
+    throw new Error('Polygon API key is not configured.');
   }
-
-  const headers = {
-    Authorization: `Bearer ${TRADIER_TOKEN}`,
-    Accept: 'application/json',
-  };
 
   const expirationDate = expiration ? (toDateString(expiration) ?? String(expiration)) : null;
 
-  // Fetch expiration dates and underlying quote in parallel
-  const [expirationsRes, quoteRes] = await Promise.all([
-    fetch(`${TRADIER_BASE_URL}/markets/options/expirations?symbol=${encodeURIComponent(symbol)}&includeAllRoots=true`, {
-      headers,
-      cache: 'no-store',
-    }),
-    fetch(`${TRADIER_BASE_URL}/markets/quotes?symbols=${encodeURIComponent(symbol)}&greeks=false`, {
-      headers,
-      cache: 'no-store',
-    }),
-  ]);
+  const params = new URLSearchParams({
+    apiKey: POLYGON_API_KEY!,
+    limit: '250',
+    order: 'asc',
+    sort: 'strike_price',
+  });
+  if (expirationDate) params.set('expiration_date', expirationDate);
 
-  if (!expirationsRes.ok) {
-    const text = await expirationsRes.text().catch(() => '');
-    throw new Error(`Tradier request failed (${expirationsRes.status}) ${text}`);
-  }
-  if (!quoteRes.ok) {
-    const text = await quoteRes.text().catch(() => '');
-    throw new Error(`Tradier quote request failed (${quoteRes.status}) ${text}`);
-  }
+  // Paginate up to 2 pages (500 contracts) to stay within free-tier rate limits
+  let results: any[] = [];
+  let nextUrl: string | null =
+    `${POLYGON_BASE}/v3/snapshot/options/${encodeURIComponent(symbol)}?${params}`;
+  let underlyingPrice = 0;
+  let pages = 0;
 
-  const expirationsJson = await expirationsRes.json();
-  const quoteJson = await quoteRes.json();
-
-  const rawDates = expirationsJson?.expirations?.date ?? [];
-  const expirationDates: string[] = Array.isArray(rawDates) ? rawDates : (rawDates ? [rawDates] : []);
-
-  const quote = quoteJson?.quotes?.quote;
-  const underlyingPrice = Number(quote?.last ?? quote?.close ?? 0);
-
-  const targetExpiration = expirationDate ?? expirationDates[0] ?? null;
-  if (!targetExpiration) {
-    return { expirationDates, calls: [], puts: [], underlyingPrice, dataSource: 'tradier' as const };
+  while (nextUrl && pages < 2) {
+    const res = await fetch(nextUrl, { cache: 'no-store' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Polygon request failed (${res.status}) ${text}`);
+    }
+    const json = await res.json();
+    if (json.status === 'ERROR') {
+      throw new Error(`Polygon error: ${json.error ?? json.message ?? 'unknown'}`);
+    }
+    results = results.concat(json.results ?? []);
+    underlyingPrice = json.underlying_asset?.price ?? underlyingPrice;
+    nextUrl = json.next_url ? `${json.next_url}&apiKey=${POLYGON_API_KEY}` : null;
+    pages++;
   }
 
-  const chainRes = await fetch(
-    `${TRADIER_BASE_URL}/markets/options/chains?symbol=${encodeURIComponent(symbol)}&expiration=${targetExpiration}&greeks=true`,
-    { headers, cache: 'no-store' }
-  );
-
-  if (!chainRes.ok) {
-    const text = await chainRes.text().catch(() => '');
-    throw new Error(`Tradier chain request failed (${chainRes.status}) ${text}`);
+  // Collect unique expiration dates from results
+  const expSet = new Set<string>();
+  for (const r of results) {
+    const exp = r.details?.expiration_date;
+    if (exp) expSet.add(exp);
   }
+  const expirationDates = Array.from(expSet).sort();
 
-  const chainJson = await chainRes.json();
-  const rawOptions = chainJson?.options?.option ?? [];
-  const options: any[] = Array.isArray(rawOptions) ? rawOptions : (rawOptions ? [rawOptions] : []);
+  // When no expiry was requested, narrow to the nearest expiry only
+  const targetExpiry = expirationDate ?? expirationDates[0] ?? null;
+  const filtered = expirationDate
+    ? results
+    : results.filter(r => r.details?.expiration_date === targetExpiry);
 
   const parseContract = (item: any) => {
-    const type: 'call' | 'put' = item.option_type === 'put' ? 'put' : 'call';
-    const bid = Number(item.bid ?? 0);
-    const ask = Number(item.ask ?? 0);
-    const expiry = item.expiration_date ?? targetExpiration;
+    const details = item.details ?? {};
+    const greeks = item.greeks ?? {};
+    const day = item.day ?? {};
+    const lastQuote = item.last_quote ?? {};
+
+    const type: 'call' | 'put' = details.contract_type === 'put' ? 'put' : 'call';
+    const strike = Number(details.strike_price ?? 0);
+    const bid = Number(lastQuote.bid ?? 0);
+    const ask = Number(lastQuote.ask ?? 0);
+    const expiry = details.expiration_date ?? targetExpiry ?? new Date().toISOString().split('T')[0];
     const dte = calcDTE(expiry) ?? 0;
-    const iv = Number(item.greeks?.mid_iv ?? item.greeks?.smv_vol ?? 0) || 0.3;
-    const strike = Number(item.strike ?? 0);
+    const iv = Number(item.implied_volatility ?? 0) || 0.3;
 
     return analyzeOptionContract({
-      contractSymbol: item.symbol ?? '',
-      symbol: item.root_symbol ?? symbol,
+      contractSymbol: details.ticker ?? '',
+      symbol: details.underlying_ticker ?? symbol,
       strike,
       expiration: expiry,
       type,
       bid,
       ask,
-      lastPrice: Number(item.last ?? 0),
-      volume: Number(item.volume ?? 0),
+      lastPrice: Number(lastQuote.midpoint ?? day.close ?? 0),
+      volume: Number(day.volume ?? 0),
       openInterest: Number(item.open_interest ?? 0),
       impliedVolatility: iv,
-      delta: typeof item.greeks?.delta === 'number' ? item.greeks.delta : undefined,
-      gamma: typeof item.greeks?.gamma === 'number' ? item.greeks.gamma : undefined,
-      theta: typeof item.greeks?.theta === 'number' ? item.greeks.theta : undefined,
-      vega: typeof item.greeks?.vega === 'number' ? item.greeks.vega : undefined,
+      delta: typeof greeks.delta === 'number' ? greeks.delta : undefined,
+      gamma: typeof greeks.gamma === 'number' ? greeks.gamma : undefined,
+      theta: typeof greeks.theta === 'number' ? greeks.theta : undefined,
+      vega: typeof greeks.vega === 'number' ? greeks.vega : undefined,
       inTheMoney: underlyingPrice > 0
         ? (type === 'call' ? underlyingPrice > strike : underlyingPrice < strike)
         : false,
@@ -140,10 +136,10 @@ async function fetchTradierOptionsChain(symbol: string, expiration?: string | nu
     });
   };
 
-  const calls = options.filter(o => o.option_type === 'call').map(parseContract);
-  const puts = options.filter(o => o.option_type === 'put').map(parseContract);
+  const calls = filtered.filter(r => r.details?.contract_type === 'call').map(parseContract);
+  const puts  = filtered.filter(r => r.details?.contract_type === 'put').map(parseContract);
 
-  return { expirationDates, calls, puts, underlyingPrice, dataSource: 'tradier' as const };
+  return { expirationDates, calls, puts, underlyingPrice, dataSource: 'polygon' as const };
 }
 
 export async function GET(request: NextRequest) {
@@ -180,15 +176,15 @@ export async function GET(request: NextRequest) {
     chain = await fetchYahooOptionsChain(symbol, dateParam);
     source = chain.dataSource ?? 'yahoo_delayed';
   } catch (yahooError) {
-    if (TRADIER_ENABLED) {
+    if (POLYGON_ENABLED) {
       try {
-        chain = await fetchTradierOptionsChain(symbol, dateParam);
-        source = 'tradier';
-      } catch (tradierError) {
-        const message = tradierError instanceof Error ? tradierError.message : 'Unable to load options chain from Tradier.';
+        chain = await fetchPolygonOptionsChain(symbol, dateParam);
+        source = 'polygon';
+      } catch (polygonError) {
+        const message = polygonError instanceof Error ? polygonError.message : 'Unknown Polygon error.';
         return safeJson({
           success: false,
-          error: `Yahoo failed and Tradier fallback also failed: ${message}`,
+          error: `Yahoo failed and Polygon fallback also failed: ${message}`,
           symbol,
           expirations: [],
           expirationDates: [],
@@ -202,14 +198,14 @@ export async function GET(request: NextRequest) {
           putCallRatio: null,
           selectedExpiration: null,
           dte: null,
-          meta: { dataSource: 'tradier', fetchedAt: new Date().toISOString() },
+          meta: { dataSource: 'polygon', fetchedAt: new Date().toISOString() },
         }, 503);
       }
     } else {
-      const message = yahooError instanceof Error ? yahooError.message : 'Unable to load options chain from Yahoo.';
+      const message = yahooError instanceof Error ? yahooError.message : 'Unknown Yahoo error.';
       return safeJson({
         success: false,
-        error: `Yahoo failed and Tradier is not configured: ${message}`,
+        error: `Yahoo failed and Polygon is not configured: ${message}`,
         symbol,
         expirations: [],
         expirationDates: [],
@@ -235,7 +231,7 @@ export async function GET(request: NextRequest) {
     ? (chain.underlyingPrice ?? 0) * ivAtm * Math.sqrt(Math.max(dte, 1) / 365)
     : null;
   const totalCallVolume = (chain.calls ?? []).reduce((sum: number, c: any) => sum + (c.volume ?? 0), 0);
-  const totalPutVolume = (chain.puts ?? []).reduce((sum: number, c: any) => sum + (c.volume ?? 0), 0);
+  const totalPutVolume  = (chain.puts  ?? []).reduce((sum: number, c: any) => sum + (c.volume ?? 0), 0);
   const putCallRatio = totalCallVolume > 0 ? totalPutVolume / totalCallVolume : null;
 
   return safeJson({
