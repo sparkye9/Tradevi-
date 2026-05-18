@@ -5,7 +5,7 @@ import { clsx } from 'clsx';
 import {
   LayoutDashboard, Search, BarChart2, Eye, Zap, Shield,
   Bell, BookOpen, FlaskConical, BookMarked, ClipboardList, X, TrendingUp,
-  CandlestickChart, Crosshair, Gauge, Layers,
+  CandlestickChart, Crosshair, Gauge, Layers, Flame,
 } from 'lucide-react';
 
 const navItems = [
@@ -13,6 +13,7 @@ const navItems = [
   { href: '/charts', label: 'Technical Charts', icon: CandlestickChart },
   { href: '/market-analysis', label: 'Market Analysis', icon: TrendingUp },
   { href: '/orb-analysis', label: 'ORB Analysis', icon: Crosshair },
+  { href: '/power-hour', label: 'Power Hour', icon: Flame },
   { href: '/mnq-dashboard', label: 'MNQ Dashboard', icon: Gauge },
   { href: '/options-flow', label: 'Options Flow', icon: Layers },
   { href: '/scanner', label: 'Opportunities', icon: Search },
