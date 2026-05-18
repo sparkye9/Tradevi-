@@ -5,7 +5,7 @@ import { clsx } from 'clsx';
 import {
   LayoutDashboard, Search, BarChart2, Eye, Zap, Shield,
   Bell, BookOpen, FlaskConical, BookMarked, ClipboardList, X, TrendingUp,
-  CandlestickChart, Crosshair, Gauge, Layers,
+  CandlestickChart, Crosshair, Gauge, Layers, Activity,
 } from 'lucide-react';
 
 const navItems = [
@@ -14,6 +14,7 @@ const navItems = [
   { href: '/market-analysis', label: 'Market Analysis', icon: TrendingUp },
   { href: '/orb-analysis', label: 'ORB Analysis', icon: Crosshair },
   { href: '/mnq-dashboard', label: 'MNQ Dashboard', icon: Gauge },
+  { href: '/ict-dashboard', label: 'ICT Dashboard', icon: Activity },
   { href: '/options-flow', label: 'Options Flow', icon: Layers },
   { href: '/scanner', label: 'Opportunities', icon: Search },
   { href: '/options-chain', label: 'Options Chain', icon: BarChart2 },
