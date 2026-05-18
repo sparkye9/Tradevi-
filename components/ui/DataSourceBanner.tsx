@@ -1,7 +1,7 @@
 'use client';
 import { AlertTriangle, Clock, Zap } from 'lucide-react';
 
-export type DataSource = 'twelve_data' | 'finnhub_realtime' | 'yahoo_delayed' | 'stooq' | 'polygon' | 'demo' | null;
+export type DataSource = 'twelve_data' | 'finnhub_realtime' | 'yahoo_delayed' | 'stooq' | 'alphavantage' | 'demo' | null;
 
 interface Props {
   dataSource: DataSource;
@@ -10,7 +10,7 @@ interface Props {
 }
 
 export function DataSourceBanner({ dataSource, fetchedAt, className = '' }: Props) {
-  if (dataSource !== 'yahoo_delayed' && dataSource !== 'stooq' && dataSource !== 'demo' && dataSource !== 'polygon') return null;
+  if (dataSource !== 'yahoo_delayed' && dataSource !== 'stooq' && dataSource !== 'demo' && dataSource !== 'alphavantage') return null;
 
   const ago = fetchedAt
     ? Math.round((Date.now() - new Date(fetchedAt).getTime()) / 60000)
@@ -32,10 +32,10 @@ export function DataSourceBanner({ dataSource, fetchedAt, className = '' }: Prop
           Data updates after market close. Always confirm live prices with your broker before trading.
           {ago !== null && ago > 0 && ` Fetched ${ago}m ago.`}
         </span>
-      ) : dataSource === 'polygon' ? (
+      ) : dataSource === 'alphavantage' ? (
         <span>
-          <strong>Polygon.io · 15 min delayed on free tier.</strong>{' '}
-          Upgrade to a paid Polygon plan for real-time options data with live Greeks.
+          <strong>Alpha Vantage · End-of-day data.</strong>{' '}
+          Free tier: 25 requests/day. Options data includes Greeks (delta, gamma, theta, vega).
           {ago !== null && ago > 0 && ` Fetched ${ago}m ago.`}{' '}
           Always confirm current bid/ask before entering any trade.
         </span>
@@ -48,7 +48,7 @@ export function DataSourceBanner({ dataSource, fetchedAt, className = '' }: Prop
         </span>
       )}
       <span className="ml-auto flex items-center gap-1 text-amber-600 font-medium whitespace-nowrap">
-        <Clock size={11} /> {dataSource === 'demo' ? 'Demo' : dataSource === 'stooq' ? 'EOD' : dataSource === 'polygon' ? 'Polygon' : 'Delayed'}
+        <Clock size={11} /> {dataSource === 'demo' ? 'Demo' : dataSource === 'stooq' ? 'EOD' : dataSource === 'alphavantage' ? 'Alpha Vantage' : 'Delayed'}
       </span>
     </div>
   );
