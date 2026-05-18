@@ -16,11 +16,6 @@ export function OptionsChainTable({ contracts, type, stockPrice }: Props) {
   const [sortBy, setSortBy] = useState<'strike' | 'volume' | 'oi' | 'score'>('strike');
   const [filter, setFilter] = useState<'all' | 'highlighted'>('all');
 
-  const safeNumber = (value: any, digits = 2) =>
-    typeof value === 'number' && !Number.isNaN(value)
-      ? value.toFixed(digits)
-      : '--';
-
   const isHighlighted = (c: OptionContract) =>
     Math.abs(c.delta ?? 0) >= 0.30 && Math.abs(c.delta ?? 0) <= 0.60 &&
     (c.spreadPercent ?? Number.MAX_VALUE) <= 15 &&
@@ -93,7 +88,7 @@ export function OptionsChainTable({ contracts, type, stockPrice }: Props) {
               const atm = stockPrice > 0 && Math.abs(c.strike - stockPrice) / stockPrice < 0.02;
               const bid = safeNumber(c?.bid, 2);
               const ask = safeNumber(c?.ask, 2);
-              const mid = safeNumber(c?.mid, 2);
+              const mid = safeMoney(c?.mid, 2);
               const spread = safeNumber(c?.spreadPercent, 0);
               const cost = safeMoney(c?.costPerContract, 0);
               const volume = safeInteger(c?.volume);

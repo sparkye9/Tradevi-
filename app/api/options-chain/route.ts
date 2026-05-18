@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchYahooOptionsChain } from '@/lib/yahooFinance';
+import { analyzeOptionContract } from '@/lib/optionsAnalysis';
 
 const ALPACA_BASE_URL = process.env.ALPACA_BASE_URL?.replace(/\/$/, '') ?? 'https://data.alpaca.markets';
 const ALPACA_API_KEY = process.env.ALPACA_API_KEY;
@@ -79,38 +80,40 @@ async function fetchAlpacaOptionsChain(symbol: string, expiration?: string | num
     throw new Error('Invalid Alpaca options response format.');
   }
 
+  const underlyingPrice = Number(chain.underlying_price ?? chain.underlyingPrice ?? 0);
+
   const parseContract = (item: any, type: 'call' | 'put') => {
     const bid = Number(item.bid_price ?? item.bid ?? 0);
     const ask = Number(item.ask_price ?? item.ask ?? 0);
-    return {
+    const expiration = toDateString(item.expiration_date ?? item.expiration ?? item.expirationDate) ?? new Date().toISOString().split('T')[0];
+    const dte = calcDTE(expiration) ?? 0;
+
+    return analyzeOptionContract({
       contractSymbol: item.symbol ?? item.contract_symbol ?? item.contractSymbol ?? '',
+      symbol: item.underlying_symbol ?? '',
       strike: Number(item.strike_price ?? item.strike ?? 0),
-      expiration: toDateString(item.expiration_date ?? item.expiration ?? item.expirationDate),
+      expiration,
       type,
       bid,
       ask,
-      mid: Number(item.mid_price ?? item.mid ?? (bid + ask) / 2),
       lastPrice: Number(item.last_trade_price ?? item.last_price ?? item.last ?? 0),
       volume: Number(item.volume ?? 0),
       openInterest: Number(item.open_interest ?? item.openInterest ?? 0),
-      impliedVolatility: Number(item.implied_volatility ?? item.impliedVolatility ?? item.iv ?? 0),
-      delta: typeof item.delta === 'number' ? item.delta : null,
-      gamma: typeof item.gamma === 'number' ? item.gamma : null,
-      theta: typeof item.theta === 'number' ? item.theta : null,
-      bidAskSpread: ask - bid,
+      impliedVolatility: Number(item.implied_volatility ?? item.impliedVolatility ?? item.iv ?? 0) || 0.3,
+      delta: typeof item.delta === 'number' ? item.delta : undefined,
+      gamma: typeof item.gamma === 'number' ? item.gamma : undefined,
+      theta: typeof item.theta === 'number' ? item.theta : undefined,
       inTheMoney: Boolean(item.in_the_money ?? item.inTheMoney ?? false),
-      moneyness: item.moneyness != null ? Number(item.moneyness) : null,
-      costPerContract: ask * 100,
-      estimatedGainPercent: null,
-      dte: calcDTE(toDateString(item.expiration_date ?? item.expiration ?? item.expirationDate)),
-    };
+      stockPrice: underlyingPrice,
+      dte,
+    });
   };
 
   return {
     expirationDates: chain.expiration_dates ?? chain.expirations ?? [],
     calls: chain.calls.map((item: any) => parseContract(item, 'call')),
     puts: chain.puts.map((item: any) => parseContract(item, 'put')),
-    underlyingPrice: Number(chain.underlying_price ?? chain.underlyingPrice ?? 0),
+    underlyingPrice,
     dataSource: 'alpaca',
   };
 }

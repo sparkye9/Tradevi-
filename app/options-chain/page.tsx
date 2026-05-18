@@ -9,7 +9,7 @@ import { DataSourceBanner, type DataSource } from '@/components/ui/DataSourceBan
 import { OptionsChainTable } from '@/components/options/OptionsChainTable';
 import { fetchOptionsChain, fetchQuote, type OptionsChainResponse } from '@/lib/apiClient';
 import { safeMoney, safeNumber, safePercent } from '@/lib/formatters';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 
 const QUICK_SYMBOLS = ['SPY', 'QQQ', 'SQQQ', 'TQQQ', 'TSLA', 'NVDA', 'AAPL', 'AMD', 'META'];
 

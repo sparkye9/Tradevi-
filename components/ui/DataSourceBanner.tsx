@@ -1,7 +1,7 @@
 'use client';
 import { AlertTriangle, Clock, Zap } from 'lucide-react';
 
-export type DataSource = 'twelve_data' | 'finnhub_realtime' | 'yahoo_delayed' | 'stooq' | 'demo' | null;
+export type DataSource = 'twelve_data' | 'finnhub_realtime' | 'yahoo_delayed' | 'stooq' | 'alpaca' | 'demo' | null;
 
 interface Props {
   dataSource: DataSource;
@@ -10,7 +10,7 @@ interface Props {
 }
 
 export function DataSourceBanner({ dataSource, fetchedAt, className = '' }: Props) {
-  if (dataSource !== 'yahoo_delayed' && dataSource !== 'stooq' && dataSource !== 'demo') return null;
+  if (dataSource !== 'yahoo_delayed' && dataSource !== 'stooq' && dataSource !== 'demo' && dataSource !== 'alpaca') return null;
 
   const ago = fetchedAt
     ? Math.round((Date.now() - new Date(fetchedAt).getTime()) / 60000)
@@ -32,6 +32,13 @@ export function DataSourceBanner({ dataSource, fetchedAt, className = '' }: Prop
           Data updates after market close. Always confirm live prices with your broker before trading.
           {ago !== null && ago > 0 && ` Fetched ${ago}m ago.`}
         </span>
+      ) : dataSource === 'alpaca' ? (
+        <span>
+          <strong>Alpaca Markets Data.</strong>{' '}
+          Data freshness depends on your Alpaca subscription tier.
+          {ago !== null && ago > 0 && ` Fetched ${ago}m ago.`}{' '}
+          Always confirm current bid/ask before entering any trade.
+        </span>
       ) : (
         <span>
           <strong>Delayed Data · ~15–20 min behind real-time.</strong>{' '}
@@ -41,7 +48,7 @@ export function DataSourceBanner({ dataSource, fetchedAt, className = '' }: Prop
         </span>
       )}
       <span className="ml-auto flex items-center gap-1 text-amber-600 font-medium whitespace-nowrap">
-        <Clock size={11} /> {dataSource === 'demo' ? 'Demo' : dataSource === 'stooq' ? 'EOD' : 'Delayed'}
+        <Clock size={11} /> {dataSource === 'demo' ? 'Demo' : dataSource === 'stooq' ? 'EOD' : dataSource === 'alpaca' ? 'Alpaca' : 'Delayed'}
       </span>
     </div>
   );
