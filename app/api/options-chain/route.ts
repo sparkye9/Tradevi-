@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fetchYahooOptionsChain } from '@/lib/yahooFinance';
 import { analyzeOptionContract } from '@/lib/optionsAnalysis';
 
-const ALPACA_BASE_URL = process.env.ALPACA_BASE_URL?.replace(/\/$/, '') ?? 'https://data.alpaca.markets';
-const ALPACA_API_KEY = process.env.ALPACA_API_KEY;
-const ALPACA_SECRET_KEY = process.env.ALPACA_SECRET_KEY;
-const ALPACA_ENABLED = Boolean(ALPACA_API_KEY && ALPACA_SECRET_KEY);
+const TRADIER_TOKEN = process.env.TRADIER_TOKEN;
+const TRADIER_ENABLED = Boolean(TRADIER_TOKEN);
+const TRADIER_BASE_URL = (process.env.TRADIER_API_URL ?? 'https://api.tradier.com/v1').replace(/\/$/, '');
 
 function safeJson(body: unknown, status = 200) {
   return NextResponse.json(body, {
@@ -47,75 +46,104 @@ function getNearestIV(calls: any[], puts: any[], price: number): number | null {
   return best.iv;
 }
 
-async function fetchAlpacaOptionsChain(symbol: string, expiration?: string | number) {
-  if (!ALPACA_ENABLED) {
-    throw new Error('Alpaca credentials are not configured.');
+async function fetchTradierOptionsChain(symbol: string, expiration?: string | number) {
+  if (!TRADIER_ENABLED) {
+    throw new Error('Tradier token is not configured.');
   }
 
-  const url = new URL(`${ALPACA_BASE_URL}/v2/options/chains`);
-  url.searchParams.set('underlying_symbol', symbol);
-  url.searchParams.set('limit', '500');
-  if (expiration) {
-    const dateString = toDateString(expiration) ?? String(expiration);
-    url.searchParams.set('expiration_date', dateString);
+  const headers = {
+    Authorization: `Bearer ${TRADIER_TOKEN}`,
+    Accept: 'application/json',
+  };
+
+  const expirationDate = expiration ? (toDateString(expiration) ?? String(expiration)) : null;
+
+  // Fetch expiration dates and underlying quote in parallel
+  const [expirationsRes, quoteRes] = await Promise.all([
+    fetch(`${TRADIER_BASE_URL}/markets/options/expirations?symbol=${encodeURIComponent(symbol)}&includeAllRoots=true`, {
+      headers,
+      cache: 'no-store',
+    }),
+    fetch(`${TRADIER_BASE_URL}/markets/quotes?symbols=${encodeURIComponent(symbol)}&greeks=false`, {
+      headers,
+      cache: 'no-store',
+    }),
+  ]);
+
+  if (!expirationsRes.ok) {
+    const text = await expirationsRes.text().catch(() => '');
+    throw new Error(`Tradier request failed (${expirationsRes.status}) ${text}`);
+  }
+  if (!quoteRes.ok) {
+    const text = await quoteRes.text().catch(() => '');
+    throw new Error(`Tradier quote request failed (${quoteRes.status}) ${text}`);
   }
 
-  const response = await fetch(url.toString(), {
-    headers: {
-      'APCA-API-KEY-ID': ALPACA_API_KEY ?? '',
-      'APCA-API-SECRET-KEY': ALPACA_SECRET_KEY ?? '',
-      Accept: 'application/json',
-    },
-    cache: 'no-store',
-  });
+  const expirationsJson = await expirationsRes.json();
+  const quoteJson = await quoteRes.json();
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(`Alpaca request failed (${response.status}) ${text}`);
+  const rawDates = expirationsJson?.expirations?.date ?? [];
+  const expirationDates: string[] = Array.isArray(rawDates) ? rawDates : (rawDates ? [rawDates] : []);
+
+  const quote = quoteJson?.quotes?.quote;
+  const underlyingPrice = Number(quote?.last ?? quote?.close ?? 0);
+
+  const targetExpiration = expirationDate ?? expirationDates[0] ?? null;
+  if (!targetExpiration) {
+    return { expirationDates, calls: [], puts: [], underlyingPrice, dataSource: 'tradier' as const };
   }
 
-  const json = await response.json();
-  const chain = Array.isArray(json.chains) ? json.chains[0] : json.chain ?? json;
-  if (!chain || !Array.isArray(chain.calls) || !Array.isArray(chain.puts)) {
-    throw new Error('Invalid Alpaca options response format.');
+  const chainRes = await fetch(
+    `${TRADIER_BASE_URL}/markets/options/chains?symbol=${encodeURIComponent(symbol)}&expiration=${targetExpiration}&greeks=true`,
+    { headers, cache: 'no-store' }
+  );
+
+  if (!chainRes.ok) {
+    const text = await chainRes.text().catch(() => '');
+    throw new Error(`Tradier chain request failed (${chainRes.status}) ${text}`);
   }
 
-  const underlyingPrice = Number(chain.underlying_price ?? chain.underlyingPrice ?? 0);
+  const chainJson = await chainRes.json();
+  const rawOptions = chainJson?.options?.option ?? [];
+  const options: any[] = Array.isArray(rawOptions) ? rawOptions : (rawOptions ? [rawOptions] : []);
 
-  const parseContract = (item: any, type: 'call' | 'put') => {
-    const bid = Number(item.bid_price ?? item.bid ?? 0);
-    const ask = Number(item.ask_price ?? item.ask ?? 0);
-    const expiration = toDateString(item.expiration_date ?? item.expiration ?? item.expirationDate) ?? new Date().toISOString().split('T')[0];
-    const dte = calcDTE(expiration) ?? 0;
+  const parseContract = (item: any) => {
+    const type: 'call' | 'put' = item.option_type === 'put' ? 'put' : 'call';
+    const bid = Number(item.bid ?? 0);
+    const ask = Number(item.ask ?? 0);
+    const expiry = item.expiration_date ?? targetExpiration;
+    const dte = calcDTE(expiry) ?? 0;
+    const iv = Number(item.greeks?.mid_iv ?? item.greeks?.smv_vol ?? 0) || 0.3;
+    const strike = Number(item.strike ?? 0);
 
     return analyzeOptionContract({
-      contractSymbol: item.symbol ?? item.contract_symbol ?? item.contractSymbol ?? '',
-      symbol: item.underlying_symbol ?? '',
-      strike: Number(item.strike_price ?? item.strike ?? 0),
-      expiration,
+      contractSymbol: item.symbol ?? '',
+      symbol: item.root_symbol ?? symbol,
+      strike,
+      expiration: expiry,
       type,
       bid,
       ask,
-      lastPrice: Number(item.last_trade_price ?? item.last_price ?? item.last ?? 0),
+      lastPrice: Number(item.last ?? 0),
       volume: Number(item.volume ?? 0),
-      openInterest: Number(item.open_interest ?? item.openInterest ?? 0),
-      impliedVolatility: Number(item.implied_volatility ?? item.impliedVolatility ?? item.iv ?? 0) || 0.3,
-      delta: typeof item.delta === 'number' ? item.delta : undefined,
-      gamma: typeof item.gamma === 'number' ? item.gamma : undefined,
-      theta: typeof item.theta === 'number' ? item.theta : undefined,
-      inTheMoney: Boolean(item.in_the_money ?? item.inTheMoney ?? false),
+      openInterest: Number(item.open_interest ?? 0),
+      impliedVolatility: iv,
+      delta: typeof item.greeks?.delta === 'number' ? item.greeks.delta : undefined,
+      gamma: typeof item.greeks?.gamma === 'number' ? item.greeks.gamma : undefined,
+      theta: typeof item.greeks?.theta === 'number' ? item.greeks.theta : undefined,
+      vega: typeof item.greeks?.vega === 'number' ? item.greeks.vega : undefined,
+      inTheMoney: underlyingPrice > 0
+        ? (type === 'call' ? underlyingPrice > strike : underlyingPrice < strike)
+        : false,
       stockPrice: underlyingPrice,
       dte,
     });
   };
 
-  return {
-    expirationDates: chain.expiration_dates ?? chain.expirations ?? [],
-    calls: chain.calls.map((item: any) => parseContract(item, 'call')),
-    puts: chain.puts.map((item: any) => parseContract(item, 'put')),
-    underlyingPrice,
-    dataSource: 'alpaca',
-  };
+  const calls = options.filter(o => o.option_type === 'call').map(parseContract);
+  const puts = options.filter(o => o.option_type === 'put').map(parseContract);
+
+  return { expirationDates, calls, puts, underlyingPrice, dataSource: 'tradier' as const };
 }
 
 export async function GET(request: NextRequest) {
@@ -151,16 +179,16 @@ export async function GET(request: NextRequest) {
   try {
     chain = await fetchYahooOptionsChain(symbol, dateParam);
     source = chain.dataSource ?? 'yahoo_delayed';
-  } catch (baseError) {
-    if (ALPACA_ENABLED) {
+  } catch (yahooError) {
+    if (TRADIER_ENABLED) {
       try {
-        chain = await fetchAlpacaOptionsChain(symbol, dateParam);
-        source = 'alpaca';
-      } catch (alpacaError) {
-        const message = alpacaError instanceof Error ? alpacaError.message : 'Unable to load options chain from Alpaca fallback.';
+        chain = await fetchTradierOptionsChain(symbol, dateParam);
+        source = 'tradier';
+      } catch (tradierError) {
+        const message = tradierError instanceof Error ? tradierError.message : 'Unable to load options chain from Tradier.';
         return safeJson({
           success: false,
-          error: `Yahoo failed and Alpaca fallback also failed: ${message}`,
+          error: `Yahoo failed and Tradier fallback also failed: ${message}`,
           symbol,
           expirations: [],
           expirationDates: [],
@@ -174,14 +202,14 @@ export async function GET(request: NextRequest) {
           putCallRatio: null,
           selectedExpiration: null,
           dte: null,
-          meta: { dataSource: 'alpaca', fetchedAt: new Date().toISOString() },
+          meta: { dataSource: 'tradier', fetchedAt: new Date().toISOString() },
         }, 503);
       }
     } else {
-      const message = baseError instanceof Error ? baseError.message : 'Unable to load options chain from Yahoo.';
+      const message = yahooError instanceof Error ? yahooError.message : 'Unable to load options chain from Yahoo.';
       return safeJson({
         success: false,
-        error: `Yahoo failed and Alpaca is not configured: ${message}`,
+        error: `Yahoo failed and Tradier is not configured: ${message}`,
         symbol,
         expirations: [],
         expirationDates: [],
