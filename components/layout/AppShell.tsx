@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
+import { MarketBanner } from './MarketBanner';
 import { NotificationBanner } from './NotificationBanner';
 import { DisclaimerBanner } from '@/components/ui/DisclaimerBanner';
 
@@ -20,6 +21,7 @@ export function AppShell({ children, title }: AppShellProps) {
         <DisclaimerBanner />
         <NotificationBanner />
         <Header onMenuClick={() => setSidebarOpen(true)} title={title} />
+        <MarketBanner />
         <main className="flex-1 overflow-y-auto scrollbar-thin">
           <div className="max-w-7xl mx-auto p-4 lg:p-6">
             {children}
