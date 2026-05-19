@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getYahooSession } from '@/lib/yahooFinance';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -85,6 +86,13 @@ function safeNum(v: number | undefined | null, fallback = 0): number {
 
 // ─── Fetch Yahoo options chain ─────────────────────────────────────────────────
 
+const YF_OPTS_HEADERS = {
+  'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept':          'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer':         'https://finance.yahoo.com/',
+};
+
 async function fetchOptionsChain(symbol: string): Promise<{
   calls: YahooOption[];
   puts: YahooOption[];
@@ -93,11 +101,21 @@ async function fetchOptionsChain(symbol: string): Promise<{
   changePct: number;
   expiryTs: number;
 }> {
-  const url = `https://query1.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
-    cache: 'no-store',
-  });
+  const session = await getYahooSession();
+  const crumbSuffix = session?.crumb ? `?crumb=${encodeURIComponent(session.crumb)}` : '';
+  const url = `https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}${crumbSuffix}`;
+
+  const headers: Record<string, string> = { ...YF_OPTS_HEADERS };
+  if (session?.cookie) headers['Cookie'] = session.cookie;
+
+  let res = await fetch(url, { headers, cache: 'no-store' });
+
+  // Fallback: try query1 without crumb if query2 fails
+  if (!res.ok && session?.crumb) {
+    const fallbackUrl = `https://query1.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
+    res = await fetch(fallbackUrl, { headers: YF_OPTS_HEADERS, cache: 'no-store' });
+  }
+
   if (!res.ok) throw new Error(`Yahoo options ${res.status} for ${symbol}`);
   const text = await res.text();
   if (text.trimStart().startsWith('<')) throw new Error('Yahoo returned HTML for options');

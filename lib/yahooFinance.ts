@@ -27,14 +27,22 @@ const YF_HEADERS = {
 
 let _session: { crumb: string; cookie: string; expiresAt: number } | null = null;
 
-async function getYahooSession(): Promise<{ crumb: string; cookie: string } | null> {
+export async function getYahooSession(): Promise<{ crumb: string; cookie: string } | null> {
   const now = Date.now();
   if (_session && now < _session.expiresAt) return _session;
+
+  const crumbHeaders = {
+    'User-Agent':      YF_UA,
+    'Accept':          '*/*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer':         'https://finance.yahoo.com/',
+    'Origin':          'https://finance.yahoo.com',
+  };
 
   try {
     // Attempt 1 — try crumb endpoint without any cookie (works in many regions)
     const directRes = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
-      headers: { 'User-Agent': YF_UA, 'Accept': '*/*' },
+      headers: crumbHeaders,
       cache: 'no-store',
     });
     if (directRes.ok) {
@@ -47,7 +55,12 @@ async function getYahooSession(): Promise<{ crumb: string; cookie: string } | nu
 
     // Attempt 2 — get cookies from Yahoo Finance homepage, then exchange for crumb
     const homeRes = await fetch('https://finance.yahoo.com', {
-      headers: { 'User-Agent': YF_UA, 'Accept-Language': 'en-US,en;q=0.9' },
+      headers: {
+        'User-Agent':      YF_UA,
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Referer':         'https://www.google.com/',
+      },
       cache: 'no-store',
     });
 
@@ -65,7 +78,7 @@ async function getYahooSession(): Promise<{ crumb: string; cookie: string } | nu
     if (!cookie) return null;
 
     const crumbRes = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
-      headers: { 'User-Agent': YF_UA, 'Cookie': cookie },
+      headers: { ...crumbHeaders, 'Cookie': cookie },
       cache: 'no-store',
     });
     const crumb = (await crumbRes.text()).trim();
@@ -98,7 +111,15 @@ async function yfFetch(url: string, cookie?: string): Promise<any> {
 async function yfOptionsFetch(url: string, session: { crumb: string; cookie: string } | null): Promise<any> {
   const sep = url.includes('?') ? '&' : '?';
   const fullUrl = session?.crumb ? `${url}${sep}crumb=${encodeURIComponent(session.crumb)}` : url;
-  return yfFetch(fullUrl, session?.cookie || undefined);
+  try {
+    return await yfFetch(fullUrl, session?.cookie || undefined);
+  } catch (err) {
+    // If crumb-based fetch fails, try once without crumb as a last resort
+    if (session?.crumb) {
+      return yfFetch(url, session?.cookie || undefined);
+    }
+    throw err;
+  }
 }
 
 // ── Quote ─────────────────────────────────────────────────────────────────────
