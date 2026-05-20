@@ -388,14 +388,14 @@ export async function GET(request: NextRequest) {
       ...companions.map(s => fetchYFQuote(s)), // 5-12
     ]);
 
-    function getCandles(idx: number): CandleData[] {
+    const getCandles = (idx: number): CandleData[] => {
       const r = fetches[idx];
       return r.status === 'fulfilled' ? (r.value as CandleData[]) : [];
-    }
-    function getQuote(idx: number) {
+    };
+    const getQuote = (idx: number) => {
       const r = fetches[idx];
       return r.status === 'fulfilled' ? (r.value as { price: number; prevClose: number; change: number; changePct: number } | null) : null;
-    }
+    };
 
     const candles5m   = getCandles(0);
     const candles15m  = getCandles(1);
