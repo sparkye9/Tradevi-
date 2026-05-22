@@ -416,19 +416,20 @@ export async function GET(request: NextRequest) {
     const ema50  = lastValid(calcEMA(closes, 50));
     const rsi    = lastValid(calcRSI(closes, 14));
     const atr    = calcATR(candles, 14);
-    const vwap   = calcVWAP(candles);
 
     // ORB
     const rthTs = rthOpenTs();
+    const rthCandles = candles.filter(c => c.time >= rthTs);
+    const vwap = calcVWAP(rthCandles.length >= 2 ? rthCandles : candles);
     const { high: orbHigh, low: orbLow } = calcORB(candles, rthTs, tfMin);
     const orbMid   = (orbHigh + orbLow) / 2;
     const orbRange = orbHigh - orbLow;
     const orbStatus: 'above' | 'below' | 'inside' =
       currentPrice > orbHigh ? 'above' : currentPrice < orbLow ? 'below' : 'inside';
 
-    // Volume ratio (current vs session average)
-    const avgVol = candles.length > 0
-      ? candles.reduce((s, c) => s + c.volume, 0) / candles.length : 1;
+    // Volume ratio (current vs RTH session average)
+    const volCandles = rthCandles.length > 0 ? rthCandles : candles;
+    const avgVol = volCandles.reduce((s, c) => s + c.volume, 0) / volCandles.length;
     const latestVol = candles[candles.length - 1].volume;
     const volRatio = avgVol > 0 ? latestVol / avgVol : 1;
 
@@ -459,7 +460,7 @@ export async function GET(request: NextRequest) {
     // ─── Chop detection ────────────────────────────────────────────────────
     const recentCandles = candles.slice(-20);
     const avgRange = recentCandles.reduce((s, c) => s + (c.high - c.low), 0) / recentCandles.length;
-    const isLowATR  = atr < avgRange * 0.6;
+    const isLowATR  = avgRange < atr * 0.6;
     const isInside  = orbStatus === 'inside';
     const isNeutRSI = rsi != null && rsi > 44 && rsi < 56;
     const isLowVol  = volRatio < 0.75;
@@ -468,6 +469,18 @@ export async function GET(request: NextRequest) {
     if (isLowATR)               chopReasons.push('Low ATR — range contraction, no momentum');
     if (isInside)               chopReasons.push(`Price inside ORB (${orbLow.toFixed(0)}–${orbHigh.toFixed(0)}) — no directional conviction`);
     if (isNeutRSI && isLowVol)  chopReasons.push('RSI neutral + below-average volume');
+
+    // ─── Session + no-trade filter (must run before trade grade) ─────────
+    const sessionData    = computeSession(candles, currentPrice, vwap, atr);
+    const liquidityData  = computeLiquidity(candles, currentPrice);
+    const regimeDetailData = classifyRegimeEnhanced(candles, atr, vwap, biasScore, isChop);
+    const noTradeData    = computeNoTradeFilter({
+      atr, isChop,
+      sessionShouldAvoid: sessionData.shouldAvoid,
+      sessionLabel: sessionData.label,
+      rsi, volRatio, biasScore,
+      ema9, ema21,
+    });
 
     // ─── Trade quality score ───────────────────────────────────────────────
     let score = 0;
@@ -481,14 +494,16 @@ export async function GET(request: NextRequest) {
     if (rsi != null && (rsi > 75 || rsi < 25))                        score -= 10;
     if (isChop) score = Math.min(score, 40);
     if (orbStatus === 'inside' && bias === 'neutral')                  score = Math.min(score, 30);
+    if (noTradeData.active) score = Math.min(score, 35);
     const tradeScore = Math.max(0, Math.min(100, Math.round(score)));
 
     const tradeGrade =
-      isChop         ? 'CHOP'  :
-      tradeScore >= 85 ? 'A+'  :
-      tradeScore >= 70 ? 'A'   :
-      tradeScore >= 55 ? 'B'   :
-      tradeScore >= 40 ? 'C'   : 'AVOID';
+      isChop              ? 'CHOP'  :
+      noTradeData.active  ? 'AVOID' :
+      tradeScore >= 85    ? 'A+'   :
+      tradeScore >= 70    ? 'A'    :
+      tradeScore >= 55    ? 'B'    :
+      tradeScore >= 40    ? 'C'    : 'AVOID';
 
     const gradeLabel =
       tradeGrade === 'A+' ? 'Strong Setup — High Probability' :
@@ -501,18 +516,6 @@ export async function GET(request: NextRequest) {
       isChop          ? 'ranging'      :
       biasScore >= 70 ? 'trending_up'  :
       biasScore <= 30 ? 'trending_down': 'volatile';
-
-    // ─── New engines ──────────────────────────────────────────────────────
-    const sessionData    = computeSession(candles, currentPrice, vwap, atr);
-    const liquidityData  = computeLiquidity(candles, currentPrice);
-    const regimeDetailData = classifyRegimeEnhanced(candles, atr, vwap, biasScore, isChop);
-    const noTradeData    = computeNoTradeFilter({
-      atr, isChop,
-      sessionShouldAvoid: sessionData.shouldAvoid,
-      sessionLabel: sessionData.label,
-      rsi, volRatio, biasScore,
-      ema9, ema21,
-    });
 
     // ─── Risk levels (ATR-based, in points) ────────────────────────────────
     const stopPts = Math.max(5, Math.round(atr * 0.75));
