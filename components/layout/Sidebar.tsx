@@ -21,7 +21,6 @@ const navItems = [
   { href: '/mnq-dashboard', label: 'MNQ Dashboard', icon: Gauge },
   { href: '/esm6-dashboard', label: 'ESM6 Dashboard', icon: Activity },
   { href: '/options-flow', label: 'Options Flow', icon: Layers },
-  { href: '/scanner', label: 'Opportunities', icon: Search },
   { href: '/options-chain', label: 'Options Chain', icon: BarChart2 },
   { href: '/watchlist', label: 'Watchlist', icon: Eye },
   { href: '/signals', label: 'Signals', icon: Zap },
