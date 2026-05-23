@@ -5,7 +5,7 @@ import { clsx } from 'clsx';
 import {
   LayoutDashboard, Search, BarChart2, Eye, Zap, Shield,
   Bell, BookOpen, FlaskConical, BookMarked, ClipboardList, X, TrendingUp,
-  CandlestickChart, Crosshair, Gauge, Layers, Flame, Moon, Activity, Brain, Droplets,
+  CandlestickChart, Crosshair, Gauge, Layers, Flame, Moon, Activity, Brain, Droplets, Target,
 } from 'lucide-react';
 
 const navItems = [
@@ -16,6 +16,7 @@ const navItems = [
   { href: '/power-hour', label: 'Power Hour', icon: Flame },
   { href: '/power-hour-engine', label: 'PH Prediction Engine', icon: Brain },
   { href: '/liquidity-engine', label: 'Liquidity & Exit Engine', icon: Droplets },
+  { href: '/swing-engine', label: 'Swing Engine', icon: Target },
   { href: '/after-hours', label: 'After-Hours', icon: Moon },
   { href: '/mnq-dashboard', label: 'MNQ Dashboard', icon: Gauge },
   { href: '/esm6-dashboard', label: 'ESM6 Dashboard', icon: Activity },
