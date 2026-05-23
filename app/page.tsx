@@ -223,11 +223,6 @@ export default function DashboardPage() {
         <Card>
           <CardHeader title="Quick Actions" />
           <div className="space-y-2">
-            <Link href="/scanner">
-              <Button variant="primary" size="md" className="w-full justify-start">
-                <Search size={14} className="mr-2" /> Run Opportunity Scanner
-              </Button>
-            </Link>
             <Link href="/options-chain">
               <Button variant="secondary" size="md" className="w-full justify-start mt-2">
                 View Options Chain
