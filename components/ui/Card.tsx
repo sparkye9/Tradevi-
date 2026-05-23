@@ -6,13 +6,16 @@ interface CardProps {
   padding?: 'none' | 'sm' | 'md' | 'lg';
   border?: boolean;
   shadow?: 'none' | 'sm' | 'md';
+  id?: string;
+  accent?: string;
 }
 
-export function Card({ children, className, padding = 'md', border = true, shadow = 'sm' }: CardProps) {
+export function Card({ children, className, padding = 'md', border = true, shadow = 'sm', id, accent }: CardProps) {
   return (
-    <div className={clsx(
+    <div id={id} className={clsx(
       'bg-white rounded-xl',
-      border && 'border border-gray-100',
+      border && 'border',
+      accent ? accent : 'border-gray-100',
       shadow === 'sm' && 'shadow-sm',
       shadow === 'md' && 'shadow-md',
       padding === 'sm' && 'p-3',
