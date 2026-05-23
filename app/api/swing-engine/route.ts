@@ -523,7 +523,7 @@ const SCAN_WATCHLIST = [
 
 async function runMarketScan() {
   const sectorEtfs = SECTORS.map(s => s.etf);
-  const allStockSymbols = [...new Set([...SCAN_WATCHLIST, ...sectorEtfs])];
+  const allStockSymbols = Array.from(new Set([...SCAN_WATCHLIST, ...sectorEtfs]));
 
   // Phase 1: macro + quotes + SPY candles + discovery (parallel)
   const [quotes, spyDaily, spyWeekly, discoveredRaw, vixQ] = await Promise.all([
@@ -539,7 +539,7 @@ async function runMarketScan() {
   const qqqChangePct = quotes.get('QQQ')?.changePct ?? 0;
 
   // Phase 2: daily candles for all scan symbols + discovered (parallel)
-  const allScanSymbols = [...new Set([...SCAN_WATCHLIST, ...discoveredRaw])];
+  const allScanSymbols = Array.from(new Set([...SCAN_WATCHLIST, ...discoveredRaw]));
   const candlePairs = await Promise.all(
     allScanSymbols.map(s => fetchCandles(s, '1d', '3mo').then(c => [s, c] as [string, CandleData[]]))
   );
