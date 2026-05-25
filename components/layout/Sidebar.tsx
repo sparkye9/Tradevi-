@@ -5,12 +5,13 @@ import { clsx } from 'clsx';
 import {
   LayoutDashboard, Search, BarChart2, Eye, Zap, Shield,
   Bell, BookOpen, FlaskConical, BookMarked, ClipboardList, X, TrendingUp,
-  CandlestickChart, Crosshair, Gauge, Layers, Flame, Moon, Activity, Brain, Droplets, Target, ScanLine,
+  CandlestickChart, Crosshair, Gauge, Layers, Flame, Moon, Activity, Brain, Droplets, Target, ScanLine, BrainCircuit,
 } from 'lucide-react';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/charts', label: 'Technical Charts', icon: CandlestickChart },
+  { href: '/smart-money-analyst', label: 'Smart Money Analyst', icon: BrainCircuit },
   { href: '/market-analysis', label: 'Market Analysis', icon: TrendingUp },
   { href: '/orb-analysis', label: 'ORB Analysis', icon: Crosshair },
   { href: '/power-hour', label: 'Power Hour', icon: Flame },
