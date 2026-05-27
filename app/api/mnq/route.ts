@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { yfFetch } from '@/lib/yahoo-finance';
 import { calcEMA, calcRSI, calcATR, calcVWAP } from '@/lib/indicators';
 import type { CandleData } from '@/lib/types';
 
@@ -49,10 +50,7 @@ async function yQuote(symbol: string) {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`
       + `?interval=1d&range=1d`;
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
-      cache: 'no-store',
-    });
+    const res = await yfFetch(url);
     if (!res.ok) return null;
     const json = await res.json();
     const meta = json?.chart?.result?.[0]?.meta;
@@ -109,10 +107,7 @@ async function fetchCandles(symbol: string, tf: number): Promise<{ candles: Cand
   const fromSec = nowSec - 8 * 3600;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`
     + `?period1=${fromSec}&period2=${nowSec}&interval=5m&includePrePost=true`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
-    cache: 'no-store',
-  });
+  const res = await yfFetch(url);
   if (!res.ok) throw new Error(`Yahoo ${res.status}`);
   const text = await res.text();
   if (text.trimStart().startsWith('<')) throw new Error('Yahoo returned HTML');

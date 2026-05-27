@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { yfFetch } from '@/lib/yahoo-finance';
 import { calcEMA, calcRSI, calcATR } from '@/lib/indicators';
 import type { CandleData } from '@/lib/types';
 
@@ -23,7 +24,7 @@ interface QuoteData {
 async function fetchQuote(symbol: string): Promise<QuoteData | null> {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
-    const res = await fetch(url, { headers: YF_HEADERS, cache: 'no-store' });
+    const res = await yfFetch(url);
     if (!res.ok) return null;
     const json = await res.json();
     const meta = json?.chart?.result?.[0]?.meta;
@@ -74,7 +75,7 @@ async function fetchCandles(symbol: string, interval: string, range: string): Pr
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`
       + `?interval=${interval}&range=${range}&includePrePost=false`;
-    const res = await fetch(url, { headers: YF_HEADERS, cache: 'no-store' });
+    const res = await yfFetch(url);
     if (!res.ok) return [];
     const json = await res.json();
     const result = json?.chart?.result?.[0];
@@ -285,7 +286,7 @@ interface YahooOption {
 
 async function fetchOptionsChain(symbol: string): Promise<{ price: number; calls: YahooOption[]; puts: YahooOption[]; expirationDates: number[] }> {
   try {
-    const res = await fetch(`https://query2.finance.yahoo.com/v7/finance/options/${symbol}`, { headers: YF_HEADERS, cache: 'no-store' });
+    const res = await yfFetch(`https://query2.finance.yahoo.com/v7/finance/options/${symbol}`);
     if (!res.ok) return { price: 0, calls: [], puts: [], expirationDates: [] };
     const json = await res.json();
     const r = json?.optionChain?.result?.[0];
@@ -297,7 +298,7 @@ async function fetchOptionsChain(symbol: string): Promise<{ price: number; calls
 
 async function fetchExpiry(symbol: string, expDate: number): Promise<{ calls: YahooOption[]; puts: YahooOption[] }> {
   try {
-    const res = await fetch(`https://query2.finance.yahoo.com/v7/finance/options/${symbol}?date=${expDate}`, { headers: YF_HEADERS, cache: 'no-store' });
+    const res = await yfFetch(`https://query2.finance.yahoo.com/v7/finance/options/${symbol}?date=${expDate}`);
     if (!res.ok) return { calls: [], puts: [] };
     const json = await res.json();
     const opts = json?.optionChain?.result?.[0]?.options?.[0] ?? {};

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { yfFetch } from '@/lib/yahoo-finance';
 import { calcEMA, calcRSI, calcATR } from '@/lib/indicators';
 import type { CandleData } from '@/lib/types';
 
@@ -19,7 +20,7 @@ interface QuoteData { price: number; change: number; changePct: number; prevClos
 
 async function fetchQuote(sym: string): Promise<QuoteData | null> {
   try {
-    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=5d`, { headers: YF, cache: 'no-store' });
+    const r = await yfFetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=5d`);
     if (!r.ok) return null;
     const j = await r.json(); const m = j?.chart?.result?.[0]?.meta; if (!m) return null;
     const price = Number(m.regularMarketPrice ?? m.previousClose ?? 0);
@@ -34,7 +35,7 @@ async function fetchMultiQuote(symbols: string[]): Promise<Map<string, QuoteData
   if (!symbols.length) return out;
   try {
     const str = symbols.map(s => encodeURIComponent(s)).join('%2C');
-    const r = await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${str}&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketOpen,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,regularMarketChangePercent`, { headers: YF, cache: 'no-store' });
+    const r = await yfFetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${str}&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketOpen,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,regularMarketChangePercent`);
     if (!r.ok) return out;
     const j = await r.json();
     for (const q of (j?.quoteResponse?.result ?? [])) {
@@ -47,7 +48,7 @@ async function fetchMultiQuote(symbols: string[]): Promise<Map<string, QuoteData
 
 async function fetchCandles(sym: string, interval: string, range: string): Promise<CandleData[]> {
   try {
-    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${range}&includePrePost=false`, { headers: YF, cache: 'no-store' });
+    const r = await yfFetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=${interval}&range=${range}&includePrePost=false`);
     if (!r.ok) return [];
     const j = await r.json(); const res = j?.chart?.result?.[0]; if (!res) return [];
     const ts: number[] = res.timestamp ?? []; const q = res.indicators?.quote?.[0] ?? {};
@@ -61,7 +62,7 @@ interface RawOption { contractSymbol: string; strike: number; bid: number; ask: 
 
 async function fetchOptionsAll(sym: string, maxDTE = 7): Promise<{ price: number; calls: RawOption[]; puts: RawOption[]; expirations: number[] }> {
   try {
-    const r0 = await fetch(`https://query2.finance.yahoo.com/v7/finance/options/${sym}`, { headers: YF, cache: 'no-store' });
+    const r0 = await yfFetch(`https://query2.finance.yahoo.com/v7/finance/options/${sym}`);
     if (!r0.ok) return { price: 0, calls: [], puts: [], expirations: [] };
     const j0 = await r0.json(); const res = j0?.optionChain?.result?.[0]; if (!res) return { price: 0, calls: [], puts: [], expirations: [] };
     const price = Number(res.quote?.regularMarketPrice ?? 0);
@@ -72,7 +73,7 @@ async function fetchOptionsAll(sym: string, maxDTE = 7): Promise<{ price: number
     if (allDates.length > 1) {
       const extras = await Promise.all(allDates.slice(1, 5).map(async d => {
         try {
-          const r = await fetch(`https://query2.finance.yahoo.com/v7/finance/options/${sym}?date=${d}`, { headers: YF, cache: 'no-store' });
+          const r = await yfFetch(`https://query2.finance.yahoo.com/v7/finance/options/${sym}?date=${d}`);
           if (!r.ok) return { calls: [] as RawOption[], puts: [] as RawOption[] };
           const j = await r.json(); const o = j?.optionChain?.result?.[0]?.options?.[0] ?? {};
           return { calls: (o.calls ?? []) as RawOption[], puts: (o.puts ?? []) as RawOption[] };

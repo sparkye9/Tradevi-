@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { yfFetch } from '@/lib/yahoo-finance';
 
 const YF_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -32,7 +33,7 @@ const WATCH = [
 
 async function fetchTicker(symbol: string, label: string, isYield: boolean): Promise<TickerData> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=5m`;
-  const res  = await fetch(url, { headers: YF_HEADERS, cache: 'no-store' });
+  const res  = await yfFetch(url);
   if (!res.ok) throw new Error(`Yahoo ${res.status} for ${symbol}`);
 
   const text = await res.text();

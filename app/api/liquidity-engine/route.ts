@@ -7,6 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { yfFetch } from '@/lib/yahoo-finance';
 import { calcEMA, calcRSI, calcATR, calcVWAP } from '@/lib/indicators';
 import type { CandleData } from '@/lib/types';
 
@@ -45,7 +46,7 @@ function etOffsetHours(): number {
 async function fetchYFCandles(symbol: string, interval: string, range: string): Promise<CandleData[]> {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}&includePrePost=true`;
-    const res = await fetch(url, { headers: YF_HEADERS, cache: 'no-store' });
+    const res = await yfFetch(url);
     if (!res.ok) return [];
     const text = await res.text();
     if (text.trimStart().startsWith('<')) return [];
@@ -64,7 +65,7 @@ async function fetchYFCandles(symbol: string, interval: string, range: string): 
 async function fetchYFQuote(symbol: string) {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
-    const res = await fetch(url, { headers: YF_HEADERS, cache: 'no-store' });
+    const res = await yfFetch(url);
     if (!res.ok) return null;
     const text = await res.text();
     if (text.trimStart().startsWith('<')) return null;

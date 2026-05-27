@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { yfFetch } from '@/lib/yahoo-finance';
 import { getYahooSession } from '@/lib/yahooFinance';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -108,7 +109,7 @@ async function fetchOptionsChain(symbol: string): Promise<{
   const headers: Record<string, string> = { ...YF_OPTS_HEADERS };
   if (session?.cookie) headers['Cookie'] = session.cookie;
 
-  let res = await fetch(url, { headers, cache: 'no-store' });
+  let res = await yfFetch(url);
 
   // Fallback: try query1 without crumb if query2 fails
   if (!res.ok && session?.crumb) {

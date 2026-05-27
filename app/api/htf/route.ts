@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { yfFetch } from '@/lib/yahoo-finance';
 import { calcEMA } from '@/lib/indicators';
 import type { CandleData } from '@/lib/types';
 
@@ -19,7 +20,7 @@ async function fetchHTFCandles(symbol: string, interval: string, outputsize: num
       const off = etOffsetHours();
       const tdSym = symbol === 'NQ=F' ? 'NQ1!' : symbol;
       const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(tdSym)}&interval=${interval}&outputsize=${outputsize}&order=ASC&apikey=${tdKey}`;
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await yfFetch(url);
       if (!res.ok) throw new Error(`TD ${res.status}`);
       const json = await res.json();
       if (json.status === 'error') throw new Error(json.message);
@@ -37,7 +38,7 @@ async function fetchHTFCandles(symbol: string, interval: string, outputsize: num
     const yInterval = interval === '1day' || interval === '1d' ? '1d' : interval === '1h' ? '1h' : '15m';
     const fromSec = nowSec - (interval === '1day' || interval === '1d' ? 60 * 86400 : 30 * 86400);
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahoosym)}?period1=${fromSec}&period2=${nowSec}&interval=${yInterval}`;
-    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' }, cache: 'no-store' });
+    const res = await yfFetch(url);
     if (!res.ok) throw new Error(`Yahoo ${res.status}`);
     const text = await res.text();
     const json = JSON.parse(text);

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { yfFetch } from '@/lib/yahoo-finance';
 
 // ─── ET timezone ──────────────────────────────────────────────────────────────
 
@@ -125,7 +126,7 @@ async function fetchSymbolData(
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}` +
     `?range=1d&interval=1m&includePrePost=true`;
 
-  const res = await fetch(url, { headers: YF_HEADERS, cache: 'no-store' });
+  const res = await yfFetch(url);
   if (!res.ok) throw new Error(`Yahoo Finance HTTP ${res.status} for ${symbol}`);
 
   const text = await res.text();

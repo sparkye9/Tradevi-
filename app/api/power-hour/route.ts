@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { yfFetch } from '@/lib/yahoo-finance';
 
 function getETOffsetHours(): number {
   const now = new Date();
@@ -29,10 +30,7 @@ async function fetchYahooIntradayCandles(symbol: string, fromSec: number): Promi
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}` +
     `?period1=${fromSec}&period2=${nowSec}&interval=1m&includePrePost=false`;
 
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TradingApp/1.0)', Accept: 'application/json' },
-    cache: 'no-store',
-  });
+  const res = await yfFetch(url);
   if (!res.ok) throw new Error(`Yahoo Finance HTTP ${res.status}`);
 
   const text = await res.text();

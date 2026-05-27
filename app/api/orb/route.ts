@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { yfFetch } from '@/lib/yahoo-finance';
 
 // ─── Timezone helpers ─────────────────────────────────────────────────────────
 
@@ -61,7 +62,7 @@ async function fetchTwelveCandles(
     + `&order=ASC`
     + `&apikey=${apiKey}`;
 
-  const res = await fetch(url, { cache: 'no-store' });
+  const res = await yfFetch(url);
   if (!res.ok) throw new Error(`TwelveData HTTP ${res.status}`);
 
   const json = await res.json();
@@ -96,10 +97,7 @@ async function fetchYahooCandles(
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`
     + `?period1=${fromSec}&period2=${nowSec}&interval=${interval}&includePrePost=true`;
 
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TradingApp/1.0)', Accept: 'application/json' },
-    cache: 'no-store',
-  });
+  const res = await yfFetch(url);
   if (!res.ok) throw new Error(`Yahoo Finance HTTP ${res.status}`);
 
   const text = await res.text();

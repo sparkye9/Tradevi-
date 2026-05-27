@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { yfFetch } from '@/lib/yahoo-finance';
 import { calcEMA, calcRSI, calcATR, calcVWAP } from '@/lib/indicators';
 import type { CandleData } from '@/lib/types';
 
@@ -62,7 +63,7 @@ function parseCandles(json: unknown): CandleData[] {
 async function fetchYFCandles(symbol: string, interval: string, range: string): Promise<CandleData[]> {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}&includePrePost=false`;
-    const res = await fetch(url, { headers: YF_HEADERS, cache: 'no-store' });
+    const res = await yfFetch(url);
     if (!res.ok) return [];
     const json = await res.json();
     return parseCandles(json);
@@ -72,7 +73,7 @@ async function fetchYFCandles(symbol: string, interval: string, range: string): 
 async function fetchYFQuote(symbol: string): Promise<{ price: number; prevClose: number; change: number; changePct: number } | null> {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
-    const res = await fetch(url, { headers: YF_HEADERS, cache: 'no-store' });
+    const res = await yfFetch(url);
     if (!res.ok) return null;
     const json = await res.json();
     const meta = (json as { chart?: { result?: Array<{ meta?: Record<string, unknown> }> } })?.chart?.result?.[0]?.meta;
