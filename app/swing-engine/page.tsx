@@ -90,351 +90,512 @@ interface SingleData {
   fetchedAt: string;
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Design tokens ────────────────────────────────────────────────────────────
 
-const SYMBOLS = ['SPY', 'QQQ', 'IWM', 'NVDA', 'AAPL', 'TSLA', 'META', 'MSFT', 'AMZN', 'GOOGL', 'AMD'] as const;
+const G = '#00ff88';
+const R = '#ff3b3b';
+const A = '#f59e0b';
 
-// ─── Color helpers ────────────────────────────────────────────────────────────
+const biasC = (b: string) => b === 'bullish' ? G : b === 'bearish' ? R : '#6b7280';
+const biasBg = (b: string) =>
+  b === 'bullish' ? { color: G,  bg: 'rgba(0,255,136,0.08)',  border: 'rgba(0,255,136,0.25)'  } :
+  b === 'bearish' ? { color: R,  bg: 'rgba(255,59,59,0.08)',  border: 'rgba(255,59,59,0.25)'  } :
+                    { color: '#6b7280', bg: 'rgba(107,114,128,0.1)', border: 'rgba(107,114,128,0.2)' };
 
-const biasColor = (b: string) => b === 'bullish' ? 'text-emerald-400' : b === 'bearish' ? 'text-red-400' : 'text-gray-400';
-const biasBg    = (b: string) => b === 'bullish' ? 'bg-emerald-950 border-emerald-700 text-emerald-300' : b === 'bearish' ? 'bg-red-950 border-red-700 text-red-300' : 'bg-gray-800 border-gray-600 text-gray-300';
-const pctColor  = (v: number) => v > 0 ? 'text-emerald-400' : v < 0 ? 'text-red-400' : 'text-gray-400';
-const fmt2      = (n: number) => n >= 0 ? `+${n.toFixed(2)}` : n.toFixed(2);
-const scoreColor = (s: number) => s >= 75 ? 'text-emerald-400' : s >= 58 ? 'text-yellow-400' : s >= 42 ? 'text-orange-400' : 'text-red-400';
-const scoreBg   = (s: number) => s >= 75 ? 'bg-emerald-950 border-emerald-700' : s >= 58 ? 'bg-yellow-950 border-yellow-700' : s >= 42 ? 'bg-orange-950 border-orange-700' : 'bg-red-950 border-red-700';
+const pctC = (v: number) => v > 0 ? G : v < 0 ? R : '#6b7280';
+const fmt2 = (n: number) => n >= 0 ? `+${n.toFixed(2)}` : n.toFixed(2);
 
-const gradeColor = (g: string) => ({
-  'A+': 'text-emerald-400 bg-emerald-950 border-emerald-700',
-  'A':  'text-emerald-300 bg-emerald-950 border-emerald-800',
-  'B':  'text-yellow-400  bg-yellow-950  border-yellow-700',
-  'C':  'text-orange-400  bg-orange-950  border-orange-700',
-  'D':  'text-red-400     bg-red-950     border-red-700',
-} as Record<string, string>)[g] ?? 'text-gray-400';
+const scoreC = (s: number) =>
+  s >= 75 ? G : s >= 58 ? A : s >= 42 ? '#f97316' : R;
 
-const vixRegimeBadge = (r: string) => ({
-  low:      'bg-emerald-950 text-emerald-400 border-emerald-700',
-  normal:   'bg-blue-950   text-blue-400   border-blue-700',
-  elevated: 'bg-amber-950  text-amber-400  border-amber-700',
-  extreme:  'bg-red-950    text-red-400    border-red-700',
-} as Record<string, string>)[r] ?? 'bg-gray-800 text-gray-400';
+const gradeS = (g: string) => {
+  if (g === 'A+') return { color: G,        bg: 'rgba(0,255,136,0.1)',  border: 'rgba(0,255,136,0.3)'  };
+  if (g === 'A')  return { color: '#4ade80', bg: 'rgba(74,222,128,0.08)',border: 'rgba(74,222,128,0.2)' };
+  if (g === 'B')  return { color: A,         bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.3)' };
+  if (g === 'C')  return { color: '#f97316', bg: 'rgba(249,115,22,0.1)', border: 'rgba(249,115,22,0.3)' };
+  return                  { color: R,        bg: 'rgba(255,59,59,0.1)',  border: 'rgba(255,59,59,0.3)'  };
+};
 
-const regimeColor = (p: string) => ({ expansion: 'text-emerald-400', accumulation: 'text-blue-400', distribution: 'text-red-400', reversal: 'text-amber-400', ranging: 'text-gray-400' } as Record<string, string>)[p] ?? 'text-gray-400';
+const vixC = (r: string) =>
+  r === 'low' ? { color: G, bg: 'rgba(0,255,136,0.1)', border: 'rgba(0,255,136,0.3)' } :
+  r === 'normal' ? { color: '#60a5fa', bg: 'rgba(96,165,250,0.1)', border: 'rgba(96,165,250,0.3)' } :
+  r === 'elevated' ? { color: A, bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.3)' } :
+  { color: R, bg: 'rgba(255,59,59,0.1)', border: 'rgba(255,59,59,0.3)' };
 
-const expiryLabel = (ts: number) => new Date(ts * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+const expiryLabel = (ts: number) =>
+  new Date(ts * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
 
-// ─── Shared UI primitives ─────────────────────────────────────────────────────
+// ─── UI Primitives ────────────────────────────────────────────────────────────
 
-function DarkCard({ children, className = '', accent }: { children: React.ReactNode; className?: string; accent?: string }) {
-  return <div className={`bg-gray-900 border border-gray-800 rounded-xl p-4 ${accent ? `border-l-4 ${accent}` : ''} ${className}`}>{children}</div>;
+function CpCard({ children, accentColor, className = '' }: {
+  children: React.ReactNode;
+  accentColor?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`rounded-xl p-4 ${className}`}
+      style={{
+        background: '#111318',
+        border: '1px solid rgba(255,255,255,0.07)',
+        ...(accentColor ? { borderLeft: `2px solid ${accentColor}` } : {}),
+      }}
+    >
+      {children}
+    </div>
+  );
 }
 
-function SectionTitle({ icon, title, right }: { icon: React.ReactNode; title: string; right?: React.ReactNode }) {
+function SecHeader({ title, right, accent = '#374151' }: { title: string; right?: React.ReactNode; accent?: string }) {
   return (
     <div className="flex items-center justify-between mb-3">
-      <div className="flex items-center gap-2 text-gray-300 font-semibold text-sm">
-        <span className="text-purple-400">{icon}</span>{title}
+      <div className="flex items-center gap-2">
+        <div className="w-0.5 h-3.5 rounded-full" style={{ background: accent }} />
+        <p className="sec-label" style={{ margin: 0 }}>{title}</p>
       </div>
       {right}
     </div>
   );
 }
 
-function Badge({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold border ${className}`}>{children}</span>;
+function Chip({ label, color = '#6b7280', bg = 'transparent', border }: {
+  label: string; color?: string; bg?: string; border?: string;
+}) {
+  return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold"
+      style={{ color, background: bg, border: `1px solid ${border ?? color + '44'}` }}
+    >
+      {label}
+    </span>
+  );
 }
 
+// ─── Bias Bar ─────────────────────────────────────────────────────────────────
+
 function BiasBar({ strength, bias }: { strength: number; bias: string }) {
-  const color = bias === 'bullish' ? 'bg-emerald-500' : bias === 'bearish' ? 'bg-red-500' : 'bg-gray-600';
+  const color = biasC(bias);
   return (
     <div className="space-y-1">
-      <div className="flex justify-between text-xs text-gray-400">
-        <span>Bear</span><span className={`font-semibold ${biasColor(bias)}`}>{strength}%</span><span>Bull</span>
+      <div className="flex justify-between text-xs">
+        <span style={{ color: '#374151' }}>Bear</span>
+        <span className="font-bold font-mono" style={{ color }}>{strength}%</span>
+        <span style={{ color: '#374151' }}>Bull</span>
       </div>
-      <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-        <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${strength}%` }} />
+      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: '#1a1d26' }}>
+        <div className="h-full rounded-full transition-all" style={{ width: `${strength}%`, background: color }} />
       </div>
     </div>
   );
 }
 
+// ─── Bias Card ─────────────────────────────────────────────────────────────────
+
 function BiasCard({ label, data }: { label: string; data: BiasResult }) {
+  const bs = biasBg(data.bias);
   return (
-    <DarkCard accent={data.bias === 'bullish' ? 'border-emerald-600' : data.bias === 'bearish' ? 'border-red-600' : 'border-gray-600'}>
+    <CpCard accentColor={bs.color}>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-gray-400 font-medium uppercase tracking-wide">{label}</span>
-        <Badge className={biasBg(data.bias)}>{data.bias.toUpperCase()}</Badge>
+        <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#374151' }}>{label}</span>
+        <Chip label={data.bias.toUpperCase()} color={bs.color} bg={bs.bg} border={bs.border} />
       </div>
       <BiasBar strength={data.strength} bias={data.bias} />
-      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-        <div className="bg-gray-800 rounded p-1.5 text-center">
-          <div className="text-gray-500">RSI</div>
-          <div className={`font-semibold ${data.rsi > 70 ? 'text-red-400' : data.rsi < 30 ? 'text-emerald-400' : data.rsi > 55 ? 'text-emerald-300' : data.rsi < 45 ? 'text-red-300' : 'text-gray-300'}`}>{data.rsi}</div>
-        </div>
-        <div className="bg-gray-800 rounded p-1.5 text-center">
-          <div className="text-gray-500">ATR</div>
-          <div className="text-gray-300 font-semibold">{data.atr > 0 ? data.atr.toFixed(1) : '—'}</div>
-        </div>
-        <div className="bg-gray-800 rounded p-1.5 text-center">
-          <div className="text-gray-500">EMA</div>
-          <div className={`font-semibold ${data.ema9AboveEma21 ? 'text-emerald-400' : 'text-red-400'}`}>{data.ema9AboveEma21 ? '9>21 ↑' : '9<21 ↓'}</div>
-        </div>
+      <div className="mt-3 grid grid-cols-3 gap-1.5 text-xs">
+        {[
+          { label: 'RSI', value: data.rsi.toString(), color: data.rsi > 70 ? R : data.rsi < 30 ? G : data.rsi > 55 ? G : data.rsi < 45 ? R : '#9ca3af' },
+          { label: 'ATR', value: data.atr > 0 ? data.atr.toFixed(1) : '—', color: '#9ca3af' },
+          { label: 'EMA', value: data.ema9AboveEma21 ? '9>21 ↑' : '9<21 ↓', color: data.ema9AboveEma21 ? G : R },
+        ].map(({ label: l, value, color }) => (
+          <div key={l} className="rounded-lg p-1.5 text-center" style={{ background: '#13161d' }}>
+            <div className="text-xs" style={{ color: '#374151', fontSize: '9px' }}>{l}</div>
+            <div className="font-bold font-mono" style={{ color }}>{value}</div>
+          </div>
+        ))}
       </div>
       <ul className="mt-2 space-y-0.5">
         {data.notes.slice(0, 3).map((n, i) => (
-          <li key={i} className="text-xs text-gray-500 flex items-center gap-1">
-            <span className={biasColor(data.bias)}>·</span> {n}
+          <li key={i} className="text-xs flex items-center gap-1" style={{ color: '#6b7280' }}>
+            <span style={{ color: biasC(data.bias) }}>·</span> {n}
           </li>
         ))}
       </ul>
-    </DarkCard>
+    </CpCard>
   );
 }
 
+// ─── MTF Alignment Score ──────────────────────────────────────────────────────
+
+function MTFAlignmentScore({ weekly, daily, fourH }: { weekly: BiasResult; daily: BiasResult; fourH: BiasResult }) {
+  const biases = [weekly.bias, daily.bias, fourH.bias];
+  const bullCount = biases.filter(b => b === 'bullish').length;
+  const bearCount = biases.filter(b => b === 'bearish').length;
+  const aligned = bullCount === 3 || bearCount === 3;
+  const direction = bullCount >= 2 ? 'bullish' : bearCount >= 2 ? 'bearish' : 'neutral';
+  const score = Math.round(((bullCount === 3 || bearCount === 3) ? 100 : bullCount === 2 || bearCount === 2 ? 67 : 33));
+  const color = direction === 'bullish' ? G : direction === 'bearish' ? R : '#6b7280';
+
+  return (
+    <CpCard>
+      <SecHeader title="MTF Alignment Score" accent={color} />
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <p className="text-3xl font-black font-mono" style={{ color }}>
+            {score}%
+          </p>
+          <p className="text-xs mt-0.5" style={{ color: '#6b7280' }}>
+            {aligned ? 'Full alignment' : bullCount >= 2 ? 'Partial bullish' : bearCount >= 2 ? 'Partial bearish' : 'Mixed — no edge'}
+          </p>
+        </div>
+        <Chip
+          label={direction.toUpperCase()}
+          color={color}
+          bg={`${color}15`}
+          border={`${color}44`}
+        />
+      </div>
+      <div className="space-y-2">
+        {[
+          { label: 'Monthly (est)', bias: weekly.bias,   score: weekly.strength   },
+          { label: 'Weekly',        bias: weekly.bias,   score: weekly.strength   },
+          { label: 'Daily',         bias: daily.bias,    score: daily.strength    },
+          { label: '4H',            bias: fourH.bias,    score: fourH.strength    },
+        ].map(({ label, bias, score: s }) => {
+          const c = biasC(bias);
+          return (
+            <div key={label} className="flex items-center gap-3 text-xs">
+              <span className="w-20 font-medium" style={{ color: '#6b7280' }}>{label}</span>
+              <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: '#1a1d26' }}>
+                <div className="h-full rounded-full" style={{ width: `${s}%`, background: c }} />
+              </div>
+              <span className="w-16 text-right font-bold font-mono" style={{ color: c }}>{bias.toUpperCase()}</span>
+            </div>
+          );
+        })}
+      </div>
+    </CpCard>
+  );
+}
+
+// ─── Options Table ────────────────────────────────────────────────────────────
+
 function OptionsTable({ contracts, type, currentPrice }: { contracts: ScoredOption[]; type: 'call' | 'put'; currentPrice: number }) {
-  if (!contracts.length) return <div className="text-xs text-gray-500 italic py-4 text-center">No qualifying contracts found for this symbol / DTE range</div>;
+  if (!contracts.length) return (
+    <p className="text-xs text-center py-4" style={{ color: '#374151', fontStyle: 'italic' }}>
+      No qualifying contracts found for this symbol / DTE range
+    </p>
+  );
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-gray-800 text-gray-500">
-            <th className="text-left py-2 pr-3">Strike</th><th className="text-left py-2 pr-3">Exp</th>
-            <th className="text-right py-2 pr-3">DTE</th><th className="text-right py-2 pr-3">Mid</th>
-            <th className="text-right py-2 pr-3">IV%</th><th className="text-right py-2 pr-3">OI</th>
-            <th className="text-right py-2 pr-3">Sprd%</th><th className="text-right py-2 pr-3">T1</th>
-            <th className="text-right py-2 pr-3">Stop</th><th className="text-right py-2 pr-3">R:R</th>
-            <th className="text-right py-2">Grade</th>
+          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            {['Strike', 'Exp', 'DTE', 'Mid', 'IV%', 'OI', 'Sprd%', 'T1', 'Stop', 'R:R', 'Grade'].map(h => (
+              <th key={h} className={`py-2 pr-2 font-bold uppercase tracking-wider ${h === 'Strike' || h === 'Exp' ? 'text-left' : 'text-right'}`}
+                style={{ color: '#374151', fontSize: '9px' }}>
+                {h}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
-          {contracts.slice(0, 8).map((c, i) => (
-            <tr key={i} className={`border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors ${i === 0 ? 'bg-gray-800/20' : ''}`}>
-              <td className="py-1.5 pr-3 font-semibold text-gray-200">
-                {c.strike.toFixed(c.strike < 50 ? 2 : 0)}{c.inTheMoney && <span className="ml-1 text-purple-400 text-[10px]">ITM</span>}
-              </td>
-              <td className="py-1.5 pr-3 text-gray-400">{expiryLabel(c.expiration)}</td>
-              <td className="py-1.5 pr-3 text-right text-gray-300">{c.dte}d</td>
-              <td className={`py-1.5 pr-3 text-right font-semibold ${type === 'call' ? 'text-emerald-400' : 'text-red-400'}`}>${c.mid.toFixed(2)}</td>
-              <td className={`py-1.5 pr-3 text-right ${c.ivPct > 80 ? 'text-amber-400' : 'text-gray-300'}`}>{c.ivPct.toFixed(0)}%</td>
-              <td className="py-1.5 pr-3 text-right text-gray-400">{c.openInterest.toLocaleString()}</td>
-              <td className={`py-1.5 pr-3 text-right ${c.spreadPct > 15 ? 'text-amber-400' : 'text-gray-400'}`}>{c.spreadPct.toFixed(1)}%</td>
-              <td className="py-1.5 pr-3 text-right text-emerald-400">${c.target1.toFixed(2)}</td>
-              <td className="py-1.5 pr-3 text-right text-red-400">${c.stopLoss.toFixed(2)}</td>
-              <td className="py-1.5 pr-3 text-right text-gray-300">{c.rrRatio.toFixed(1)}x</td>
-              <td className="py-1.5 text-right"><Badge className={gradeColor(c.grade)}>{c.grade}</Badge></td>
-            </tr>
-          ))}
+          {contracts.slice(0, 8).map((c, i) => {
+            const gs = gradeS(c.grade);
+            return (
+              <tr key={i} className="transition-colors"
+                style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: i === 0 ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
+                <td className="py-1.5 pr-2 font-semibold" style={{ color: '#f0f0f0' }}>
+                  {c.strike.toFixed(c.strike < 50 ? 2 : 0)}
+                  {c.inTheMoney && <span className="ml-1 text-xs" style={{ color: '#a78bfa' }}>ITM</span>}
+                </td>
+                <td className="py-1.5 pr-2" style={{ color: '#6b7280' }}>{expiryLabel(c.expiration)}</td>
+                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: '#9ca3af' }}>{c.dte}d</td>
+                <td className="py-1.5 pr-2 text-right font-mono font-bold" style={{ color: type === 'call' ? G : R }}>${c.mid.toFixed(2)}</td>
+                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: c.ivPct > 80 ? A : '#9ca3af' }}>{c.ivPct.toFixed(0)}%</td>
+                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: '#6b7280' }}>{c.openInterest.toLocaleString()}</td>
+                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: c.spreadPct > 15 ? A : '#6b7280' }}>{c.spreadPct.toFixed(1)}%</td>
+                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: G }}>${c.target1.toFixed(2)}</td>
+                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: R }}>${c.stopLoss.toFixed(2)}</td>
+                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: '#9ca3af' }}>{c.rrRatio.toFixed(1)}x</td>
+                <td className="py-1.5 text-right">
+                  <span className="px-1.5 py-0.5 rounded text-xs font-bold" style={{ color: gs.color, background: gs.bg, border: `1px solid ${gs.border}` }}>
+                    {c.grade}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
+// ─── Conviction Card ──────────────────────────────────────────────────────────
+
 function ConvictionCard({ c }: { c: ScoredOption }) {
   const isCall = c.type === 'call';
+  const gs = gradeS(c.grade);
   return (
-    <DarkCard accent={isCall ? 'border-emerald-600' : 'border-red-600'} className="relative overflow-hidden">
-      <div className="absolute top-3 right-4 text-4xl font-black opacity-5 text-white">{isCall ? '↑' : '↓'}</div>
+    <CpCard accentColor={isCall ? G : R} className="relative overflow-hidden">
       <div className="flex items-start justify-between mb-4">
         <div>
-          <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Highest Conviction</div>
+          <p className="sec-label mb-1">Highest Conviction</p>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-2xl font-black text-white">{c.symbol}</span>
-            <Badge className={isCall ? 'bg-emerald-950 text-emerald-400 border-emerald-700' : 'bg-red-950 text-red-400 border-red-700'}>{c.type.toUpperCase()}</Badge>
-            <Badge className={gradeColor(c.grade)}>{c.grade}</Badge>
+            <span className="text-2xl font-black" style={{ color: '#f0f0f0' }}>{c.symbol}</span>
+            <Chip label={c.type.toUpperCase()} color={isCall ? G : R} bg={isCall ? 'rgba(0,255,136,0.1)' : 'rgba(255,59,59,0.1)'} />
+            <Chip label={c.grade} color={gs.color} bg={gs.bg} border={gs.border} />
           </div>
-          <div className="text-sm text-gray-400 mt-1">${c.strike.toFixed(c.strike < 50 ? 2 : 0)} · {expiryLabel(c.expiration)} · {c.dte}DTE</div>
+          <p className="text-sm mt-1" style={{ color: '#6b7280' }}>
+            ${c.strike.toFixed(c.strike < 50 ? 2 : 0)} · {expiryLabel(c.expiration)} · {c.dte}DTE
+          </p>
         </div>
-        <div className="text-right">
-          <div className="text-xs text-gray-500">Score</div>
-          <div className={`text-3xl font-black ${c.swingScore >= 80 ? 'text-emerald-400' : c.swingScore >= 60 ? 'text-yellow-400' : 'text-gray-400'}`}>{c.swingScore}</div>
-          <div className="text-xs text-gray-500">/ 100</div>
+        <div className="text-center">
+          <p className="sec-label">Score</p>
+          <p className="text-3xl font-black font-mono" style={{ color: scoreC(c.swingScore) }}>{c.swingScore}</p>
+          <p className="text-xs font-mono" style={{ color: '#374151' }}>/100</p>
         </div>
       </div>
+
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <div className="bg-gray-800 rounded-lg p-3">
-          <div className="text-xs text-gray-500 mb-2">Trade Parameters</div>
-          <div className="space-y-1 text-sm">
-            {[['Entry', `$${c.entryMid.toFixed(2)}`, 'text-white'], ['Target 1', `$${c.target1.toFixed(2)}`, 'text-emerald-400'], ['Target 2', `$${c.target2.toFixed(2)}`, 'text-emerald-300'], ['Stop Loss', `$${c.stopLoss.toFixed(2)}`, 'text-red-400'], ['R:R', `${c.rrRatio.toFixed(1)}:1`, 'text-purple-400']].map(([l, v, cls]) => (
-              <div key={l} className="flex justify-between"><span className="text-gray-400">{l}</span><span className={`font-semibold ${cls}`}>{v}</span></div>
-            ))}
+        {[
+          { title: 'Trade Parameters', rows: [
+            ['Entry', `$${c.entryMid.toFixed(2)}`, '#f0f0f0'],
+            ['Target 1', `$${c.target1.toFixed(2)}`, G],
+            ['Target 2', `$${c.target2.toFixed(2)}`, '#4ade80'],
+            ['Stop Loss', `$${c.stopLoss.toFixed(2)}`, R],
+            ['R:R', `${c.rrRatio.toFixed(1)}:1`, '#a78bfa'],
+          ]},
+          { title: 'Contract Metrics', rows: [
+            ['IV', `${c.ivPct.toFixed(0)}%`, c.ivPct > 80 ? A : '#9ca3af'],
+            ['OI', c.openInterest.toLocaleString(), '#9ca3af'],
+            ['Spread', `${c.spreadPct.toFixed(1)}%`, c.spreadPct > 15 ? A : '#9ca3af'],
+            ['Delta', c.deltaApprox.toFixed(2), '#9ca3af'],
+            ['Hold', `${c.holdDays}d`, '#9ca3af'],
+          ]},
+        ].map(({ title, rows }) => (
+          <div key={title} className="rounded-lg p-3" style={{ background: '#13161d' }}>
+            <p className="sec-label mb-2">{title}</p>
+            <div className="space-y-1 text-xs">
+              {rows.map(([l, v, color]) => (
+                <div key={l} className="flex justify-between">
+                  <span style={{ color: '#6b7280' }}>{l}</span>
+                  <span className="font-semibold font-mono" style={{ color: color as string }}>{v}</span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-        <div className="bg-gray-800 rounded-lg p-3">
-          <div className="text-xs text-gray-500 mb-2">Contract Metrics</div>
-          <div className="space-y-1 text-sm">
-            {[['IV', `${c.ivPct.toFixed(0)}%`, c.ivPct > 80 ? 'text-amber-400' : 'text-gray-200'], ['Open Interest', c.openInterest.toLocaleString(), 'text-gray-200'], ['Spread', `${c.spreadPct.toFixed(1)}%`, c.spreadPct > 15 ? 'text-amber-400' : 'text-gray-200'], ['Delta ~', c.deltaApprox.toFixed(2), 'text-gray-200'], ['Hold', `${c.holdDays}d`, 'text-gray-200']].map(([l, v, cls]) => (
-              <div key={l} className="flex justify-between"><span className="text-gray-400">{l}</span><span className={`font-semibold ${cls}`}>{v}</span></div>
-            ))}
-          </div>
-        </div>
+        ))}
       </div>
-      <div className="bg-gray-800/50 rounded-lg p-3 text-xs text-gray-400">
-        <span className="text-gray-500 font-medium">Rationale: </span>{c.rationale}
+
+      <div className="rounded-lg p-3 text-xs" style={{ background: '#13161d' }}>
+        <span style={{ color: '#374151' }}>Rationale: </span>
+        <span style={{ color: '#9ca3af' }}>{c.rationale}</span>
       </div>
-    </DarkCard>
+    </CpCard>
   );
 }
 
+// ─── Confidence Gauge ─────────────────────────────────────────────────────────
+
 function ConfidenceGauge({ score }: { score: number }) {
-  const norm = score / 100, color = score >= 75 ? '#34d399' : score >= 55 ? '#fbbf24' : '#f87171';
+  const color = score >= 75 ? G : score >= 55 ? A : R;
   const r = 44, cx = 52, cy = 52, circ = 2 * Math.PI * r;
-  const dash = norm * circ * 0.75, gap = circ * 0.25 + circ * 0.75 * (1 - norm);
+  const norm = score / 100;
+  const dash = norm * circ * 0.75;
+  const gap  = circ * 0.25 + circ * 0.75 * (1 - norm);
   return (
     <div className="flex flex-col items-center">
       <svg width={104} height={80} viewBox="0 0 104 80">
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1f2937" strokeWidth={10} strokeDasharray={`${circ * 0.75} ${circ * 0.25}`} strokeDashoffset={circ * 0.125} strokeLinecap="round" />
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={10} strokeDasharray={`${dash} ${gap}`} strokeDashoffset={circ * 0.125} strokeLinecap="round" style={{ transition: 'stroke-dasharray 0.6s ease' }} />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1a1d26" strokeWidth={10}
+          strokeDasharray={`${circ * 0.75} ${circ * 0.25}`}
+          strokeDashoffset={circ * 0.125} strokeLinecap="round" />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={10}
+          strokeDasharray={`${dash} ${gap}`}
+          strokeDashoffset={circ * 0.125} strokeLinecap="round"
+          style={{ transition: 'stroke-dasharray 0.6s ease' }} />
         <text x={cx} y={cy + 6} textAnchor="middle" fill={color} fontSize={20} fontWeight="bold">{score}</text>
       </svg>
-      <div className="text-xs text-gray-500 -mt-2">Confidence / 100</div>
+      <div className="text-xs -mt-2" style={{ color: '#374151' }}>Confidence / 100</div>
     </div>
   );
 }
 
-// ─── Scanner UI components ─────────────────────────────────────────────────────
+// ─── Scanner setup type badges ────────────────────────────────────────────────
 
 function SetupTypeBadges({ types }: { types: SetupCategory[] }) {
-  const map: Record<SetupCategory, string> = {
-    bullish:          'bg-emerald-950 text-emerald-400 border-emerald-700',
-    bearish:          'bg-red-950 text-red-400 border-red-700',
-    breakout:         'bg-blue-950 text-blue-400 border-blue-700',
-    'pullback-fvg':   'bg-purple-950 text-purple-400 border-purple-700',
-    'high-conviction':'bg-amber-950 text-amber-400 border-amber-700',
-    avoid:            'bg-gray-800 text-gray-500 border-gray-700',
-  };
-  const labels: Record<SetupCategory, string> = {
-    bullish: 'BULL', bearish: 'BEAR', breakout: 'BREAK',
-    'pullback-fvg': 'FVG', 'high-conviction': 'HOT', avoid: 'AVOID',
+  const map: Record<SetupCategory, { color: string; label: string }> = {
+    bullish:           { color: G,        label: 'BULL'  },
+    bearish:           { color: R,        label: 'BEAR'  },
+    breakout:          { color: '#60a5fa', label: 'BREAK' },
+    'pullback-fvg':    { color: '#a78bfa', label: 'FVG'   },
+    'high-conviction': { color: A,        label: 'HOT'   },
+    avoid:             { color: '#6b7280', label: 'AVOID' },
   };
   return (
     <div className="flex flex-wrap gap-1">
-      {types.filter(t => t !== 'avoid' || types.length === 1).map(t => (
-        <Badge key={t} className={map[t]}>{labels[t]}</Badge>
-      ))}
+      {types.filter(t => t !== 'avoid' || types.length === 1).map(t => {
+        const s = map[t];
+        return <Chip key={t} label={s.label} color={s.color} bg={`${s.color}14`} />;
+      })}
     </div>
   );
 }
+
+// ─── Mini option ──────────────────────────────────────────────────────────────
 
 function MiniOption({ opt, label }: { opt: ScoredOption; label: string }) {
   const isCall = opt.type === 'call';
   return (
-    <div className="bg-gray-800/80 rounded-lg p-2.5 text-xs">
+    <div className="rounded-lg p-2.5 text-xs" style={{ background: '#13161d' }}>
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-gray-500 font-medium">{label}</span>
-        <div className="flex items-center gap-1.5">
-          <Badge className={isCall ? 'bg-emerald-950 text-emerald-400 border-emerald-700' : 'bg-red-950 text-red-400 border-red-700'}>
-            {opt.type.toUpperCase()}
-          </Badge>
-          <Badge className={gradeColor(opt.grade)}>{opt.grade}</Badge>
+        <span style={{ color: '#6b7280' }}>{label}</span>
+        <div className="flex items-center gap-1">
+          <Chip label={opt.type.toUpperCase()} color={isCall ? G : R} bg={isCall ? 'rgba(0,255,136,0.08)' : 'rgba(255,59,59,0.08)'} />
+          <Chip label={opt.grade} color={gradeS(opt.grade).color} bg={gradeS(opt.grade).bg} />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-gray-300">
-        <span>Strike <span className="font-semibold text-white">${opt.strike.toFixed(opt.strike < 50 ? 2 : 0)}</span></span>
-        <span>Exp <span className="font-semibold text-white">{expiryLabel(opt.expiration)}</span></span>
-        <span>DTE <span className="font-semibold text-white">{opt.dte}d</span></span>
-        <span>Entry <span className={`font-semibold ${isCall ? 'text-emerald-400' : 'text-red-400'}`}>${opt.entryMid.toFixed(2)}</span></span>
-        <span>T1 <span className="font-semibold text-emerald-400">${opt.target1.toFixed(2)}</span></span>
-        <span>Runner <span className="font-semibold text-emerald-300">${opt.target2.toFixed(2)}</span></span>
-        <span>Stop <span className="font-semibold text-red-400">${opt.stopLoss.toFixed(2)}</span></span>
-        <span>R:R <span className="font-semibold text-purple-400">{opt.rrRatio.toFixed(1)}x</span></span>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+        {[
+          ['Strike', `$${opt.strike.toFixed(opt.strike < 50 ? 2 : 0)}`, '#f0f0f0'],
+          ['Exp', expiryLabel(opt.expiration), '#f0f0f0'],
+          ['DTE', `${opt.dte}d`, '#9ca3af'],
+          ['Entry', `$${opt.entryMid.toFixed(2)}`, isCall ? G : R],
+          ['T1', `$${opt.target1.toFixed(2)}`, G],
+          ['Runner', `$${opt.target2.toFixed(2)}`, '#4ade80'],
+          ['Stop', `$${opt.stopLoss.toFixed(2)}`, R],
+          ['R:R', `${opt.rrRatio.toFixed(1)}x`, '#a78bfa'],
+        ].map(([l, v, color]) => (
+          <span key={l} className="text-xs">
+            <span style={{ color: '#374151' }}>{l} </span>
+            <span className="font-semibold font-mono" style={{ color: color as string }}>{v}</span>
+          </span>
+        ))}
       </div>
     </div>
   );
 }
+
+// ─── Setup Card ───────────────────────────────────────────────────────────────
 
 function SetupCard({ result, rank, compact = false }: { result: ScanResult; rank?: number; compact?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const isAvoid = result.setupTypes.every(t => t === 'avoid');
-  const accent  = isAvoid ? 'border-gray-700'
-    : result.setupTypes.includes('bullish') ? 'border-emerald-600'
-    : result.setupTypes.includes('bearish') ? 'border-red-600'
-    : result.setupTypes.includes('breakout') ? 'border-blue-600'
-    : 'border-purple-600';
+  const accentColor = isAvoid ? '#374151'
+    : result.setupTypes.includes('bullish') ? G
+    : result.setupTypes.includes('bearish') ? R
+    : result.setupTypes.includes('breakout') ? '#60a5fa'
+    : '#a78bfa';
 
   const bestOption = result.setupTypes.includes('bearish') ? result.bestPut : result.bestCall;
-  const noOption   = !result.bestCall && !result.bestPut;
 
   return (
-    <div className={`bg-gray-900 border border-gray-800 border-l-4 ${accent} rounded-xl p-4 flex flex-col gap-3`}>
-      {/* Header row */}
+    <CpCard accentColor={accentColor} className="flex flex-col gap-3">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-2 flex-wrap">
-          {rank && <span className="text-xs font-black text-amber-400 bg-amber-950 border border-amber-800 rounded px-1.5 py-0.5">#{rank}</span>}
-          <span className="text-white font-black text-lg leading-none">{result.symbol}</span>
-          {result.discovered && <span className="text-[10px] text-purple-400 border border-purple-800 bg-purple-950/50 rounded px-1.5 py-0.5 font-semibold">DISCOVERED</span>}
+          {rank && (
+            <span className="text-xs font-black px-1.5 py-0.5 rounded" style={{ color: A, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)' }}>
+              #{rank}
+            </span>
+          )}
+          <span className="font-black text-lg" style={{ color: '#f0f0f0' }}>{result.symbol}</span>
+          {result.discovered && (
+            <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ color: '#a78bfa', background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.3)' }}>
+              DISCOVERED
+            </span>
+          )}
           <SetupTypeBadges types={result.setupTypes} />
         </div>
-        <div className={`flex flex-col items-center justify-center rounded-lg border px-2 py-1 min-w-[46px] ${scoreBg(result.confidenceScore)}`}>
-          <span className={`text-lg font-black leading-none ${scoreColor(result.confidenceScore)}`}>{result.confidenceScore}</span>
-          <span className="text-[9px] text-gray-600 mt-0.5">score</span>
+        <div className="flex flex-col items-center justify-center rounded-lg px-2 py-1 min-w-[44px] text-center"
+          style={{ background: '#13161d', border: `1px solid ${scoreC(result.confidenceScore)}44` }}>
+          <span className="text-lg font-black font-mono leading-none" style={{ color: scoreC(result.confidenceScore) }}>
+            {result.confidenceScore}
+          </span>
+          <span className="text-xs uppercase tracking-wider" style={{ color: '#374151', fontSize: '8px' }}>score</span>
         </div>
       </div>
 
-      {/* Price + RS row */}
       <div className="flex items-center gap-3 text-sm flex-wrap">
-        <span className="text-white font-semibold">${result.price >= 1000 ? result.price.toLocaleString() : result.price.toFixed(2)}</span>
-        <span className={`font-medium ${pctColor(result.changePct)}`}>{result.changePct >= 0 ? '+' : ''}{result.changePct.toFixed(2)}%</span>
-        <span className={`text-xs px-1.5 py-0.5 rounded border ${result.relStrengthVsSPY > 0 ? 'bg-emerald-950/50 border-emerald-800 text-emerald-400' : 'bg-red-950/50 border-red-800 text-red-400'}`}>
-          RS {result.relStrengthVsSPY >= 0 ? '+' : ''}{result.relStrengthVsSPY.toFixed(1)}% vs SPY
+        <span className="font-semibold font-mono" style={{ color: '#f0f0f0' }}>
+          ${result.price >= 1000 ? result.price.toLocaleString() : result.price.toFixed(2)}
         </span>
+        <span className="font-mono" style={{ color: pctC(result.changePct) }}>
+          {result.changePct >= 0 ? '+' : ''}{result.changePct.toFixed(2)}%
+        </span>
+        <Chip
+          label={`RS ${result.relStrengthVsSPY >= 0 ? '+' : ''}${result.relStrengthVsSPY.toFixed(1)}% vs SPY`}
+          color={result.relStrengthVsSPY > 0 ? G : R}
+          bg={result.relStrengthVsSPY > 0 ? 'rgba(0,255,136,0.08)' : 'rgba(255,59,59,0.08)'}
+        />
         {result.volumeRatio > 1.5 && (
-          <span className="text-xs text-amber-400 border border-amber-800 bg-amber-950/50 rounded px-1.5 py-0.5">{result.volumeRatio.toFixed(1)}x vol</span>
+          <Chip label={`${result.volumeRatio.toFixed(1)}x vol`} color={A} bg="rgba(245,158,11,0.08)" />
         )}
       </div>
 
-      {/* Bias pills */}
       <div className="flex gap-2 text-xs flex-wrap">
-        <span className={`px-2 py-1 rounded border font-semibold ${biasBg(result.weeklyBias.bias)}`}>W: {result.weeklyBias.bias.slice(0, 4).toUpperCase()}</span>
-        <span className={`px-2 py-1 rounded border font-semibold ${biasBg(result.dailyBias.bias)}`}>D: {result.dailyBias.bias.slice(0, 4).toUpperCase()}</span>
-        <span className="px-2 py-1 rounded border bg-gray-800 border-gray-700 text-gray-400">RSI {result.dailyBias.rsi}</span>
-        <span className={`px-2 py-1 rounded border bg-gray-800 border-gray-700 ${result.dailyBias.ema9AboveEma21 ? 'text-emerald-400' : 'text-red-400'}`}>{result.dailyBias.ema9AboveEma21 ? 'EMA ↑' : 'EMA ↓'}</span>
+        {(() => {
+          const wb = biasBg(result.weeklyBias.bias);
+          const db = biasBg(result.dailyBias.bias);
+          return (
+            <>
+              <Chip label={`W: ${result.weeklyBias.bias.slice(0, 4).toUpperCase()}`} color={wb.color} bg={wb.bg} border={wb.border} />
+              <Chip label={`D: ${result.dailyBias.bias.slice(0, 4).toUpperCase()}`} color={db.color} bg={db.bg} border={db.border} />
+              <Chip label={`RSI ${result.dailyBias.rsi}`} color="#6b7280" bg="rgba(107,114,128,0.1)" />
+              <Chip label={result.dailyBias.ema9AboveEma21 ? 'EMA ↑' : 'EMA ↓'} color={result.dailyBias.ema9AboveEma21 ? G : R} bg={result.dailyBias.ema9AboveEma21 ? 'rgba(0,255,136,0.08)' : 'rgba(255,59,59,0.08)'} />
+            </>
+          );
+        })()}
       </div>
 
-      {/* Best option */}
       {!compact && bestOption && <MiniOption opt={bestOption} label="Best Contract" />}
-      {!compact && noOption && !isAvoid && (
-        <div className="bg-gray-800/40 rounded-lg p-2.5 text-xs text-gray-500 italic text-center">No qualifying contract found — check liquidity or widen DTE range</div>
+      {!compact && !bestOption && !isAvoid && (
+        <p className="text-xs text-center py-2" style={{ color: '#374151', fontStyle: 'italic' }}>
+          No qualifying contract found
+        </p>
       )}
 
-      {/* Reason */}
       {!compact && (
-        <div className="space-y-1.5 text-xs border-t border-gray-800/60 pt-2.5">
-          <div><span className="text-gray-600">Reason: </span><span className="text-gray-300">{result.reason}</span></div>
-          <div><span className="text-gray-600">Invalidation: </span><span className="text-gray-400">{result.invalidation}</span></div>
-          <div className="flex items-start gap-1 text-amber-400/80">
+        <div className="space-y-1 text-xs pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          <p><span style={{ color: '#374151' }}>Reason: </span><span style={{ color: '#9ca3af' }}>{result.reason}</span></p>
+          <p><span style={{ color: '#374151' }}>Invalidation: </span><span style={{ color: '#6b7280' }}>{result.invalidation}</span></p>
+          <div className="flex items-start gap-1" style={{ color: A }}>
             <AlertTriangle size={10} className="mt-0.5 shrink-0" />
-            <span>{result.riskWarning}</span>
+            <span style={{ color: '#9ca3af' }}>{result.riskWarning}</span>
           </div>
         </div>
       )}
 
-      {/* Compact expand toggle */}
       {compact && (
-        <button onClick={() => setExpanded(e => !e)} className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1 transition-colors">
-          {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+        <button onClick={() => setExpanded(e => !e)} className="flex items-center gap-1 text-xs transition-colors"
+          style={{ color: '#374151' }}>
+          {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
           {expanded ? 'Less' : 'Details'}
         </button>
       )}
       {compact && expanded && (
-        <div className="space-y-1.5 text-xs border-t border-gray-800/60 pt-2">
+        <div className="space-y-1.5 text-xs pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
           {bestOption && <MiniOption opt={bestOption} label="Best Contract" />}
-          <div><span className="text-gray-600">Reason: </span><span className="text-gray-300">{result.reason}</span></div>
-          <div><span className="text-gray-600">Invalidation: </span><span className="text-gray-400">{result.invalidation}</span></div>
-          <div className="flex items-start gap-1 text-amber-400/80"><AlertTriangle size={10} className="mt-0.5 shrink-0" /><span>{result.riskWarning}</span></div>
+          <p><span style={{ color: '#374151' }}>Reason: </span><span style={{ color: '#9ca3af' }}>{result.reason}</span></p>
+          <p><span style={{ color: '#374151' }}>Invalidation: </span><span style={{ color: '#6b7280' }}>{result.invalidation}</span></p>
+          <div className="flex items-start gap-1">
+            <AlertTriangle size={10} className="mt-0.5 shrink-0" style={{ color: A }} />
+            <span style={{ color: '#9ca3af' }}>{result.riskWarning}</span>
+          </div>
         </div>
       )}
-    </div>
+    </CpCard>
   );
 }
+
+// ─── Top 5 ────────────────────────────────────────────────────────────────────
 
 function Top5Today({ results }: { results: ScanResult[] }) {
   if (!results.length) return null;
   return (
     <div id="top5" className="scroll-mt-16 mb-6">
       <div className="flex items-center gap-2 mb-3">
-        <Flame size={16} className="text-amber-400" />
-        <h2 className="text-white font-bold text-base">Top 5 Today</h2>
-        <Badge className="bg-amber-950 text-amber-400 border-amber-700">BEST SETUPS</Badge>
+        <div className="w-0.5 h-4 rounded-full" style={{ background: A }} />
+        <p className="sec-label" style={{ margin: 0 }}>Top 5 Today</p>
+        <Chip label="BEST SETUPS" color={A} bg="rgba(245,158,11,0.1)" />
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
         {results.map((r, i) => <SetupCard key={r.symbol} result={r} rank={i + 1} compact />)}
@@ -443,19 +604,24 @@ function Top5Today({ results }: { results: ScanResult[] }) {
   );
 }
 
-function ScannerSection({ id, title, icon, results, emptyMsg, accent }: {
-  id: string; title: string; icon: React.ReactNode; results: ScanResult[];
-  emptyMsg: string; accent?: string;
+// ─── Scanner Section ──────────────────────────────────────────────────────────
+
+function ScannerSection({ id, title, results, emptyMsg, accentColor }: {
+  id: string; title: string; results: ScanResult[];
+  emptyMsg: string; accentColor?: string;
 }) {
+  const color = accentColor ?? '#6b7280';
   return (
     <div id={id} className="scroll-mt-16 mb-6">
       <div className="flex items-center gap-2 mb-3">
-        <span className={accent ?? 'text-purple-400'}>{icon}</span>
-        <h2 className="text-white font-bold text-base">{title}</h2>
-        <span className="text-xs font-semibold px-2 py-0.5 rounded border bg-gray-800 border-gray-700 text-gray-400">{results.length}</span>
+        <div className="w-0.5 h-4 rounded-full" style={{ background: color }} />
+        <p className="sec-label" style={{ margin: 0, color }}>{title}</p>
+        <Chip label={String(results.length)} color={color} bg={`${color}14`} />
       </div>
       {results.length === 0 ? (
-        <DarkCard><p className="text-gray-500 text-sm text-center py-6 italic">{emptyMsg}</p></DarkCard>
+        <CpCard>
+          <p className="text-xs text-center py-4" style={{ color: '#374151', fontStyle: 'italic' }}>{emptyMsg}</p>
+        </CpCard>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {results.map(r => <SetupCard key={r.symbol} result={r} />)}
@@ -465,21 +631,32 @@ function ScannerSection({ id, title, icon, results, emptyMsg, accent }: {
   );
 }
 
+// ─── Scanner Nav ──────────────────────────────────────────────────────────────
+
 function ScannerNav({ counts }: { counts: Record<string, number> }) {
   const sections = [
-    { id: 'top5',      label: 'Top 5',                       color: 'text-amber-400   hover:text-amber-300' },
-    { id: 'bullish',   label: `Bullish (${counts.bullish})`,  color: 'text-emerald-400 hover:text-emerald-300' },
-    { id: 'bearish',   label: `Bearish (${counts.bearish})`,  color: 'text-red-400     hover:text-red-300' },
-    { id: 'breakout',  label: `Breakout (${counts.breakout})`,color: 'text-blue-400    hover:text-blue-300' },
-    { id: 'pullback',  label: `FVG Pull (${counts.pullback})`,color: 'text-purple-400  hover:text-purple-300' },
-    { id: 'options',   label: `Hot Options (${counts.options})`,color:'text-yellow-400  hover:text-yellow-300' },
-    { id: 'avoid',     label: `Avoid (${counts.avoid})`,      color: 'text-gray-500    hover:text-gray-400' },
-    { id: 'discovery', label: `Discovery (${counts.discovery})`,color:'text-fuchsia-400 hover:text-fuchsia-300' },
+    { id: 'top5',      label: 'Top 5',                       color: A        },
+    { id: 'bullish',   label: `Bullish (${counts.bullish})`,  color: G        },
+    { id: 'bearish',   label: `Bearish (${counts.bearish})`,  color: R        },
+    { id: 'breakout',  label: `Breakout (${counts.breakout})`,color: '#60a5fa' },
+    { id: 'pullback',  label: `FVG Pull (${counts.pullback})`,color: '#a78bfa' },
+    { id: 'options',   label: `Hot Options (${counts.options})`,color: A       },
+    { id: 'avoid',     label: `Avoid (${counts.avoid})`,      color: '#374151' },
+    { id: 'discovery', label: `Discovery (${counts.discovery})`,color: '#c084fc' },
   ];
   return (
-    <div className="sticky top-0 z-10 bg-gray-950/95 backdrop-blur border-b border-gray-800 -mx-4 px-4 py-2 mb-6 flex gap-5 overflow-x-auto">
+    <div
+      className="sticky top-0 z-10 -mx-4 px-4 py-2 mb-6 flex gap-5 overflow-x-auto scrollbar-cockpit"
+      style={{
+        background: 'rgba(13,15,20,0.95)',
+        backdropFilter: 'blur(12px)',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+      }}
+    >
       {sections.map(s => (
-        <a key={s.id} href={`#${s.id}`} className={`text-xs font-semibold whitespace-nowrap transition-colors ${s.color}`}>
+        <a key={s.id} href={`#${s.id}`}
+          className="text-xs font-bold whitespace-nowrap transition-colors hover:opacity-100"
+          style={{ color: s.color, opacity: 0.7 }}>
           {s.label}
         </a>
       ))}
@@ -487,43 +664,50 @@ function ScannerNav({ counts }: { counts: Record<string, number> }) {
   );
 }
 
+// ─── Scan Macro Bar ───────────────────────────────────────────────────────────
+
 function ScanMacroBar({ data }: { data: ScanOutput }) {
-  const macroColor = data.macroTrend === 'bullish' ? 'text-emerald-400' : data.macroTrend === 'bearish' ? 'text-red-400' : 'text-gray-400';
+  const color = biasC(data.macroTrend);
   return (
-    <div className="flex flex-wrap gap-3 items-center mb-4 p-3 bg-gray-900 border border-gray-800 rounded-xl">
+    <div className="flex flex-wrap gap-3 items-center mb-4 p-3 rounded-xl"
+      style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }}>
       <div className="flex items-center gap-2">
-        <Radio size={12} className="text-emerald-400 animate-pulse" />
-        <span className="text-xs text-gray-500">Market Scan</span>
-        <span className={`text-sm font-bold ${macroColor}`}>{data.macroTrend.toUpperCase()}</span>
+        <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: G }} />
+        <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#374151' }}>Macro</span>
+        <span className="text-sm font-black" style={{ color }}>{data.macroTrend.toUpperCase()}</span>
       </div>
-      <div className="h-4 w-px bg-gray-700" />
+      <div className="h-4 w-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
       <div className="flex items-center gap-1.5 text-xs">
-        <span className="text-gray-500">VIX</span>
-        <span className={`font-semibold ${data.vixPrice > 25 ? 'text-red-400' : data.vixPrice > 18 ? 'text-amber-400' : 'text-white'}`}>{data.vixPrice.toFixed(1)}</span>
+        <span style={{ color: '#374151' }}>VIX</span>
+        <span className="font-mono font-bold" style={{ color: data.vixPrice > 25 ? R : data.vixPrice > 18 ? A : '#f0f0f0' }}>
+          {data.vixPrice.toFixed(1)}
+        </span>
       </div>
-      <div className="h-4 w-px bg-gray-700" />
+      <div className="h-4 w-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
       <div className="flex items-center gap-1.5 text-xs">
-        <span className="text-gray-500">SPY</span>
-        <span className={`font-semibold ${pctColor(data.spyChangePct)}`}>{fmt2(data.spyChangePct)}%</span>
+        <span style={{ color: '#374151' }}>SPY</span>
+        <span className="font-mono font-bold" style={{ color: pctC(data.spyChangePct) }}>{fmt2(data.spyChangePct)}%</span>
       </div>
       <div className="flex items-center gap-1.5 text-xs">
-        <span className="text-gray-500">QQQ</span>
-        <span className={`font-semibold ${pctColor(data.qqqChangePct)}`}>{fmt2(data.qqqChangePct)}%</span>
+        <span style={{ color: '#374151' }}>QQQ</span>
+        <span className="font-mono font-bold" style={{ color: pctC(data.qqqChangePct) }}>{fmt2(data.qqqChangePct)}%</span>
       </div>
-      <div className="h-4 w-px bg-gray-700" />
+      <div className="h-4 w-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
       <div className="flex gap-2 flex-wrap text-xs">
         {data.sectorRotation.slice(0, 4).map(s => (
-          <span key={s.etf} className={`font-medium ${pctColor(s.relStrength)}`}>{s.etf} {s.relStrength >= 0 ? '+' : ''}{s.relStrength.toFixed(1)}%</span>
+          <span key={s.etf} className="font-mono font-medium" style={{ color: pctC(s.relStrength) }}>
+            {s.etf} {s.relStrength >= 0 ? '+' : ''}{s.relStrength.toFixed(1)}%
+          </span>
         ))}
       </div>
-      <div className="ml-auto text-xs text-gray-600">
+      <div className="ml-auto text-xs font-mono" style={{ color: '#374151' }}>
         {data.fetchedAt ? `Scanned ${new Date(data.fetchedAt).toLocaleTimeString()}` : ''}
       </div>
     </div>
   );
 }
 
-// ─── Single analysis mode (existing) ─────────────────────────────────────────
+// ─── Single Analysis View ─────────────────────────────────────────────────────
 
 const SINGLE_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'NVDA', 'AAPL', 'TSLA', 'META', 'MSFT', 'AMZN', 'GOOGL', 'AMD'] as const;
 
@@ -532,266 +716,362 @@ function SingleAnalysisView({ data, symbol, onSymbol, loading, onRefresh }: {
 }) {
   const macro = data.macroOutlook;
   const vol   = data.volatilityData;
+  const vixs  = vixC(macro.vixRegime);
+
   return (
     <div className="space-y-4">
       {/* Symbol selector */}
       <div className="flex items-center gap-2 flex-wrap">
         {SINGLE_SYMBOLS.map(s => (
           <button key={s} onClick={() => onSymbol(s)}
-            className={`px-3 py-1 rounded text-xs font-semibold border transition-all ${symbol === s ? 'bg-purple-600 border-purple-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-200'}`}>
+            className="px-3 py-1 rounded-lg text-xs font-bold transition-all"
+            style={{
+              background: symbol === s ? 'rgba(0,255,136,0.12)' : '#13161d',
+              border: `1px solid ${symbol === s ? 'rgba(0,255,136,0.4)' : 'rgba(255,255,255,0.07)'}`,
+              color: symbol === s ? G : '#6b7280',
+            }}>
             {s}
           </button>
         ))}
-        <button onClick={onRefresh} className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-gray-800 border border-gray-700 text-gray-300 text-xs hover:bg-gray-700 transition-all">
-          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> {loading ? 'Loading…' : 'Refresh'}
+        <button onClick={onRefresh}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+          style={{ background: '#13161d', border: '1px solid rgba(255,255,255,0.07)', color: '#6b7280' }}>
+          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+          {loading ? 'Loading…' : 'Refresh'}
         </button>
       </div>
 
+      {/* MTF Alignment — NEW */}
+      <MTFAlignmentScore weekly={data.weeklyBias} daily={data.dailyBias} fourH={data.fourHourBias} />
+
       {/* Summary strip */}
       <div className="flex flex-wrap gap-3 items-center">
-        <div className="flex items-center gap-2 bg-gray-900 border border-gray-800 rounded-xl px-4 py-2">
-          <span className="text-xs text-gray-500">Analyzing</span>
-          <span className="text-white font-bold">{data.symbol}</span>
-          <span className="text-gray-400">@</span>
-          <span className="text-white font-bold">${data.currentPrice.toLocaleString()}</span>
+        <div className="flex items-center gap-2 rounded-xl px-4 py-2"
+          style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }}>
+          <span className="text-xs" style={{ color: '#6b7280' }}>Analyzing</span>
+          <span className="font-bold" style={{ color: '#f0f0f0' }}>{data.symbol}</span>
+          <span style={{ color: '#374151' }}>@</span>
+          <span className="font-bold font-mono" style={{ color: '#f0f0f0' }}>${data.currentPrice.toLocaleString()}</span>
         </div>
-        {data.quotes.spy && <div className="flex items-center gap-1.5 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-xs"><span className="text-gray-400">SPY</span><span className="text-white font-semibold">${data.quotes.spy.price}</span><span className={pctColor(data.quotes.spy.changePct)}>{fmt2(data.quotes.spy.changePct)}%</span></div>}
-        {data.quotes.qqq && <div className="flex items-center gap-1.5 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-xs"><span className="text-gray-400">QQQ</span><span className="text-white font-semibold">${data.quotes.qqq.price}</span><span className={pctColor(data.quotes.qqq.changePct)}>{fmt2(data.quotes.qqq.changePct)}%</span></div>}
-        <div className="flex items-center gap-1.5 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-xs">
-          <span className="text-gray-400">VIX</span>
-          <span className={`font-semibold ${macro.vixRegime === 'extreme' ? 'text-red-400' : macro.vixRegime === 'elevated' ? 'text-amber-400' : 'text-white'}`}>{macro.vix.toFixed(1)}</span>
+        {data.quotes.spy && (
+          <div className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs"
+            style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <span style={{ color: '#374151' }}>SPY</span>
+            <span className="font-mono font-bold" style={{ color: '#f0f0f0' }}>${data.quotes.spy.price}</span>
+            <span className="font-mono" style={{ color: pctC(data.quotes.spy.changePct) }}>{fmt2(data.quotes.spy.changePct)}%</span>
+          </div>
+        )}
+        {data.quotes.qqq && (
+          <div className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs"
+            style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <span style={{ color: '#374151' }}>QQQ</span>
+            <span className="font-mono font-bold" style={{ color: '#f0f0f0' }}>${data.quotes.qqq.price}</span>
+            <span className="font-mono" style={{ color: pctC(data.quotes.qqq.changePct) }}>{fmt2(data.quotes.qqq.changePct)}%</span>
+          </div>
+        )}
+        <div className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs"
+          style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }}>
+          <span style={{ color: '#374151' }}>VIX</span>
+          <span className="font-mono font-bold" style={{ color: vixs.color }}>{macro.vix.toFixed(1)}</span>
         </div>
-        <div className="ml-auto text-xs text-gray-600">{data.fetchedAt ? `Updated ${new Date(data.fetchedAt).toLocaleTimeString()}` : ''}</div>
+        <div className="ml-auto text-xs font-mono" style={{ color: '#374151' }}>
+          {data.fetchedAt ? `Updated ${new Date(data.fetchedAt).toLocaleTimeString()}` : ''}
+        </div>
       </div>
 
-      {/* Macro */}
-      <DarkCard accent={macro.trend === 'bullish' ? 'border-emerald-600' : macro.trend === 'bearish' ? 'border-red-600' : 'border-gray-600'}>
-        <SectionTitle icon={<TrendingUp size={14} />} title="1. Macro Market Outlook" />
+      {/* Macro Outlook */}
+      <CpCard accentColor={biasC(macro.trend)}>
+        <SecHeader title="1. Macro Market Outlook" accent={biasC(macro.trend)} />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-2">
             <div className="flex flex-wrap gap-2 mb-3">
-              <Badge className={biasBg(macro.trend)}>{macro.trend === 'bullish' ? '↑ BULLISH' : macro.trend === 'bearish' ? '↓ BEARISH' : '→ NEUTRAL'} MACRO</Badge>
-              <Badge className={macro.riskEnv === 'risk-on' ? 'bg-emerald-950 text-emerald-400 border-emerald-700' : macro.riskEnv === 'risk-off' ? 'bg-red-950 text-red-400 border-red-700' : 'bg-amber-950 text-amber-400 border-amber-700'}>{macro.riskEnv.toUpperCase()}</Badge>
-              <Badge className={vixRegimeBadge(macro.vixRegime)}>VIX {macro.vixRegime.toUpperCase()}</Badge>
-              <Badge className={macro.breadth === 'strong' ? 'bg-emerald-950 text-emerald-400 border-emerald-700' : macro.breadth === 'weak' ? 'bg-red-950 text-red-400 border-red-700' : 'bg-gray-800 text-gray-400 border-gray-700'}>BREADTH {macro.breadth.toUpperCase()}</Badge>
+              {[
+                { label: `${macro.trend === 'bullish' ? '↑' : macro.trend === 'bearish' ? '↓' : '→'} ${macro.trend.toUpperCase()} MACRO`, b: biasBg(macro.trend) },
+                { label: macro.riskEnv.toUpperCase(), b: macro.riskEnv === 'risk-on' ? biasBg('bullish') : macro.riskEnv === 'risk-off' ? biasBg('bearish') : biasBg('neutral') },
+                { label: `VIX ${macro.vixRegime.toUpperCase()}`, b: { color: vixs.color, bg: vixs.bg, border: vixs.border } },
+                { label: `BREADTH ${macro.breadth.toUpperCase()}`, b: macro.breadth === 'strong' ? biasBg('bullish') : macro.breadth === 'weak' ? biasBg('bearish') : biasBg('neutral') },
+              ].map(({ label, b }) => (
+                <Chip key={label} label={label} color={b.color} bg={b.bg} border={b.border} />
+              ))}
             </div>
-            <p className="text-sm text-gray-300 mb-3">{macro.summary}</p>
+            <p className="text-sm mb-3" style={{ color: '#d1d5db' }}>{macro.summary}</p>
             <div className="grid grid-cols-3 gap-2 text-xs">
               {[
-                { label: 'VIX', val: `${macro.vix.toFixed(1)} (${macro.vixChange > 0 ? '+' : ''}${macro.vixChange.toFixed(1)}%)` },
-                { label: 'DXY', val: `${macro.dxy.toFixed(2)} ${macro.dxyTrend === 'rising' ? '↑' : macro.dxyTrend === 'falling' ? '↓' : '→'}` },
+                { label: 'VIX',       val: `${macro.vix.toFixed(1)} (${macro.vixChange > 0 ? '+' : ''}${macro.vixChange.toFixed(1)}%)` },
+                { label: 'DXY',       val: `${macro.dxy.toFixed(2)} ${macro.dxyTrend === 'rising' ? '↑' : macro.dxyTrend === 'falling' ? '↓' : '→'}` },
                 { label: '10Y Yield', val: `${macro.yields.toFixed(2)}% ${macro.yieldsTrend === 'rising' ? '↑' : macro.yieldsTrend === 'falling' ? '↓' : '→'}` },
-                { label: 'HYG', val: `${macro.hyg > 0 ? '+' : ''}${macro.hyg.toFixed(2)}%` },
-                { label: 'Gold', val: `${macro.gld > 0 ? '+' : ''}${macro.gld.toFixed(2)}%` },
-                { label: 'SPY/EMA200', val: macro.spyAboveEma200 ? 'Above ✓' : 'Below ✗' },
+                { label: 'HYG',       val: `${macro.hyg > 0 ? '+' : ''}${macro.hyg.toFixed(2)}%` },
+                { label: 'Gold',      val: `${macro.gld > 0 ? '+' : ''}${macro.gld.toFixed(2)}%` },
+                { label: 'SPY/EMA200',val: macro.spyAboveEma200 ? 'Above ✓' : 'Below ✗' },
               ].map(({ label, val }) => (
-                <div key={label} className="bg-gray-800 rounded p-2"><div className="text-gray-500">{label}</div><div className="text-gray-200 font-semibold mt-0.5">{val}</div></div>
+                <div key={label} className="rounded-lg p-2" style={{ background: '#13161d' }}>
+                  <div className="text-xs uppercase tracking-wider mb-0.5" style={{ color: '#374151', fontSize: '9px' }}>{label}</div>
+                  <div className="font-semibold font-mono" style={{ color: '#f0f0f0' }}>{val}</div>
+                </div>
               ))}
             </div>
           </div>
           <div>
-            <div className="text-xs text-gray-500 font-medium mb-2 uppercase tracking-wide">Key Risks</div>
+            <p className="sec-label mb-2">Key Risks</p>
             <ul className="space-y-1.5">
               {macro.keyRisks.map((r, i) => (
-                <li key={i} className="flex items-start gap-1.5 text-xs text-gray-400">
-                  <AlertTriangle size={10} className="text-amber-400 mt-0.5 shrink-0" /> {r}
+                <li key={i} className="flex items-start gap-1.5 text-xs" style={{ color: '#9ca3af' }}>
+                  <AlertTriangle size={10} style={{ color: A, marginTop: 2, flexShrink: 0 }} /> {r}
                 </li>
               ))}
             </ul>
           </div>
         </div>
-      </DarkCard>
+      </CpCard>
 
-      {/* Bias cards */}
+      {/* Bias Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div><div className="text-xs text-gray-500 uppercase tracking-wide mb-1 pl-1">2. Weekly Bias</div><BiasCard label="Weekly (SPY)" data={data.weeklyBias} /></div>
-        <div><div className="text-xs text-gray-500 uppercase tracking-wide mb-1 pl-1">3. Daily Bias</div><BiasCard label="Daily (SPY)" data={data.dailyBias} /></div>
-        <div><div className="text-xs text-gray-500 uppercase tracking-wide mb-1 pl-1">4. 4H Bias</div><BiasCard label={`4-Hour (${data.symbol})`} data={data.fourHourBias} /></div>
+        <div><p className="sec-label mb-1.5 pl-1">2. Weekly Bias</p><BiasCard label="Weekly (SPY)" data={data.weeklyBias} /></div>
+        <div><p className="sec-label mb-1.5 pl-1">3. Daily Bias</p><BiasCard label="Daily (SPY)" data={data.dailyBias} /></div>
+        <div><p className="sec-label mb-1.5 pl-1">4. 4H Bias</p><BiasCard label={`4-Hour (${data.symbol})`} data={data.fourHourBias} /></div>
       </div>
 
-      {/* Market regime */}
-      <DarkCard>
-        <SectionTitle icon={<Activity size={14} />} title="5. Market Regime" />
+      {/* Market Regime */}
+      <CpCard>
+        <SecHeader title="5. Market Regime" />
         <div className="flex flex-wrap items-start gap-4">
-          <Badge className={`text-sm px-3 py-1 ${regimeColor(data.marketRegime.phase) === 'text-emerald-400' ? 'bg-emerald-950 border-emerald-700 text-emerald-400' : regimeColor(data.marketRegime.phase) === 'text-red-400' ? 'bg-red-950 border-red-700 text-red-400' : regimeColor(data.marketRegime.phase) === 'text-blue-400' ? 'bg-blue-950 border-blue-700 text-blue-400' : regimeColor(data.marketRegime.phase) === 'text-amber-400' ? 'bg-amber-950 border-amber-700 text-amber-400' : 'bg-gray-800 border-gray-700 text-gray-400'}`}>
-            {data.marketRegime.phase.toUpperCase()}
-          </Badge>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-gray-300 mb-2">{data.marketRegime.description}</p>
-            <div className="flex gap-4 text-xs">
-              <div className="flex-1"><div className="text-emerald-400 font-semibold mb-1">Approach</div><p className="text-gray-400">{data.marketRegime.tradingApproach}</p></div>
-              <div className="flex-1"><div className="text-red-400 font-semibold mb-1">Avoid</div><ul className="space-y-0.5">{data.marketRegime.avoidList.map((a, i) => <li key={i} className="text-gray-400">· {a}</li>)}</ul></div>
-            </div>
-          </div>
+          {(() => {
+            const phaseColor = { expansion: G, accumulation: '#60a5fa', distribution: R, reversal: A, ranging: '#6b7280' }[data.marketRegime.phase] ?? '#6b7280';
+            return (
+              <>
+                <Chip label={data.marketRegime.phase.toUpperCase()} color={phaseColor} bg={`${phaseColor}14`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm mb-3" style={{ color: '#d1d5db' }}>{data.marketRegime.description}</p>
+                  <div className="flex gap-6 text-xs">
+                    <div className="flex-1">
+                      <p className="font-bold mb-1" style={{ color: G, fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Approach</p>
+                      <p style={{ color: '#9ca3af' }}>{data.marketRegime.tradingApproach}</p>
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold mb-1" style={{ color: R, fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Avoid</p>
+                      <ul className="space-y-0.5">
+                        {data.marketRegime.avoidList.map((a, i) => <li key={i} style={{ color: '#6b7280' }}>· {a}</li>)}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </div>
-      </DarkCard>
+      </CpCard>
 
-      {/* FVG + Structure */}
+      {/* FVG + BOS/CHoCH */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <DarkCard>
-          <SectionTitle icon={<BarChart2 size={14} />} title="6. Key FVG Levels" />
-          {data.fvgLevels.length === 0 ? <div className="text-xs text-gray-500 italic py-3 text-center">No active FVGs within 12% of price</div> : (
+        <CpCard>
+          <SecHeader title="6. Key FVG Levels" />
+          {data.fvgLevels.length === 0 ? (
+            <p className="text-xs text-center py-3" style={{ color: '#374151', fontStyle: 'italic' }}>No active FVGs within 12% of price</p>
+          ) : (
             <div className="space-y-2">
               {data.fvgLevels.slice(0, 8).map((f, i) => (
-                <div key={i} className={`flex items-center justify-between p-2 rounded text-xs border ${f.type === 'bullish' ? 'bg-emerald-950/30 border-emerald-800/40' : 'bg-red-950/30 border-red-800/40'}`}>
+                <div key={i} className="flex items-center justify-between p-2 rounded-lg text-xs"
+                  style={{
+                    background: f.type === 'bullish' ? 'rgba(0,255,136,0.05)' : 'rgba(255,59,59,0.05)',
+                    border: `1px solid ${f.type === 'bullish' ? 'rgba(0,255,136,0.15)' : 'rgba(255,59,59,0.15)'}`,
+                  }}>
                   <div className="flex items-center gap-2">
-                    <Badge className={f.type === 'bullish' ? 'bg-emerald-950 text-emerald-400 border-emerald-700' : 'bg-red-950 text-red-400 border-red-700'}>{f.type === 'bullish' ? '▲' : '▼'}</Badge>
-                    <span className="text-gray-400 uppercase">{f.timeframe}</span>
-                    <span className={f.strength === 'strong' ? 'text-amber-400' : f.strength === 'moderate' ? 'text-gray-300' : 'text-gray-500'}>{f.strength}</span>
+                    <Chip label={f.type === 'bullish' ? '▲' : '▼'} color={f.type === 'bullish' ? G : R} bg={f.type === 'bullish' ? 'rgba(0,255,136,0.1)' : 'rgba(255,59,59,0.1)'} />
+                    <span className="uppercase font-bold" style={{ color: '#6b7280' }}>{f.timeframe}</span>
+                    <span style={{ color: f.strength === 'strong' ? A : f.strength === 'moderate' ? '#9ca3af' : '#374151' }}>{f.strength}</span>
                   </div>
-                  <div className="text-right"><div className="text-gray-200 font-semibold">{f.low.toFixed(2)} – {f.high.toFixed(2)}</div><div className="text-gray-500">mid {f.mid.toFixed(2)} · {f.ageCandles}c ago</div></div>
+                  <div className="text-right">
+                    <p className="font-semibold font-mono" style={{ color: '#f0f0f0' }}>{f.low.toFixed(2)} – {f.high.toFixed(2)}</p>
+                    <p className="font-mono" style={{ color: '#374151' }}>mid {f.mid.toFixed(2)} · {f.ageCandles}c</p>
+                  </div>
                 </div>
               ))}
             </div>
           )}
-        </DarkCard>
-        <DarkCard>
-          <SectionTitle icon={<Zap size={14} />} title="7. BOS / CHoCH Analysis" />
-          {data.structureEvents.length === 0 ? <div className="text-xs text-gray-500 italic py-3 text-center">No recent BOS / CHoCH events detected</div> : (
+        </CpCard>
+
+        <CpCard>
+          <SecHeader title="7. BOS / CHoCH Analysis" />
+          {data.structureEvents.length === 0 ? (
+            <p className="text-xs text-center py-3" style={{ color: '#374151', fontStyle: 'italic' }}>No recent BOS / CHoCH events detected</p>
+          ) : (
             <div className="space-y-2">
               {data.structureEvents.map((e, i) => {
                 const bull = e.event === 'BOS_UP' || e.event === 'CHoCH_UP';
                 return (
-                  <div key={i} className={`p-2.5 rounded border ${bull ? 'bg-emerald-950/30 border-emerald-800/40' : 'bg-red-950/30 border-red-800/40'}`}>
+                  <div key={i} className="p-2.5 rounded-lg"
+                    style={{
+                      background: bull ? 'rgba(0,255,136,0.05)' : 'rgba(255,59,59,0.05)',
+                      border: `1px solid ${bull ? 'rgba(0,255,136,0.15)' : 'rgba(255,59,59,0.15)'}`,
+                    }}>
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
-                        <Badge className={bull ? 'bg-emerald-950 text-emerald-400 border-emerald-700' : 'bg-red-950 text-red-400 border-red-700'}>{e.event.replace('_', ' ')}</Badge>
-                        <span className="text-xs text-gray-500 uppercase">{e.timeframe}</span>
-                        {e.significance === 'major' && <Badge className="bg-amber-950 text-amber-400 border-amber-700">MAJOR</Badge>}
+                        <Chip label={e.event.replace('_', ' ')} color={bull ? G : R} bg={bull ? 'rgba(0,255,136,0.1)' : 'rgba(255,59,59,0.1)'} />
+                        <span className="text-xs uppercase font-bold" style={{ color: '#6b7280' }}>{e.timeframe}</span>
+                        {e.significance === 'major' && <Chip label="MAJOR" color={A} bg="rgba(245,158,11,0.1)" />}
                       </div>
-                      <span className="text-xs text-gray-400 font-semibold">{e.level.toFixed(2)}</span>
+                      <span className="text-xs font-mono font-semibold" style={{ color: '#9ca3af' }}>{e.level.toFixed(2)}</span>
                     </div>
-                    <p className="text-xs text-gray-400">{e.description}</p>
-                    <div className="text-xs text-gray-600 mt-0.5">{e.ageCandles} candles ago</div>
+                    <p className="text-xs" style={{ color: '#9ca3af' }}>{e.description}</p>
+                    <p className="text-xs font-mono mt-0.5" style={{ color: '#374151' }}>{e.ageCandles} candles ago</p>
                   </div>
                 );
               })}
             </div>
           )}
-        </DarkCard>
+        </CpCard>
       </div>
 
-      {/* Sector rotation */}
-      <DarkCard>
-        <SectionTitle icon={<Activity size={14} />} title="8. Sector Strength / Rotation" />
-        <div className="overflow-x-auto">
+      {/* Sector Rotation */}
+      <CpCard>
+        <SecHeader title="8. Sector Strength / Rotation" />
+        <div className="overflow-x-auto scrollbar-cockpit">
           <div className="flex gap-2 min-w-max pb-1">
             {data.sectorRotation.map((s, i) => (
-              <div key={i} className={`flex flex-col items-center p-2.5 rounded-lg border min-w-[86px] text-center text-xs ${s.trend === 'bullish' ? 'bg-emerald-950/30 border-emerald-800/40' : s.trend === 'bearish' ? 'bg-red-950/30 border-red-800/40' : 'bg-gray-800/40 border-gray-700/40'}`}>
-                <span className="text-gray-300 font-bold">{s.etf}</span>
-                <span className="text-gray-500 text-[10px] mt-0.5 leading-tight">{s.name}</span>
-                <span className={`font-semibold mt-1.5 ${pctColor(s.changePct1d)}`}>{s.changePct1d > 0 ? '+' : ''}{s.changePct1d.toFixed(1)}%</span>
-                <span className={`text-[10px] mt-0.5 ${pctColor(s.relStrength)}`}>vs SPY {s.relStrength > 0 ? '+' : ''}{s.relStrength.toFixed(1)}%</span>
-                <div className={`mt-1.5 h-1 w-full rounded-full ${s.trend === 'bullish' ? 'bg-emerald-500' : s.trend === 'bearish' ? 'bg-red-500' : 'bg-gray-600'}`} />
-                <span className={`text-[10px] mt-0.5 font-bold ${s.rank <= 3 ? 'text-amber-400' : 'text-gray-600'}`}>#{s.rank}</span>
+              <div key={i} className="flex flex-col items-center p-2.5 rounded-lg min-w-[86px] text-center text-xs"
+                style={{
+                  background: s.trend === 'bullish' ? 'rgba(0,255,136,0.05)' : s.trend === 'bearish' ? 'rgba(255,59,59,0.05)' : '#13161d',
+                  border: `1px solid ${s.trend === 'bullish' ? 'rgba(0,255,136,0.15)' : s.trend === 'bearish' ? 'rgba(255,59,59,0.15)' : 'rgba(255,255,255,0.06)'}`,
+                }}>
+                <span className="font-bold" style={{ color: '#f0f0f0' }}>{s.etf}</span>
+                <span className="mt-0.5 leading-tight" style={{ color: '#374151', fontSize: '9px' }}>{s.name}</span>
+                <span className="font-mono font-semibold mt-1.5" style={{ color: pctC(s.changePct1d) }}>
+                  {s.changePct1d > 0 ? '+' : ''}{s.changePct1d.toFixed(1)}%
+                </span>
+                <span className="font-mono mt-0.5" style={{ color: pctC(s.relStrength), fontSize: '9px' }}>
+                  vs SPY {s.relStrength > 0 ? '+' : ''}{s.relStrength.toFixed(1)}%
+                </span>
+                <div className="mt-1.5 h-0.5 w-full rounded-full" style={{ background: s.trend === 'bullish' ? G : s.trend === 'bearish' ? R : '#374151' }} />
+                <span className="mt-0.5 font-bold font-mono" style={{ color: s.rank <= 3 ? A : '#374151', fontSize: '9px' }}>#{s.rank}</span>
               </div>
             ))}
           </div>
         </div>
-      </DarkCard>
+      </CpCard>
 
-      {/* Calls + Puts */}
+      {/* Options Tables */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <DarkCard>
-          <SectionTitle icon={<ChevronUp size={14} className="text-emerald-400" />} title="9. Best Swing Calls" right={<Badge className="bg-emerald-950 text-emerald-400 border-emerald-700">{data.scoredCalls.length} contracts</Badge>} />
+        <CpCard>
+          <SecHeader title="9. Best Swing Calls" accent={G}
+            right={<Chip label={`${data.scoredCalls.length} contracts`} color={G} bg="rgba(0,255,136,0.08)" />} />
           <OptionsTable contracts={data.scoredCalls} type="call" currentPrice={data.currentPrice} />
-        </DarkCard>
-        <DarkCard>
-          <SectionTitle icon={<ChevronDown size={14} className="text-red-400" />} title="10. Best Swing Puts" right={<Badge className="bg-red-950 text-red-400 border-red-700">{data.scoredPuts.length} contracts</Badge>} />
+        </CpCard>
+        <CpCard>
+          <SecHeader title="10. Best Swing Puts" accent={R}
+            right={<Chip label={`${data.scoredPuts.length} contracts`} color={R} bg="rgba(255,59,59,0.08)" />} />
           <OptionsTable contracts={data.scoredPuts} type="put" currentPrice={data.currentPrice} />
-        </DarkCard>
+        </CpCard>
       </div>
 
       {/* Trade guide */}
-      <DarkCard className="bg-gray-900/50">
-        <div className="flex flex-wrap gap-4 text-xs text-gray-400">
-          <span className="font-semibold text-gray-300">Trade Guide:</span>
-          <span>· <span className="text-gray-300">Mid</span> = entry</span>
-          <span>· <span className="text-emerald-400">T1</span> = +65% (first scale)</span>
-          <span>· <span className="text-emerald-300">T2</span> = +160% (runners)</span>
-          <span>· <span className="text-red-400">Stop</span> = −55% (hard stop)</span>
-        </div>
-      </DarkCard>
+      <div className="flex flex-wrap gap-4 text-xs p-3 rounded-xl" style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }}>
+        <span className="font-semibold" style={{ color: '#f0f0f0' }}>Trade Guide:</span>
+        <span style={{ color: '#6b7280' }}>· <span style={{ color: '#f0f0f0' }}>Mid</span> = entry</span>
+        <span style={{ color: '#6b7280' }}>· <span style={{ color: G }}>T1</span> = +65% (first scale)</span>
+        <span style={{ color: '#6b7280' }}>· <span style={{ color: '#4ade80' }}>T2</span> = +160% (runners)</span>
+        <span style={{ color: '#6b7280' }}>· <span style={{ color: R }}>Stop</span> = −55% (hard stop)</span>
+      </div>
 
       {/* Theta + Volatility */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <DarkCard>
-          <SectionTitle icon={<Clock size={14} />} title="11. Theta Risk" />
+        <CpCard>
+          <SecHeader title="11. Theta Risk" />
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-400">Theta Friendly</span>
-              {vol.thetaFriendly ? <Badge className="bg-emerald-950 text-emerald-400 border-emerald-700"><CheckCircle size={10} className="mr-1 inline" />FAVORABLE</Badge> : <Badge className="bg-amber-950 text-amber-400 border-amber-700"><AlertTriangle size={10} className="mr-1 inline" />ELEVATED DECAY</Badge>}
+              <span className="text-sm" style={{ color: '#9ca3af' }}>Theta Friendly</span>
+              {vol.thetaFriendly
+                ? <Chip label="✓ FAVORABLE" color={G} bg="rgba(0,255,136,0.08)" />
+                : <Chip label="⚠ ELEVATED DECAY" color={A} bg="rgba(245,158,11,0.08)" />}
             </div>
             {data.scoredCalls.slice(0, 3).map((c, i) => (
-              <div key={i} className="flex items-center justify-between bg-gray-800 rounded p-2 text-xs">
-                <span className="text-gray-400">{c.strike.toFixed(0)}C {expiryLabel(c.expiration)}</span>
+              <div key={i} className="flex items-center justify-between rounded-lg p-2 text-xs"
+                style={{ background: '#13161d' }}>
+                <span style={{ color: '#6b7280' }}>{c.strike.toFixed(0)}C {expiryLabel(c.expiration)}</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-500">{c.dte}DTE</span>
-                  <span className={`font-semibold ${c.thetaEstDailyPct > 3 ? 'text-amber-400' : 'text-gray-300'}`}>{c.thetaEstDailyPct.toFixed(1)}%/day</span>
+                  <span style={{ color: '#374151' }}>{c.dte}DTE</span>
+                  <span className="font-mono font-semibold" style={{ color: c.thetaEstDailyPct > 3 ? A : '#9ca3af' }}>
+                    {c.thetaEstDailyPct.toFixed(1)}%/day
+                  </span>
                 </div>
               </div>
             ))}
-            <p className="text-xs text-gray-500">Theta accelerates inside 21 DTE. Close or roll before last 7 days.</p>
+            <p className="text-xs" style={{ color: '#374151' }}>Theta accelerates inside 21 DTE. Close or roll before last 7 days.</p>
           </div>
-        </DarkCard>
-        <DarkCard>
-          <SectionTitle icon={<Shield size={14} />} title="12. Volatility Assessment" />
+        </CpCard>
+
+        <CpCard>
+          <SecHeader title="12. Volatility Assessment" />
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <div><span className="text-2xl font-black text-white">{vol.vix.toFixed(1)}</span><span className="text-xs text-gray-500 ml-1">VIX</span></div>
+              <div>
+                <span className="text-2xl font-black font-mono" style={{ color: '#f0f0f0' }}>{vol.vix.toFixed(1)}</span>
+                <span className="text-xs ml-1" style={{ color: '#6b7280' }}>VIX</span>
+              </div>
               <div className="flex flex-col items-end gap-1">
-                <Badge className={vixRegimeBadge(vol.regime)}>{vol.regime.toUpperCase()}</Badge>
-                {vol.ivExpanding && <Badge className="bg-amber-950 text-amber-400 border-amber-700">IV EXPANDING</Badge>}
+                <Chip label={vol.regime.toUpperCase()} color={vixC(vol.regime).color} bg={vixC(vol.regime).bg} />
+                {vol.ivExpanding && <Chip label="IV EXPANDING" color={A} bg="rgba(245,158,11,0.08)" />}
               </div>
             </div>
-            <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full ${vol.vix > 30 ? 'bg-red-500' : vol.vix > 20 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, (vol.vix / 50) * 100)}%` }} />
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: '#1a1d26' }}>
+              <div className="h-full rounded-full"
+                style={{
+                  width: `${Math.min(100, (vol.vix / 50) * 100)}%`,
+                  background: vol.vix > 30 ? R : vol.vix > 20 ? A : G,
+                }} />
             </div>
-            <p className="text-xs text-gray-300">{vol.recommendation}</p>
+            <p className="text-xs" style={{ color: '#d1d5db' }}>{vol.recommendation}</p>
           </div>
-        </DarkCard>
+        </CpCard>
       </div>
 
       {/* Conviction */}
       <div>
-        <div className="text-xs text-gray-500 uppercase tracking-wide mb-2 pl-1">13. Highest Conviction Trade</div>
+        <p className="sec-label mb-2 pl-1">13. Highest Conviction Trade</p>
         {data.highestConviction
           ? <ConvictionCard c={data.highestConviction} />
-          : <DarkCard><p className="text-sm text-gray-500 text-center py-4">No qualifying contract met minimum criteria.</p></DarkCard>}
+          : <CpCard><p className="text-sm text-center py-4" style={{ color: '#374151' }}>No qualifying contract met minimum criteria.</p></CpCard>}
       </div>
 
       {/* Confidence */}
-      <DarkCard>
-        <SectionTitle icon={<Target size={14} />} title="14. Setup Confidence Score" />
+      <CpCard>
+        <SecHeader title="14. Setup Confidence Score" />
         <div className="flex flex-col md:flex-row items-center gap-6">
           <ConfidenceGauge score={data.confidenceScore} />
           <div className="flex-1 space-y-2 text-sm">
             {[
-              { label: 'Weekly & Daily bias aligned', pass: data.weeklyBias.bias === data.dailyBias.bias && data.dailyBias.bias !== 'neutral' },
-              { label: 'Multi-timeframe confluence', pass: data.dailyBias.bias === data.fourHourBias.bias && data.dailyBias.bias !== 'neutral' },
-              { label: 'Market breadth supporting', pass: macro.breadth !== 'weak' },
-              { label: 'Normal volatility regime', pass: vol.regime === 'normal' || vol.regime === 'low' },
+              { label: 'Weekly & Daily bias aligned',    pass: data.weeklyBias.bias === data.dailyBias.bias && data.dailyBias.bias !== 'neutral' },
+              { label: 'Multi-timeframe confluence',     pass: data.dailyBias.bias === data.fourHourBias.bias && data.dailyBias.bias !== 'neutral' },
+              { label: 'Market breadth supporting',      pass: macro.breadth !== 'weak' },
+              { label: 'Normal volatility regime',       pass: vol.regime === 'normal' || vol.regime === 'low' },
               { label: 'Major structure event detected', pass: data.structureEvents.some(e => e.significance === 'major') },
-              { label: 'Strong FVG present', pass: data.fvgLevels.some(f => f.strength === 'strong') },
-              { label: 'Qualifying options found', pass: data.scoredCalls.length > 0 || data.scoredPuts.length > 0 },
+              { label: 'Strong FVG present',             pass: data.fvgLevels.some(f => f.strength === 'strong') },
+              { label: 'Qualifying options found',       pass: data.scoredCalls.length > 0 || data.scoredPuts.length > 0 },
             ].map(({ label, pass }) => (
               <div key={label} className="flex items-center gap-2">
-                {pass ? <CheckCircle size={14} className="text-emerald-400 shrink-0" /> : <XCircle size={14} className="text-gray-600 shrink-0" />}
-                <span className={pass ? 'text-gray-300' : 'text-gray-600'}>{label}</span>
+                {pass
+                  ? <CheckCircle size={14} style={{ color: G, flexShrink: 0 }} />
+                  : <XCircle    size={14} style={{ color: '#374151', flexShrink: 0 }} />}
+                <span style={{ color: pass ? '#d1d5db' : '#374151' }}>{label}</span>
               </div>
             ))}
           </div>
           <div className="text-center">
-            <div className={`text-5xl font-black ${data.confidenceScore >= 75 ? 'text-emerald-400' : data.confidenceScore >= 55 ? 'text-yellow-400' : 'text-red-400'}`}>{Math.round(data.confidenceScore / 10)}/10</div>
-            <div className="text-xs text-gray-500 mt-1">
-              {data.confidenceScore >= 80 ? 'High conviction — favorable to act' : data.confidenceScore >= 60 ? 'Moderate — trade with discipline' : data.confidenceScore >= 45 ? 'Low conviction — reduce size' : 'Avoid — conditions unfavorable'}
-            </div>
+            <p className="text-5xl font-black font-mono" style={{ color: scoreC(data.confidenceScore) }}>
+              {Math.round(data.confidenceScore / 10)}/10
+            </p>
+            <p className="text-xs mt-1" style={{ color: '#6b7280' }}>
+              {data.confidenceScore >= 80 ? 'High conviction — favorable to act'
+                : data.confidenceScore >= 60 ? 'Moderate — trade with discipline'
+                : data.confidenceScore >= 45 ? 'Low conviction — reduce size'
+                : 'Avoid — conditions unfavorable'}
+            </p>
           </div>
         </div>
-      </DarkCard>
+      </CpCard>
 
-      <div className="p-3 bg-gray-900/50 border border-gray-800 rounded-xl text-xs text-gray-600 flex items-start gap-2">
-        <Info size={11} className="mt-0.5 shrink-0 text-gray-700" />
+      <div className="flex items-start gap-2 p-3 rounded-xl text-xs"
+        style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.06)', color: '#374151' }}>
+        <Info size={11} style={{ marginTop: 1, flexShrink: 0 }} />
         Educational analysis only. Options can expire worthless. Past setups do not guarantee future results.
       </div>
     </div>
@@ -803,12 +1083,12 @@ function SingleAnalysisView({ data, symbol, onSymbol, loading, onRefresh }: {
 type Mode = 'single' | 'scan';
 
 export default function SwingEnginePage() {
-  const [mode, setMode]           = useState<Mode>('single');
-  const [symbol, setSymbol]       = useState('SPY');
+  const [mode, setMode]             = useState<Mode>('single');
+  const [symbol, setSymbol]         = useState('SPY');
   const [singleData, setSingleData] = useState<SingleData | null>(null);
   const [singleLoading, setSingleLoading] = useState(false);
   const [singleError, setSingleError]     = useState('');
-  const [scanData, setScanData]   = useState<ScanOutput | null>(null);
+  const [scanData, setScanData]           = useState<ScanOutput | null>(null);
   const [scanLoading, setScanLoading]     = useState(false);
   const [scanError, setScanError]         = useState('');
   const hasSingleLoaded = useRef(false);
@@ -845,10 +1125,8 @@ export default function SwingEnginePage() {
 
   const handleSymbol = (s: string) => { setSymbol(s); loadSingle(s); };
 
-  // Auto-load single on mount
   if (!hasSingleLoaded.current && mode === 'single') {
     hasSingleLoaded.current = true;
-    // trigger on next tick
     setTimeout(() => loadSingle(), 0);
   }
 
@@ -863,36 +1141,51 @@ export default function SwingEnginePage() {
   } : { bullish: 0, bearish: 0, breakout: 0, pullback: 0, options: 0, avoid: 0, discovery: 0 };
 
   return (
-    <AppShell title="Swing & Macro Options Engine">
-      {/* ── Page header + mode toggle ── */}
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white">Swing & Macro Options Engine</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Multi-timeframe structure · Institutional liquidity · 14–60 DTE options</p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button onClick={() => handleMode('single')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border transition-all ${mode === 'single' ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-900/30' : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-600'}`}>
-            <Crosshair size={14} />Single Analysis
-          </button>
-          <button onClick={() => handleMode('scan')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border transition-all ${mode === 'scan' ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-900/30' : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-600'}`}>
-            <Search size={14} />Market Scanner
-          </button>
-        </div>
+    <AppShell title="Swing Trades">
+      {/* ── Core question ─────────────────────────────────────────────────── */}
+      <div className="mb-5 text-center">
+        <p className="text-xs font-bold tracking-widest uppercase mb-1" style={{ color: '#374151' }}>Today's Question</p>
+        <p className="text-base font-semibold" style={{ color: '#9ca3af' }}>
+          Is there a high-quality higher timeframe setup?
+        </p>
       </div>
 
-      {/* ── Single analysis mode ── */}
+      {/* ── Mode toggle ───────────────────────────────────────────────────── */}
+      <div className="mb-6 flex items-center gap-2 justify-center flex-wrap">
+        {([
+          { mode: 'single' as Mode, label: 'Single Analysis', icon: <Crosshair size={13} /> },
+          { mode: 'scan'   as Mode, label: 'Market Scanner',  icon: <Search size={13} /> },
+        ]).map(({ mode: m, label, icon }) => (
+          <button
+            key={m}
+            onClick={() => handleMode(m)}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all"
+            style={{
+              background: mode === m ? 'rgba(0,255,136,0.12)' : '#111318',
+              border: `1px solid ${mode === m ? 'rgba(0,255,136,0.4)' : 'rgba(255,255,255,0.07)'}`,
+              color: mode === m ? G : '#6b7280',
+              boxShadow: mode === m ? '0 0 14px rgba(0,255,136,0.15)' : 'none',
+            }}
+          >
+            {icon}{label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Single Analysis ───────────────────────────────────────────────── */}
       {mode === 'single' && (
         <>
           {singleError && (
-            <div className="mb-4 p-3 bg-red-950 border border-red-800 rounded-lg flex items-center gap-2 text-red-300 text-sm">
+            <div className="mb-4 p-3 rounded-xl flex items-center gap-2 text-sm"
+              style={{ background: 'rgba(255,59,59,0.1)', border: '1px solid rgba(255,59,59,0.3)', color: R }}>
               <AlertTriangle size={14} /> {singleError}
             </div>
           )}
           {singleLoading && !singleData && (
             <div className="space-y-3">
-              {[...Array(4)].map((_, i) => <div key={i} className="h-32 bg-gray-900 rounded-xl animate-pulse border border-gray-800" />)}
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="h-32 rounded-xl animate-pulse" style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }} />
+              ))}
             </div>
           )}
           {singleData && (
@@ -905,29 +1198,33 @@ export default function SwingEnginePage() {
         </>
       )}
 
-      {/* ── Market scanner mode ── */}
+      {/* ── Scanner Mode ──────────────────────────────────────────────────── */}
       {mode === 'scan' && (
         <>
           {!scanData && !scanLoading && (
             <div className="flex flex-col items-center justify-center py-20 gap-6">
-              <div className="w-20 h-20 rounded-full bg-purple-950 border border-purple-700 flex items-center justify-center">
-                <Search size={32} className="text-purple-400" />
+              <div className="w-20 h-20 rounded-full flex items-center justify-center"
+                style={{ background: 'rgba(0,255,136,0.08)', border: '1px solid rgba(0,255,136,0.25)' }}>
+                <Search size={32} style={{ color: G }} />
               </div>
               <div className="text-center">
-                <h2 className="text-white font-bold text-lg mb-2">Market Scanner Ready</h2>
-                <p className="text-gray-400 text-sm max-w-md">
-                  Scans 28 symbols + dynamic discovery — SPY, QQQ, IWM, NVDA, AAPL, TSLA, META, MSFT, AMZN and more.
-                  Ranks every setup from strongest to weakest with options data.
+                <h2 className="text-lg font-bold mb-2" style={{ color: '#f0f0f0' }}>Market Scanner Ready</h2>
+                <p className="text-sm max-w-md" style={{ color: '#6b7280' }}>
+                  Scans 28+ symbols — SPY, QQQ, IWM, NVDA, AAPL, TSLA, META, MSFT, AMZN and more.
+                  Ranks every setup with MTF structure and options data.
                 </p>
-                <p className="text-gray-600 text-xs mt-2">Takes ~15 seconds to complete full analysis</p>
+                <p className="text-xs mt-2" style={{ color: '#374151' }}>Takes ~15 seconds to complete full analysis</p>
               </div>
               {scanError && (
-                <div className="p-3 bg-red-950 border border-red-800 rounded-lg flex items-center gap-2 text-red-300 text-sm">
+                <div className="p-3 rounded-xl flex items-center gap-2 text-sm"
+                  style={{ background: 'rgba(255,59,59,0.1)', border: '1px solid rgba(255,59,59,0.3)', color: R }}>
                   <AlertTriangle size={14} /> {scanError}
                 </div>
               )}
-              <button onClick={loadScan}
-                className="flex items-center gap-2 px-8 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 border border-purple-500 text-white font-bold text-sm transition-all shadow-lg shadow-purple-900/40">
+              <button
+                onClick={loadScan}
+                className="flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm transition-all hover:scale-105"
+                style={{ background: 'rgba(0,255,136,0.12)', border: '1px solid rgba(0,255,136,0.4)', color: G, boxShadow: '0 0 20px rgba(0,255,136,0.2)' }}>
                 <Search size={16} /> Run Market Scanner
               </button>
             </div>
@@ -935,114 +1232,36 @@ export default function SwingEnginePage() {
 
           {scanLoading && (
             <div className="flex flex-col items-center justify-center py-20 gap-5">
-              <div className="relative w-20 h-20">
-                <div className="w-20 h-20 rounded-full border-4 border-gray-800" />
-                <div className="absolute inset-0 w-20 h-20 rounded-full border-4 border-t-purple-500 animate-spin" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Search size={20} className="text-purple-400" />
-                </div>
+              <div className="relative w-16 h-16">
+                <div className="w-16 h-16 rounded-full border-2" style={{ borderColor: '#1a1d26' }} />
+                <div className="absolute inset-0 w-16 h-16 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: `transparent ${G} ${G} ${G}` }} />
               </div>
               <div className="text-center">
-                <p className="text-white font-semibold">Scanning the market…</p>
-                <p className="text-gray-500 text-sm mt-1">Fetching quotes · Analyzing structure · Scoring options</p>
-                <p className="text-gray-600 text-xs mt-1">28+ symbols across all timeframes</p>
-              </div>
-              <div className="flex gap-1.5">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="w-2 h-2 rounded-full bg-purple-600 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
-                ))}
+                <p className="font-semibold" style={{ color: '#f0f0f0' }}>Scanning the market…</p>
+                <p className="text-sm mt-1" style={{ color: '#6b7280' }}>Fetching quotes · Analyzing structure · Scoring options</p>
               </div>
             </div>
           )}
 
           {scanData && !scanLoading && (
             <>
-              {/* Sticky nav */}
               <ScannerNav counts={scanCounts} />
-
-              {/* Macro bar */}
               <ScanMacroBar data={scanData} />
-
-              {/* Rescan button */}
               <div className="flex justify-end mb-4">
                 <button onClick={loadScan}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 text-xs font-semibold hover:bg-gray-700 transition-all">
-                  <RefreshCw size={12} /> Re-scan Market
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all"
+                  style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)', color: '#6b7280' }}>
+                  <RefreshCw size={11} /> Re-scan Market
                 </button>
               </div>
-
-              {/* Top 5 */}
               <Top5Today results={scanData.top5Today} />
-
-              {/* 6 sections */}
-              <ScannerSection
-                id="bullish" title="Best Bullish Swing Setups"
-                icon={<TrendingUp size={15} />} accent="text-emerald-400"
-                results={scanData.bullishSetups}
-                emptyMsg="No clean bullish swing setups found. Market may be mixed or bearish — check the bearish section."
-              />
-              <ScannerSection
-                id="bearish" title="Best Bearish Swing Setups"
-                icon={<TrendingDown size={15} />} accent="text-red-400"
-                results={scanData.bearishSetups}
-                emptyMsg="No clean bearish setups. Macro may be bullish — check the bullish section."
-              />
-              <ScannerSection
-                id="breakout" title="Best Breakout Setups"
-                icon={<Zap size={15} />} accent="text-blue-400"
-                results={scanData.breakoutSetups}
-                emptyMsg="No fresh breakout setups. BOS / CHoCH events not detected in the required timeframe."
-              />
-              <ScannerSection
-                id="pullback" title="Pullback-to-FVG Setups"
-                icon={<BarChart2 size={15} />} accent="text-purple-400"
-                results={scanData.pullbackFVGSetups}
-                emptyMsg="No symbols currently pulling back into a Fair Value Gap. Check back later."
-              />
-              <ScannerSection
-                id="options" title="High-Conviction Options"
-                icon={<Star size={15} />} accent="text-amber-400"
-                results={scanData.highConvictionOptions}
-                emptyMsg="No A/A+ rated contracts found today. Consider revisiting later or widening DTE range."
-              />
-
-              {/* Sector snapshot in scanner mode */}
-              <DarkCard className="mb-6">
-                <SectionTitle icon={<Layers size={14} />} title="Sector Rotation Snapshot" />
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  {scanData.sectorRotation.map((s, i) => (
-                    <div key={i} className={`flex flex-col items-center p-2 rounded-lg border min-w-[80px] text-center text-xs shrink-0 ${s.trend === 'bullish' ? 'bg-emerald-950/30 border-emerald-800/40' : s.trend === 'bearish' ? 'bg-red-950/30 border-red-800/40' : 'bg-gray-800/40 border-gray-700/40'}`}>
-                      <span className="text-gray-300 font-bold">{s.etf}</span>
-                      <span className="text-gray-500 text-[9px] mt-0.5 leading-tight">{s.name}</span>
-                      <span className={`font-semibold mt-1 ${pctColor(s.changePct1d)}`}>{s.changePct1d > 0 ? '+' : ''}{s.changePct1d.toFixed(1)}%</span>
-                      <span className={`text-[10px] mt-0.5 ${pctColor(s.relStrength)}`}>rs {s.relStrength > 0 ? '+' : ''}{s.relStrength.toFixed(1)}</span>
-                      <span className={`text-[10px] font-bold mt-0.5 ${s.rank <= 3 ? 'text-amber-400' : 'text-gray-600'}`}>#{s.rank}</span>
-                    </div>
-                  ))}
-                </div>
-              </DarkCard>
-
-              <ScannerSection
-                id="avoid" title="Avoid / No Trade List"
-                icon={<Eye size={15} />} accent="text-gray-500"
-                results={scanData.avoidList}
-                emptyMsg="No symbols flagged for avoidance. Most setups showing acceptable structure."
-              />
-
-              {scanData.discoveredSymbols.length > 0 && (
-                <ScannerSection
-                  id="discovery" title="Dynamic Discovery — New Finds"
-                  icon={<Radio size={15} />} accent="text-fuchsia-400"
-                  results={scanData.discoveredSymbols}
-                  emptyMsg="No new symbols discovered outside the watchlist today."
-                />
-              )}
-
-              {/* Disclaimer */}
-              <div className="p-3 bg-gray-900/50 border border-gray-800 rounded-xl text-xs text-gray-600 flex items-start gap-2 mt-2">
-                <Info size={11} className="mt-0.5 shrink-0 text-gray-700" />
-                Educational scanner only. Options can expire worthless. Confidence scores are algorithmic — always verify with your own analysis. Not financial advice.
-              </div>
+              <ScannerSection id="bullish"   title="Best Bullish Swing Setups"  results={scanData.bullishSetups}          accentColor={G}        emptyMsg="No clean bullish swing setups found." />
+              <ScannerSection id="bearish"   title="Best Bearish Swing Setups"  results={scanData.bearishSetups}          accentColor={R}        emptyMsg="No clean bearish setups." />
+              <ScannerSection id="breakout"  title="Breakout Setups"            results={scanData.breakoutSetups}         accentColor="#60a5fa"  emptyMsg="No fresh breakout setups." />
+              <ScannerSection id="pullback"  title="Pullback / FVG Setups"      results={scanData.pullbackFVGSetups}      accentColor="#a78bfa"  emptyMsg="No pullback-to-FVG setups found." />
+              <ScannerSection id="options"   title="High Conviction Options"    results={scanData.highConvictionOptions}  accentColor={A}        emptyMsg="No high-conviction options plays found." />
+              <ScannerSection id="avoid"     title="Avoid List"                 results={scanData.avoidList}              accentColor="#374151"  emptyMsg="Nothing flagged for avoidance." />
+              <ScannerSection id="discovery" title="Discovered Symbols"         results={scanData.discoveredSymbols}      accentColor="#c084fc"  emptyMsg="No unusual momentum discovered." />
             </>
           )}
         </>
