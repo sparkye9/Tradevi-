@@ -18,54 +18,14 @@ export interface FinvizStock {
 
 // ─── Module-level cache ───────────────────────────────────────────────────────
 
-const CACHE_TTL  = 5 * 60 * 1000;  // 5 minutes
-const AUTH_TTL   = 50 * 60 * 1000; // 50 minutes (Elite sessions last ~1h)
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 let cachedStocks: { data: FinvizStock[]; ts: number; elite: boolean } | null = null;
-let cachedAuth:   { token: string; ts: number } | null = null;
-
-// ─── Auth ─────────────────────────────────────────────────────────────────────
-
-async function getEliteAuth(): Promise<string | null> {
-  if (cachedAuth && Date.now() - cachedAuth.ts < AUTH_TTL) return cachedAuth.token;
-
-  const email    = process.env.FINVIZ_EMAIL;
-  const password = process.env.FINVIZ_PASSWORD;
-  if (!email || !password) return null;
-
-  try {
-    const body = new URLSearchParams({ email, password, remember: '1' });
-    const resp = await fetch('https://finviz.com/login_submit.ashx', {
-      method:  'POST',
-      headers: {
-        'Content-Type':  'application/x-www-form-urlencoded',
-        'User-Agent':    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Referer':       'https://finviz.com/login.ashx',
-        'Accept':        'text/html,application/xhtml+xml,*/*',
-        'Origin':        'https://finviz.com',
-      },
-      body:     body.toString(),
-      redirect: 'manual',
-      cache:    'no-store',
-    });
-
-    // Extract finvizauth cookie
-    const raw = resp.headers.get('set-cookie') ?? '';
-    const match = raw.match(/finvizauth=([^;,\s]+)/);
-    if (match?.[1]) {
-      cachedAuth = { token: match[1], ts: Date.now() };
-      return match[1];
-    }
-  } catch (err) {
-    console.error('[FINviz] Auth failed:', err);
-  }
-  return null;
-}
 
 // ─── Screener fetch ───────────────────────────────────────────────────────────
 
 async function fetchScreener(maxPrice: number, minAvgVol: string): Promise<FinvizStock[]> {
-  const auth = await getEliteAuth();
+  const apiKey = process.env.FINVIZ_API_KEY;
 
   // Price bucket mapping for FINviz filter codes
   const priceFilter =
@@ -78,17 +38,18 @@ async function fetchScreener(maxPrice: number, minAvgVol: string): Promise<Finvi
   const volFilter = `sh_avgvol_o${minAvgVol}`;
   const filters   = [volFilter, priceFilter].filter(Boolean).join(',');
 
-  const base = auth ? 'https://elite.finviz.com' : 'https://finviz.com';
-  const url  = `${base}/export.ashx?v=111&f=${filters}&o=-volume&r=1`;
+  const base   = apiKey ? 'https://elite.finviz.com' : 'https://finviz.com';
+  const auth   = apiKey ? `&auth=${encodeURIComponent(apiKey)}` : '';
+  const url    = `${base}/export.ashx?v=111&f=${filters}&o=-volume&r=1${auth}`;
 
-  const headers: Record<string, string> = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept':     'text/csv,text/plain,*/*',
-    'Referer':    'https://finviz.com/screener.ashx',
-  };
-  if (auth) headers['Cookie'] = `finvizauth=${auth}`;
-
-  const resp = await fetch(url, { headers, cache: 'no-store' });
+  const resp = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept':     'text/csv,text/plain,*/*',
+      'Referer':    'https://finviz.com/screener.ashx',
+    },
+    cache: 'no-store',
+  });
   if (!resp.ok) throw new Error(`FINviz returned HTTP ${resp.status}`);
 
   const text = await resp.text();
@@ -174,7 +135,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const stocks = await fetchScreener(maxPrice, minVol);
-    const elite  = !!(cachedAuth?.token);
+    const elite  = !!process.env.FINVIZ_API_KEY;
     cachedStocks = { data: stocks.slice(0, 30), ts: Date.now(), elite };
 
     return NextResponse.json({
