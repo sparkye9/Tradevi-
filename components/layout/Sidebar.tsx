@@ -20,6 +20,7 @@ const navItems = [
   { href: '/swing-engine', label: 'Swing Engine', icon: Target },
   { href: '/intraday-scanner', label: 'Intraday Scanner', icon: ScanLine },
   { href: '/finviz-scanner',  label: 'FINviz Scanner',   icon: Filter },
+  { href: '/finviz-swing-scanner', label: 'Swing Scanner', icon: TrendingUp },
   { href: '/after-hours', label: 'After-Hours', icon: Moon },
   { href: '/mnq-dashboard', label: 'MNQ Dashboard', icon: Gauge },
   { href: '/esm6-dashboard', label: 'ESM6 Dashboard', icon: Activity },
