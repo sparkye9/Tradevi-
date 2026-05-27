@@ -1,15 +1,18 @@
 'use client';
 import { useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, CandlestickChart, Monitor } from 'lucide-react';
 import { ChartContainer } from '@/components/charts/ChartContainer';
 import { ChartErrorBoundary } from '@/components/charts/ChartErrorBoundary';
+import { StockChartsEmbed } from '@/components/charts/StockChartsEmbed';
 
 const SYMBOLS = ['SPY', 'QQQ', 'SQQQ', 'TQQQ', 'TSLA', 'NVDA', 'AAPL', 'MSFT', 'AMZN', 'META', 'AMD', 'PLTR'];
+type ChartSource = 'tradingview' | 'stockcharts';
 
 export default function ChartsPage() {
-  const [symbol, setSymbol] = useState('SPY');
+  const [symbol, setSymbol]           = useState('SPY');
   const [customSymbol, setCustomSymbol] = useState('');
+  const [chartSource, setChartSource] = useState<ChartSource>('tradingview');
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,13 +62,43 @@ export default function ChartsPage() {
             {symbol}
           </span>
         )}
+
+        {/* Chart source toggle */}
+        <div className="ml-auto flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+          <button
+            onClick={() => setChartSource('tradingview')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+              chartSource === 'tradingview'
+                ? 'bg-white text-purple-700 shadow-sm border border-gray-200'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <CandlestickChart size={12} />
+            TradingView
+          </button>
+          <button
+            onClick={() => setChartSource('stockcharts')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+              chartSource === 'stockcharts'
+                ? 'bg-white text-blue-700 shadow-sm border border-gray-200'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Monitor size={12} />
+            StockCharts
+          </button>
+        </div>
       </div>
 
       {/* Chart */}
       <div className="mb-6">
-        <ChartErrorBoundary onReset={() => setSymbol(symbol)}>
-          <ChartContainer symbol={symbol} />
-        </ChartErrorBoundary>
+        {chartSource === 'tradingview' ? (
+          <ChartErrorBoundary onReset={() => setSymbol(symbol)}>
+            <ChartContainer symbol={symbol} />
+          </ChartErrorBoundary>
+        ) : (
+          <StockChartsEmbed symbol={symbol} />
+        )}
       </div>
 
       {/* Disclaimer */}

@@ -8,7 +8,7 @@ import { FocusTimer } from '@/components/dashboard/FocusTimer';
 import { Card, CardHeader, StatCard } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { DataSourceBanner, DataSourceBadge, type DataSource } from '@/components/ui/DataSourceBanner';
-import { RefreshCw, TrendingUp, TrendingDown, Newspaper, Search, WifiOff, Zap } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, Newspaper, Search, WifiOff, Zap, Monitor, Filter } from 'lucide-react';
 import { fetchChart, fetchQuote, fetchNews, type ChartResponse, type QuoteData } from '@/lib/apiClient';
 import { useTickerPrice } from '@/lib/wsClient';
 import { ChartErrorBoundary } from '@/components/charts/ChartErrorBoundary';
@@ -157,17 +157,28 @@ export default function DashboardPage() {
               </p>
             )}
           </div>
-          {displayPrice && (
-            <div className="flex items-center gap-2">
-              <span className="text-2xl font-bold text-white">${displayPrice.toFixed(2)}</span>
-              {quote && (
-                <span className={`flex items-center gap-1 text-sm font-medium ${quote.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {quote.changePercent >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                  {quote.changePercent >= 0 ? '+' : ''}{quote.changePercent.toFixed(2)}%
-                </span>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            {displayPrice && (
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold text-white">${displayPrice.toFixed(2)}</span>
+                {quote && (
+                  <span className={`flex items-center gap-1 text-sm font-medium ${quote.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {quote.changePercent >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                    {quote.changePercent >= 0 ? '+' : ''}{quote.changePercent.toFixed(2)}%
+                  </span>
+                )}
+              </div>
+            )}
+            <a
+              href={`https://stockcharts.com/h-sc/ui?s=${selectedSymbol}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-gray-700 text-gray-300 hover:bg-blue-700 hover:text-white rounded-lg border border-gray-600 transition-colors"
+            >
+              <Monitor size={11} />
+              StockCharts
+            </a>
+          </div>
         </div>
         <ChartErrorBoundary onReset={() => loadData()}>
           <TradingViewChart
@@ -241,6 +252,11 @@ export default function DashboardPage() {
             <Link href="/risk">
               <Button variant="outline" size="md" className="w-full justify-start mt-2">
                 Risk Calculator
+              </Button>
+            </Link>
+            <Link href="/finviz-scanner">
+              <Button variant="outline" size="md" className="w-full justify-start mt-2">
+                <Filter size={14} className="mr-2" /> FINviz Scanner
               </Button>
             </Link>
           </div>

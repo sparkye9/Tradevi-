@@ -5,6 +5,7 @@ import { Header } from './Header';
 import { MarketBanner } from './MarketBanner';
 import { NotificationBanner } from './NotificationBanner';
 import { DisclaimerBanner } from '@/components/ui/DisclaimerBanner';
+import { FinvizDrawer } from '@/components/finviz/FinvizDrawer';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -13,6 +14,7 @@ interface AppShellProps {
 
 export function AppShell({ children, title }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [finvizOpen, setFinvizOpen]   = useState(false);
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -20,7 +22,12 @@ export function AppShell({ children, title }: AppShellProps) {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <DisclaimerBanner />
         <NotificationBanner />
-        <Header onMenuClick={() => setSidebarOpen(true)} title={title} />
+        <Header
+          onMenuClick={() => setSidebarOpen(true)}
+          title={title}
+          onFinvizClick={() => setFinvizOpen(v => !v)}
+          finvizOpen={finvizOpen}
+        />
         <MarketBanner />
         <main className="flex-1 overflow-y-auto scrollbar-thin">
           <div className="max-w-7xl mx-auto p-4 lg:p-6">
@@ -28,6 +35,7 @@ export function AppShell({ children, title }: AppShellProps) {
           </div>
         </main>
       </div>
+      <FinvizDrawer open={finvizOpen} onClose={() => setFinvizOpen(false)} />
     </div>
   );
 }

@@ -1,15 +1,17 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Menu, Bell, Settings, RefreshCw } from 'lucide-react';
+import { Menu, Bell, Settings, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { useAlertsStore } from '@/store/alertsStore';
 
 interface HeaderProps {
   onMenuClick: () => void;
   title: string;
+  onFinvizClick?: () => void;
+  finvizOpen?: boolean;
 }
 
-export function Header({ onMenuClick, title }: HeaderProps) {
+export function Header({ onMenuClick, title, onFinvizClick, finvizOpen }: HeaderProps) {
   const [time, setTime] = useState('');
   const triggered = useAlertsStore(s => s.getTriggered());
 
@@ -34,6 +36,20 @@ export function Header({ onMenuClick, title }: HeaderProps) {
 
       <div className="flex items-center gap-3">
         <span className="hidden sm:block text-xs text-gray-400 font-mono tabular-nums">{time}</span>
+
+        {/* FINviz hot-stocks toggle */}
+        <button
+          onClick={onFinvizClick}
+          title="FINviz Hot Stocks"
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+            finvizOpen
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-100 text-gray-600 hover:bg-blue-50 hover:text-blue-700'
+          }`}
+        >
+          <Zap size={13} />
+          <span className="hidden sm:inline">FINviz</span>
+        </button>
 
         <Link href="/alerts" className="relative p-2 rounded-lg hover:bg-gray-100 text-gray-600">
           <Bell size={18} />
