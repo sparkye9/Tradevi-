@@ -480,8 +480,8 @@ function computeSymbolScore(
   const bearBOS   = structure.some(e => e.event === 'BOS_DOWN' || e.event === 'CHoCH_DOWN');
   const bullFVGNear = fvgs.some(f => f.type === 'bullish' && price > f.mid && (price - f.mid) / price < 0.06);
 
-  if (score >= 60 && bullMatch) setupTypes.push('bullish');
-  if (score >= 60 && bearMatch) setupTypes.push('bearish');
+  if (score >= 50 && bullMatch) setupTypes.push('bullish');
+  if (score >= 50 && bearMatch) setupTypes.push('bearish');
   if (bullBOS && dailyBias.bias !== 'bearish' && score >= 50) setupTypes.push('breakout');
   if (bearBOS && dailyBias.bias !== 'bullish' && score >= 50) setupTypes.push('breakout');
   if (bullFVGNear && score >= 45) setupTypes.push('pullback-fvg');

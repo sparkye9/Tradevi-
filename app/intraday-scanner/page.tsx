@@ -639,9 +639,9 @@ function AnalysisView({ d }: { d: IntradayData }) {
 }
 
 function ScannerView({ data, onSelect, showSuppressed }: { data: ScanData; onSelect: (s: string) => void; showSuppressed: boolean }) {
-  const bullish = data.scanResults.filter(r => r.bias === 'bullish' && r.confidenceScore >= 60).slice(0, 5);
-  const bearish = data.scanResults.filter(r => r.bias === 'bearish' && r.confidenceScore >= 60).slice(0, 5);
-  const filtered = showSuppressed ? data.scanResults : data.scanResults.filter(r => r.confidenceScore >= 55 && r.bias !== 'neutral');
+  const bullish = data.scanResults.filter(r => r.bias === 'bullish' && r.confidenceScore >= 50).slice(0, 5);
+  const bearish = data.scanResults.filter(r => r.bias === 'bearish' && r.confidenceScore >= 50).slice(0, 5);
+  const filtered = showSuppressed ? data.scanResults : data.scanResults.filter(r => r.confidenceScore >= 45 && r.bias !== 'neutral');
 
   return (
     <div className="space-y-5">
