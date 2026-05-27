@@ -1,67 +1,128 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Menu, Bell, Settings, Zap } from 'lucide-react';
+import { Menu, Bell, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { useAlertsStore } from '@/store/alertsStore';
 
 interface HeaderProps {
   onMenuClick: () => void;
   title: string;
-  onFinvizClick?: () => void;
-  finvizOpen?: boolean;
 }
 
-export function Header({ onMenuClick, title, onFinvizClick, finvizOpen }: HeaderProps) {
-  const [time, setTime] = useState('');
-  const triggered = useAlertsStore(s => s.getTriggered());
+function useMarketClock() {
+  const [time, setTime]   = useState('');
+  const [status, setStatus] = useState<'OPEN' | 'PRE' | 'AH' | 'CLOSED'>('CLOSED');
 
   useEffect(() => {
-    const update = () => setTime(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-    update();
-    const t = setInterval(update, 1000);
-    return () => clearInterval(t);
+    const tick = () => {
+      const now = new Date();
+      const et  = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const h = et.getHours(), m = et.getMinutes(), day = et.getDay();
+      const mins = h * 60 + m;
+
+      setTime(
+        et.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      );
+
+      if (day === 0 || day === 6) { setStatus('CLOSED'); return; }
+      if (mins >= 570 && mins < 960)   { setStatus('OPEN');   return; }
+      if (mins >= 240 && mins < 570)   { setStatus('PRE');    return; }
+      if (mins >= 960 && mins < 1200)  { setStatus('AH');     return; }
+      setStatus('CLOSED');
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
   }, []);
 
+  return { time, status };
+}
+
+const STATUS_STYLE: Record<string, { color: string; glow: string; label: string }> = {
+  OPEN:   { color: '#00ff88', glow: '0 0 8px rgba(0,255,136,0.8)', label: 'OPEN'   },
+  PRE:    { color: '#f59e0b', glow: '0 0 8px rgba(245,158,11,0.7)', label: 'PRE'   },
+  AH:     { color: '#f59e0b', glow: '0 0 8px rgba(245,158,11,0.7)', label: 'AH'    },
+  CLOSED: { color: '#374151', glow: 'none',                          label: 'CLOSED' },
+};
+
+export function Header({ onMenuClick, title }: HeaderProps) {
+  const { time, status } = useMarketClock();
+  const triggered = useAlertsStore(s => s.getTriggered());
+  const st = STATUS_STYLE[status] ?? STATUS_STYLE.CLOSED;
+
   return (
-    <header className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between">
+    <header
+      className="sticky top-0 z-10 flex items-center justify-between px-4 py-2.5 shrink-0"
+      style={{ background: '#111318', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+    >
       <div className="flex items-center gap-3">
         <button
           onClick={onMenuClick}
-          className="lg:hidden p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+          className="lg:hidden p-1.5 rounded transition-colors hover:bg-white/5"
+          style={{ color: '#6b7280' }}
         >
-          <Menu size={20} />
+          <Menu size={18} />
         </button>
-        <h1 className="font-semibold text-gray-900 text-base">{title}</h1>
+        <h1
+          className="font-semibold text-sm tracking-wide"
+          style={{ color: '#f0f0f0' }}
+        >
+          {title}
+        </h1>
       </div>
 
-      <div className="flex items-center gap-3">
-        <span className="hidden sm:block text-xs text-gray-400 font-mono tabular-nums">{time}</span>
+      <div className="flex items-center gap-5">
+        {/* Market status dot + label */}
+        <div className="hidden sm:flex items-center gap-1.5">
+          <div
+            className="w-1.5 h-1.5 rounded-full"
+            style={{ background: st.color, boxShadow: st.glow }}
+          />
+          <span
+            className="text-xs font-mono font-bold tracking-wider"
+            style={{ color: st.color, fontSize: '10px' }}
+          >
+            {st.label}
+          </span>
+        </div>
 
-        {/* FINviz hot-stocks toggle */}
-        <button
-          onClick={onFinvizClick}
-          title="FINviz Hot Stocks"
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-            finvizOpen
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-100 text-gray-600 hover:bg-blue-50 hover:text-blue-700'
-          }`}
+        {/* Clock */}
+        <span
+          className="hidden sm:block text-xs font-mono tabular-nums"
+          style={{ color: '#6b7280', fontFamily: '"JetBrains Mono", monospace' }}
         >
-          <Zap size={13} />
-          <span className="hidden sm:inline">FINviz</span>
-        </button>
+          {time} ET
+        </span>
 
-        <Link href="/alerts" className="relative p-2 rounded-lg hover:bg-gray-100 text-gray-600">
-          <Bell size={18} />
+        {/* Alerts bell */}
+        <Link
+          href="/alerts"
+          className="relative p-1.5 rounded transition-colors hover:bg-white/5"
+          style={{ color: '#6b7280' }}
+        >
+          <Bell size={15} />
           {triggered.length > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white rounded-full text-xs flex items-center justify-center font-bold animate-pulse">
+            <span
+              className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center font-bold"
+              style={{
+                background: '#ff3b3b',
+                color: '#fff',
+                fontSize: '9px',
+                boxShadow: '0 0 6px rgba(255,59,59,0.7)',
+              }}
+            >
               {triggered.length}
             </span>
           )}
         </Link>
 
-        <Link href="/risk" className="p-2 rounded-lg hover:bg-gray-100 text-gray-600">
-          <Settings size={18} />
+        {/* Settings */}
+        <Link
+          href="/settings"
+          className="p-1.5 rounded transition-colors hover:bg-white/5"
+          style={{ color: '#6b7280' }}
+        >
+          <Settings size={15} />
         </Link>
       </div>
     </header>
