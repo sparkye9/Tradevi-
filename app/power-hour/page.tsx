@@ -163,7 +163,7 @@ function OptionCard({ opt, rank, budget }: { opt: OptionPick; rank: number; budg
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span style={{ color: '#6b7280', fontWeight: 600 }}>#{rank}</span>
-          <span className="font-mono font-bold" style={{ color, fontSize: '13px' }}>{fmtPrice(opt.strike)} {opt.type.toUpperCase()}</span>
+          <span className="font-mono font-bold" style={{ color: col, fontSize: '13px' }}>{fmtPrice(opt.strike)} {opt.type.toUpperCase()}</span>
           {opt.expiration && <span style={{ color: '#6b7280' }}>{opt.expiration}</span>}
           {opt.dte != null && <Chip color={opt.dte === 0 ? R : opt.dte === 1 ? A : '#6b7280'}>{opt.dte === 0 ? '0DTE' : `${opt.dte}d`}</Chip>}
         </div>

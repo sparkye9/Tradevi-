@@ -1,112 +1,19 @@
 import { NextResponse } from 'next/server';
+import { authenticateStockCharts, getCachedSession } from '@/lib/stockcharts-auth';
 
-// ─── Module-level session cache ───────────────────────────────────────────────
-
-const SESSION_TTL = 55 * 60 * 1000; // 55 minutes
-
-let cachedSession: {
-  cookies: string;
-  email: string;
-  ts: number;
-} | null = null;
-
-// ─── StockCharts login ────────────────────────────────────────────────────────
-
-export async function authenticateStockCharts(): Promise<string | null> {
-  if (cachedSession && Date.now() - cachedSession.ts < SESSION_TTL) {
-    return cachedSession.cookies;
-  }
-
-  const email    = process.env.STOCKCHARTS_EMAIL;
-  const password = process.env.STOCKCHARTS_PASSWORD;
-  if (!email || !password) return null;
-
-  try {
-    // Step 1: GET login page to capture any CSRF token / initial cookies
-    const getResp = await fetch('https://stockcharts.com/login/', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,*/*',
-      },
-      cache: 'no-store',
-    });
-
-    const initCookies = getResp.headers.get('set-cookie') ?? '';
-    const html        = await getResp.text();
-
-    // Extract hidden form fields (CSRF token etc.)
-    const tokenMatch  = html.match(/name="_token"\s+value="([^"]+)"/);
-    const csrfToken   = tokenMatch?.[1] ?? '';
-
-    // Step 2: POST credentials
-    const body = new URLSearchParams({
-      email,
-      password,
-      remember: '1',
-      ...(csrfToken ? { _token: csrfToken } : {}),
-    });
-
-    const postResp = await fetch('https://stockcharts.com/login/', {
-      method:  'POST',
-      headers: {
-        'Content-Type':  'application/x-www-form-urlencoded',
-        'User-Agent':    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Referer':       'https://stockcharts.com/login/',
-        'Accept':        'text/html,application/xhtml+xml,*/*',
-        'Origin':        'https://stockcharts.com',
-        ...(initCookies ? { 'Cookie': extractCookieStr(initCookies) } : {}),
-      },
-      body:     body.toString(),
-      redirect: 'manual',
-      cache:    'no-store',
-    });
-
-    const rawCookies = collectCookies(postResp.headers.get('set-cookie') ?? '');
-
-    if (rawCookies) {
-      cachedSession = { cookies: rawCookies, email, ts: Date.now() };
-      return rawCookies;
-    }
-  } catch (err) {
-    console.error('[StockCharts] Auth failed:', err);
-  }
-  return null;
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function extractCookieStr(raw: string): string {
-  return raw.split(',')
-    .map(c => c.split(';')[0].trim())
-    .filter(Boolean)
-    .join('; ');
-}
-
-function collectCookies(raw: string): string {
-  if (!raw) return '';
-  return raw.split(',')
-    .map(c => c.split(';')[0].trim())
-    .filter(c => c.includes('='))
-    .join('; ');
-}
-
-// ─── GET handler — returns login status ───────────────────────────────────────
+const SESSION_TTL = 55 * 60 * 1000;
 
 export async function GET() {
   const email = process.env.STOCKCHARTS_EMAIL;
   if (!email) {
-    return NextResponse.json({
-      authenticated: false,
-      error: 'STOCKCHARTS_EMAIL not configured',
-    });
+    return NextResponse.json({ authenticated: false, error: 'STOCKCHARTS_EMAIL not configured' });
   }
 
   const session = await authenticateStockCharts();
+  const cached  = getCachedSession();
   return NextResponse.json({
     authenticated: !!session,
-    email: session ? email : null,
-    cachedUntil: cachedSession
-      ? new Date(cachedSession.ts + SESSION_TTL).toISOString()
-      : null,
+    email:         session ? email : null,
+    cachedUntil:   cached ? new Date(cached.ts + SESSION_TTL).toISOString() : null,
   });
 }

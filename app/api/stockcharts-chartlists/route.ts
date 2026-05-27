@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { authenticateStockCharts } from '@/app/api/stockcharts-auth/route';
+import { authenticateStockCharts } from '@/lib/stockcharts-auth';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ function parseChartLists(html: string): SCChartList[] {
   const listBlockMatch = html.match(/chartlist[^>]*>([\s\S]*?)<\/select>/i);
   if (!listBlockMatch) {
     // Fallback: try to find any named list anchors
-    const anchors = [...html.matchAll(/<a[^>]+href="([^"]*chartlist[^"]*)"[^>]*>([^<]+)<\/a>/gi)];
+    const anchors = Array.from(html.matchAll(/<a[^>]+href="([^"]*chartlist[^"]*)"[^>]*>([^<]+)<\/a>/gi));
     for (const [, href, name] of anchors) {
       const idMatch = href.match(/chartlist[_/-]?(\d+)/i);
       if (idMatch) {
@@ -57,7 +57,7 @@ function parseChartLists(html: string): SCChartList[] {
     return lists.slice(0, 20);
   }
 
-  const options = [...listBlockMatch[1].matchAll(/<option\s+value="(\d+)"[^>]*>([^<]+)<\/option>/gi)];
+  const options = Array.from(listBlockMatch[1].matchAll(/<option\s+value="(\d+)"[^>]*>([^<]+)<\/option>/gi));
   for (const [, id, name] of options) {
     lists.push({
       id,

@@ -240,11 +240,11 @@ function MNQChart({ data, orb, vwap, liquidity }: {
           ]}
         />
         <ReferenceArea yAxisId="price" y1={orb.low} y2={orb.high} fill="#00ff88" fillOpacity={0.03} />
-        {liquidity?.overnightHigh > 0 && (
+        {liquidity?.overnightHigh != null && liquidity.overnightHigh > 0 && (
           <ReferenceLine yAxisId="price" y={liquidity.overnightHigh} stroke={A} strokeDasharray="5 3" strokeWidth={1}
             label={{ value: `ONH ${liquidity.overnightHigh.toFixed(0)}`, position: 'right', fontSize: 8, fill: A }} />
         )}
-        {liquidity?.overnightLow > 0 && (
+        {liquidity?.overnightLow != null && liquidity.overnightLow > 0 && (
           <ReferenceLine yAxisId="price" y={liquidity.overnightLow} stroke={A} strokeDasharray="5 3" strokeWidth={1}
             label={{ value: `ONL ${liquidity.overnightLow.toFixed(0)}`, position: 'right', fontSize: 8, fill: A }} />
         )}
