@@ -474,8 +474,8 @@ function computeSymbolScore(
   score = Math.min(96, Math.max(15, Math.round(score)));
 
   const setupTypes: SetupCategory[] = [];
-  const bullMatch = dailyBias.bias === 'bullish' && weeklyBias.bias === 'bullish';
-  const bearMatch = dailyBias.bias === 'bearish' && weeklyBias.bias === 'bearish';
+  const bullMatch = dailyBias.bias === 'bullish' && weeklyBias.bias !== 'bearish';
+  const bearMatch = dailyBias.bias === 'bearish' && weeklyBias.bias !== 'bullish';
   const bullBOS   = structure.some(e => e.event === 'BOS_UP' || e.event === 'CHoCH_UP');
   const bearBOS   = structure.some(e => e.event === 'BOS_DOWN' || e.event === 'CHoCH_DOWN');
   const bullFVGNear = fvgs.some(f => f.type === 'bullish' && price > f.mid && (price - f.mid) / price < 0.06);
