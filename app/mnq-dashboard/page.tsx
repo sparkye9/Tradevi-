@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import {
   TrendingUp, TrendingDown, Activity, AlertTriangle,
@@ -721,6 +722,26 @@ export default function MNQDashboard() {
       {data && (
         <div className={focusMode ? 'space-y-4' : 'space-y-4'}>
 
+          {/* ── INSTRUMENT SWITCHER ──────────────────────────────────────── */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs font-bold tracking-widest" style={{ color: '#374151', fontSize: '10px' }}>CONTRACT</span>
+            {[
+              { label: 'NQ / MNQ', href: '/mnq-dashboard', active: true },
+              { label: 'ES / MES', href: '/esm6-dashboard', active: false },
+            ].map(({ label, href, active }) => (
+              <Link key={href} href={href}
+                className="px-3 py-1 rounded-lg text-xs font-bold transition-all"
+                style={{
+                  background: active ? 'rgba(0,255,136,0.12)' : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${active ? 'rgba(0,255,136,0.4)' : 'rgba(255,255,255,0.08)'}`,
+                  color: active ? G : '#6b7280',
+                }}
+              >
+                {label}
+              </Link>
+            ))}
+          </div>
+
           {/* ── TICKER STRIP ─────────────────────────────────────────────── */}
           <div className="flex flex-wrap gap-2">
             {data.nq && (
@@ -742,16 +763,19 @@ export default function MNQDashboard() {
               </div>
             )}
             {[
-              { label: 'ES',   q: data.es   },
-              { label: 'VIX',  q: data.vix  },
-              { label: 'QQQ',  q: data.qqq  },
-            ].map(({ label, q }) => q ? (
-              <div key={label} className="flex flex-col items-center px-4 py-2.5 rounded-xl"
-                style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }}>
+              { label: 'ES / MES', q: data.es,   href: '/esm6-dashboard' },
+              { label: 'VIX',      q: data.vix,  href: '/market-analysis' },
+              { label: 'QQQ',      q: data.qqq,  href: '/charts' },
+            ].map(({ label, q, href }) => q ? (
+              <Link key={label} href={href}
+                className="flex flex-col items-center px-4 py-2.5 rounded-xl transition-all hover:scale-[1.02]"
+                style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }}
+              >
                 <span className="text-xs font-bold" style={{ color: '#6b7280' }}>{label}</span>
                 <span className="text-lg font-black font-mono" style={{ color: '#f0f0f0' }}>{q.price.toLocaleString()}</span>
                 <span className="text-xs font-mono" style={{ color: pctColor(q.changePct) }}>{fmt(q.changePct, 2)}%</span>
-              </div>
+                <span style={{ color: '#374151', fontSize: '8px', marginTop: 2 }}>VIEW →</span>
+              </Link>
             ) : null)}
             {data.internals?.dxy && (
               <div className="flex flex-col items-center px-4 py-2.5 rounded-xl"
