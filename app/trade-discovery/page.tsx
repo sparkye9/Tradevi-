@@ -525,7 +525,7 @@ function PolicyWatchlist({ items }: { items: PolicyWatchlistItem[] }) {
   }
 
   // Group by theme
-  const themes = [...new Set(items.map(i => i.theme))];
+  const themes = Array.from(new Set(items.map(i => i.theme)));
 
   return (
     <div>
