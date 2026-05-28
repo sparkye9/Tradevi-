@@ -90,6 +90,131 @@ function Panel({
   );
 }
 
+// ── Market Bias Panel ─────────────────────────────────────────────────────────
+
+type FuturesBias = 'bullish' | 'bearish' | 'mixed';
+
+function computeFuturesBias(esChg: number, nqChg: number): FuturesBias {
+  if (esChg > 0.1 && nqChg > 0.1) return 'bullish';
+  if (esChg < -0.1 && nqChg < -0.1) return 'bearish';
+  return 'mixed';
+}
+
+function computeMarketBias(
+  spyChg: number, qqqChg: number, futuresBias: FuturesBias
+): { bias: 'Bullish' | 'Bearish' | 'Mixed'; color: string; bg: string; border: string } {
+  const equityBull = spyChg > 0 && qqqChg > 0;
+  const equityBear = spyChg < 0 && qqqChg < 0;
+  if (futuresBias === 'bullish' && equityBull) return { bias: 'Bullish', color: '#00ff88', bg: 'rgba(0,255,136,0.08)', border: 'rgba(0,255,136,0.3)' };
+  if (futuresBias === 'bearish' && equityBear) return { bias: 'Bearish', color: '#ff3b3b', bg: 'rgba(255,59,59,0.08)', border: 'rgba(255,59,59,0.3)' };
+  return { bias: 'Mixed', color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.3)' };
+}
+
+function MarketBiasPanel() {
+  const [quotes, setQuotes] = useState<Record<string, QuoteData | null>>({});
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    const syms = ['SPY', 'QQQ', 'VIX', 'ES=F', 'NQ=F', 'YM=F', 'RTY=F'];
+    Promise.allSettled(syms.map(s => fetchQuote(s))).then(results => {
+      const map: Record<string, QuoteData | null> = {};
+      results.forEach((r, i) => { map[syms[i]] = r.status === 'fulfilled' ? r.value : null; });
+      setQuotes(map);
+      setLoaded(true);
+    });
+  }, []);
+
+  if (!loaded) {
+    return <div className="rounded-xl p-4 animate-pulse" style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)', height: 96 }} />;
+  }
+
+  const spyChg  = quotes['SPY']?.changePercent ?? 0;
+  const qqqChg  = quotes['QQQ']?.changePercent ?? 0;
+  const vixChg  = quotes['VIX']?.changePercent ?? 0;
+  const vixPx   = quotes['VIX']?.price ?? 0;
+  const esChg   = quotes['ES=F']?.changePercent ?? 0;
+  const nqChg   = quotes['NQ=F']?.changePercent ?? 0;
+  const ymChg   = quotes['YM=F']?.changePercent ?? 0;
+  const rtyChg  = quotes['RTY=F']?.changePercent ?? 0;
+
+  const futuresBias   = computeFuturesBias(esChg, nqChg);
+  const { bias: mktBias, color: mktColor, bg: mktBg, border: mktBorder } = computeMarketBias(spyChg, qqqChg, futuresBias);
+  const futuresConfirmed = futuresBias !== 'mixed' &&
+    ((futuresBias === 'bullish' && spyChg > 0) || (futuresBias === 'bearish' && spyChg < 0));
+  const confColor = futuresConfirmed ? '#00ff88' : '#f59e0b';
+
+  const warnings: string[] = [];
+  if (futuresBias === 'bearish' && spyChg > 0)
+    warnings.push('Futures red but equities green — label is MIXED, not bullish. Elevated risk for longs.');
+  if (futuresBias === 'bearish' && vixChg > 2)
+    warnings.push('VIX rising + futures red — bullish trades carry higher risk.');
+  if (futuresBias === 'bullish' && spyChg < 0)
+    warnings.push('Futures green but equities weak — relative weakness detected.');
+
+  const futBiasColor = futuresBias === 'bullish' ? '#00ff88' : futuresBias === 'bearish' ? '#ff3b3b' : '#f59e0b';
+
+  return (
+    <div className="rounded-xl overflow-hidden" style={{ background: '#111318', border: `1px solid ${mktBorder}` }}>
+      {/* Header row */}
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+        <span className="text-xs font-bold uppercase tracking-widest" style={{ color: '#374151' }}>Market Bias</span>
+        <span className="text-sm font-black px-2 py-0.5 rounded" style={{ color: mktColor, background: mktBg, border: `1px solid ${mktBorder}` }}>
+          {mktBias.toUpperCase()}
+        </span>
+        <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ color: confColor, background: `${confColor}14`, border: `1px solid ${confColor}40` }}>
+          Futures {futuresConfirmed ? 'CONFIRMED ✓' : 'NOT CONFIRMED ⚠'}
+        </span>
+        <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ color: futBiasColor, background: `${futBiasColor}10`, border: `1px solid ${futBiasColor}30` }}>
+          Futures {futuresBias.toUpperCase()}
+        </span>
+        {vixPx > 0 && (
+          <span className="text-xs font-mono font-bold ml-auto" style={{ color: vixPx > 25 ? '#ff3b3b' : vixPx > 18 ? '#f59e0b' : '#9ca3af' }}>
+            VIX {vixPx.toFixed(1)} {vixChg > 2 ? '▲' : vixChg < -2 ? '▼' : ''}
+          </span>
+        )}
+      </div>
+
+      {/* Futures strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px" style={{ borderBottom: warnings.length > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+        {[
+          { label: 'ES (S&P)', q: quotes['ES=F']  },
+          { label: 'NQ (NAS)', q: quotes['NQ=F']  },
+          { label: 'YM (DOW)', q: quotes['YM=F']  },
+          { label: 'RTY (RUT)', q: quotes['RTY=F'] },
+        ].map(({ label, q }) => {
+          const chg = q?.changePercent ?? 0;
+          const c = chg > 0.1 ? '#00ff88' : chg < -0.1 ? '#ff3b3b' : '#6b7280';
+          return (
+            <div key={label} className="flex flex-col items-center py-2 px-3" style={{ background: '#0d0f14' }}>
+              <span className="text-xs" style={{ color: '#374151', fontSize: 9 }}>{label}</span>
+              {q ? (
+                <>
+                  <span className="text-sm font-mono font-bold" style={{ color: '#f0f0f0' }}>
+                    {q.price >= 1000 ? q.price.toLocaleString('en-US', { maximumFractionDigits: 0 }) : q.price.toFixed(2)}
+                  </span>
+                  <span className="text-xs font-mono font-semibold" style={{ color: c }}>
+                    {chg >= 0 ? '+' : ''}{chg.toFixed(2)}%
+                  </span>
+                </>
+              ) : (
+                <span className="text-xs" style={{ color: '#374151' }}>—</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Warnings */}
+      {warnings.map((w, i) => (
+        <div key={i} className="flex items-start gap-2 px-4 py-2 text-xs"
+          style={{ borderTop: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.04)', color: '#f59e0b' }}>
+          <span style={{ flexShrink: 0 }}>⚠</span> {w}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Quote Row ─────────────────────────────────────────────────────────────────
 
 function QuoteRow({ symbol }: { symbol: string }) {
@@ -326,35 +451,17 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Primary grid ──────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
         {/* Trader State */}
         <div className="xl:col-span-1">
           <TraderStateWidget />
         </div>
 
-        {/* Market Quick Stats */}
-        <div
-          className="xl:col-span-1 rounded-xl p-4 space-y-3"
-          style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }}
-        >
-          <p className="sec-label">Market Pulse</p>
-          {['SPY', 'QQQ', 'VIX'].map(sym => (
-            <QuoteRow key={sym} symbol={sym} />
-          ))}
-        </div>
-
-        {/* Futures Strip */}
-        <div
-          className="xl:col-span-1 rounded-xl p-4"
-          style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }}
-        >
-          <p className="sec-label">Futures</p>
-          <div className="space-y-1">
-            {['NQ=F', 'ES=F', 'YM=F', 'RTY=F'].map(sym => (
-              <QuoteRow key={sym} symbol={sym} />
-            ))}
-          </div>
-          <div className="mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        {/* Market Bias + Futures Confirmation */}
+        <div className="xl:col-span-2">
+          <p className="sec-label mb-2" style={{ paddingLeft: 4 }}>Market Bias &amp; Futures</p>
+          <MarketBiasPanel />
+          <div className="mt-2">
             <Link
               href="/mnq-dashboard"
               className="block text-center text-xs font-bold py-2 rounded-lg transition-all hover:scale-[1.02]"

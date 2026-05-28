@@ -33,13 +33,27 @@ interface StructureEvent {
 interface ScoredOption {
   contractSymbol: string; symbol: string; type: 'call' | 'put';
   strike: number; expiration: number; dte: number;
-  bid: number; ask: number; mid: number; spreadPct: number;
+  bid: number; ask: number; mid: number; lastPrice: number;
+  spreadPct: number;
   volume: number; openInterest: number; iv: number; ivPct: number;
   inTheMoney: boolean; moneyness: number; deltaApprox: number;
+  theta: number; breakeven: number;
   expectedMoveByExp: number; probabilityOtm: number;
   entryMid: number; target1: number; target2: number; stopLoss: number;
+  maxLoss: number; potentialReward: number;
   rrRatio: number; holdDays: number; thetaEstDailyPct: number;
   swingScore: number; grade: 'A+' | 'A' | 'B' | 'C' | 'D'; rationale: string;
+  action: 'enter' | 'watch' | 'skip';
+}
+
+interface FuturesData {
+  es:  { price: number; changePct: number };
+  nq:  { price: number; changePct: number };
+  ym:  { price: number; changePct: number };
+  rty: { price: number; changePct: number };
+  bias: 'bullish' | 'bearish' | 'mixed';
+  confirmed: boolean;
+  marketBias: 'bullish' | 'bearish' | 'neutral';
 }
 
 type SetupCategory = 'bullish' | 'bearish' | 'breakout' | 'pullback-fvg' | 'high-conviction' | 'avoid';
@@ -59,6 +73,8 @@ interface ScanOutput {
   success: boolean; error?: string;
   vixPrice: number; macroTrend: 'bullish' | 'bearish' | 'neutral';
   spyChangePct: number; qqqChangePct: number;
+  futuresData?: { es: { price: number; changePct: number }; nq: { price: number; changePct: number }; bias: string; confirmed: boolean } | null;
+  dataWarnings?: string[];
   allResults: ScanResult[];
   bullishSetups: ScanResult[]; bearishSetups: ScanResult[];
   breakoutSetups: ScanResult[]; pullbackFVGSetups: ScanResult[];
@@ -71,6 +87,9 @@ interface ScanOutput {
 interface SingleData {
   success: boolean; error?: string;
   symbol: string; currentPrice: number;
+  optionsDataAvailable?: boolean;
+  dataWarnings?: string[];
+  futuresData?: FuturesData | null;
   macroOutlook: {
     trend: 'bullish' | 'bearish' | 'neutral'; riskEnv: 'risk-on' | 'risk-off' | 'mixed';
     vix: number; vixChange: number; vixRegime: 'low' | 'normal' | 'elevated' | 'extreme';
@@ -168,6 +187,75 @@ function Chip({ label, color = '#6b7280', bg = 'transparent', border }: {
     >
       {label}
     </span>
+  );
+}
+
+// ─── Futures Confirmation Bar ─────────────────────────────────────────────────
+
+function FuturesBar({ fd, dataWarnings, optionsAvailable }: {
+  fd: FuturesData;
+  dataWarnings?: string[];
+  optionsAvailable?: boolean;
+}) {
+  const biasColor  = fd.bias === 'bullish' ? G : fd.bias === 'bearish' ? R : A;
+  const confColor  = fd.confirmed ? G : A;
+  const mktColor   = fd.marketBias === 'bullish' ? G : fd.marketBias === 'bearish' ? R : A;
+  const noData     = optionsAvailable === false;
+
+  return (
+    <div className="space-y-2 mb-4">
+      {/* Futures strip */}
+      <div className="flex flex-wrap gap-2 items-center px-4 py-3 rounded-xl"
+        style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }}>
+        <span className="text-xs font-bold uppercase tracking-wider mr-1" style={{ color: '#374151' }}>Futures</span>
+        {[
+          { label: 'ES', val: fd.es.changePct },
+          { label: 'NQ', val: fd.nq.changePct },
+          { label: 'YM', val: fd.ym?.changePct ?? 0 },
+          { label: 'RTY', val: fd.rty?.changePct ?? 0 },
+        ].map(({ label, val }) => (
+          <span key={label} className="text-xs font-mono font-bold px-2 py-0.5 rounded"
+            style={{
+              color: val > 0.1 ? G : val < -0.1 ? R : '#9ca3af',
+              background: val > 0.1 ? 'rgba(0,255,136,0.08)' : val < -0.1 ? 'rgba(255,59,59,0.08)' : 'rgba(107,114,128,0.08)',
+              border: `1px solid ${val > 0.1 ? 'rgba(0,255,136,0.2)' : val < -0.1 ? 'rgba(255,59,59,0.2)' : 'rgba(107,114,128,0.15)'}`,
+            }}>
+            {label} {val >= 0 ? '+' : ''}{val.toFixed(2)}%
+          </span>
+        ))}
+        <div className="h-4 w-px ml-1" style={{ background: 'rgba(255,255,255,0.08)' }} />
+        <span className="text-xs font-bold px-2 py-0.5 rounded"
+          style={{ color: biasColor, background: `${biasColor}14`, border: `1px solid ${biasColor}40` }}>
+          FUTURES {fd.bias.toUpperCase()}
+        </span>
+        <span className="text-xs font-bold px-2 py-0.5 rounded"
+          style={{ color: confColor, background: `${confColor}14`, border: `1px solid ${confColor}40` }}>
+          {fd.confirmed ? 'CONFIRMED ✓' : 'NOT CONFIRMED ⚠'}
+        </span>
+        <span className="text-xs font-bold px-2 py-0.5 rounded ml-auto"
+          style={{ color: mktColor, background: `${mktColor}14`, border: `1px solid ${mktColor}40` }}>
+          MARKET {fd.marketBias.toUpperCase()}
+        </span>
+      </div>
+
+      {/* No-data safety warning */}
+      {noData && (
+        <div className="flex items-start gap-2 px-4 py-3 rounded-xl text-sm font-semibold"
+          style={{ background: 'rgba(255,59,59,0.12)', border: '1px solid rgba(255,59,59,0.4)', color: R }}>
+          <span style={{ fontSize: 16 }}>⛔</span>
+          Live contract data unavailable — do not trade from this signal.
+        </div>
+      )}
+
+      {/* Futures / data warnings */}
+      {(dataWarnings ?? []).map((w, i) => (
+        <div key={i} className="flex items-start gap-2 px-4 py-2.5 rounded-xl text-xs"
+          style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: A }}>
+          <span style={{ fontSize: 13, flexShrink: 0, marginTop: 1 }}>⚠</span>
+          {w}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -280,18 +368,20 @@ function MTFAlignmentScore({ weekly, daily, fourH }: { weekly: BiasResult; daily
 
 function OptionsTable({ contracts, type, currentPrice }: { contracts: ScoredOption[]; type: 'call' | 'put'; currentPrice: number }) {
   if (!contracts.length) return (
-    <p className="text-xs text-center py-4" style={{ color: '#374151', fontStyle: 'italic' }}>
-      No qualifying contracts found for this symbol / DTE range
-    </p>
+    <div className="text-center py-5 px-3 rounded-lg" style={{ background: 'rgba(255,59,59,0.06)', border: '1px solid rgba(255,59,59,0.2)' }}>
+      <p className="text-xs font-semibold mb-0.5" style={{ color: R }}>No qualifying contracts</p>
+      <p className="text-xs" style={{ color: '#374151' }}>Live contract data unavailable — do not trade from this signal.</p>
+    </div>
   );
+  const headers = ['Strike', 'Exp', 'DTE', 'Bid/Ask', 'Last', 'Vol', 'OI', 'IV%', 'Δ', 'Θ/day', 'Sprd%', 'Bkeven', 'Entry', 'T1', 'Stop', 'R:R', 'Grade', 'Act'];
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-xs" style={{ minWidth: 900 }}>
         <thead>
           <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            {['Strike', 'Exp', 'DTE', 'Mid', 'IV%', 'OI', 'Sprd%', 'T1', 'Stop', 'R:R', 'Grade'].map(h => (
+            {headers.map(h => (
               <th key={h} className={`py-2 pr-2 font-bold uppercase tracking-wider ${h === 'Strike' || h === 'Exp' ? 'text-left' : 'text-right'}`}
-                style={{ color: '#374151', fontSize: '9px' }}>
+                style={{ color: '#374151', fontSize: '9px', whiteSpace: 'nowrap' }}>
                 {h}
               </th>
             ))}
@@ -300,6 +390,7 @@ function OptionsTable({ contracts, type, currentPrice }: { contracts: ScoredOpti
         <tbody>
           {contracts.slice(0, 8).map((c, i) => {
             const gs = gradeS(c.grade);
+            const actColor = c.action === 'enter' ? G : c.action === 'watch' ? A : '#6b7280';
             return (
               <tr key={i} className="transition-colors"
                 style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: i === 0 ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
@@ -309,16 +400,27 @@ function OptionsTable({ contracts, type, currentPrice }: { contracts: ScoredOpti
                 </td>
                 <td className="py-1.5 pr-2" style={{ color: '#6b7280' }}>{expiryLabel(c.expiration)}</td>
                 <td className="py-1.5 pr-2 text-right font-mono" style={{ color: '#9ca3af' }}>{c.dte}d</td>
-                <td className="py-1.5 pr-2 text-right font-mono font-bold" style={{ color: type === 'call' ? G : R }}>${c.mid.toFixed(2)}</td>
+                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: '#9ca3af' }}>${c.bid.toFixed(2)}/${c.ask.toFixed(2)}</td>
+                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: '#6b7280' }}>${(c.lastPrice ?? c.mid).toFixed(2)}</td>
+                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: c.volume >= 500 ? G : '#6b7280' }}>{c.volume.toLocaleString()}</td>
+                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: c.openInterest >= 1000 ? '#9ca3af' : '#6b7280' }}>{c.openInterest.toLocaleString()}</td>
                 <td className="py-1.5 pr-2 text-right font-mono" style={{ color: c.ivPct > 80 ? A : '#9ca3af' }}>{c.ivPct.toFixed(0)}%</td>
-                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: '#6b7280' }}>{c.openInterest.toLocaleString()}</td>
+                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: type === 'call' ? G : R }}>{c.deltaApprox.toFixed(2)}</td>
+                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: (c.thetaEstDailyPct ?? 0) > 3 ? A : '#6b7280' }}>{(c.thetaEstDailyPct ?? 0).toFixed(1)}%</td>
                 <td className="py-1.5 pr-2 text-right font-mono" style={{ color: c.spreadPct > 15 ? A : '#6b7280' }}>{c.spreadPct.toFixed(1)}%</td>
+                <td className="py-1.5 pr-2 text-right font-mono font-semibold" style={{ color: '#a78bfa' }}>${(c.breakeven ?? 0).toFixed(2)}</td>
+                <td className="py-1.5 pr-2 text-right font-mono font-bold" style={{ color: type === 'call' ? G : R }}>${c.mid.toFixed(2)}</td>
                 <td className="py-1.5 pr-2 text-right font-mono" style={{ color: G }}>${c.target1.toFixed(2)}</td>
                 <td className="py-1.5 pr-2 text-right font-mono" style={{ color: R }}>${c.stopLoss.toFixed(2)}</td>
-                <td className="py-1.5 pr-2 text-right font-mono" style={{ color: '#9ca3af' }}>{c.rrRatio.toFixed(1)}x</td>
-                <td className="py-1.5 text-right">
+                <td className="py-1.5 pr-2 text-right font-mono font-semibold" style={{ color: c.rrRatio >= 2 ? G : c.rrRatio >= 1.5 ? A : R }}>{c.rrRatio.toFixed(1)}:1</td>
+                <td className="py-1.5 pr-2 text-right">
                   <span className="px-1.5 py-0.5 rounded text-xs font-bold" style={{ color: gs.color, background: gs.bg, border: `1px solid ${gs.border}` }}>
                     {c.grade}
+                  </span>
+                </td>
+                <td className="py-1.5 text-right">
+                  <span className="px-1.5 py-0.5 rounded text-xs font-bold uppercase" style={{ color: actColor, background: `${actColor}14`, border: `1px solid ${actColor}40` }}>
+                    {c.action}
                   </span>
                 </td>
               </tr>
@@ -356,21 +458,38 @@ function ConvictionCard({ c }: { c: ScoredOption }) {
         </div>
       </div>
 
+      {/* Action recommendation */}
+      {(() => {
+        const actColor = c.action === 'enter' ? G : c.action === 'watch' ? A : '#6b7280';
+        const actLabel = c.action === 'enter' ? '✓ ENTER — R:R ≥ 2:1, conditions met' : c.action === 'watch' ? '◎ WATCH — monitor for confirmation' : '✗ SKIP — conditions not favorable';
+        return (
+          <div className="mb-3 px-3 py-2 rounded-lg text-xs font-bold"
+            style={{ background: `${actColor}12`, border: `1px solid ${actColor}40`, color: actColor }}>
+            {actLabel}
+          </div>
+        );
+      })()}
+
       <div className="grid grid-cols-2 gap-3 mb-4">
         {[
           { title: 'Trade Parameters', rows: [
-            ['Entry', `$${c.entryMid.toFixed(2)}`, '#f0f0f0'],
+            ['Entry (mid)', `$${c.entryMid.toFixed(2)}`, '#f0f0f0'],
+            ['Breakeven', `$${(c.breakeven ?? 0).toFixed(2)}`, '#a78bfa'],
             ['Target 1', `$${c.target1.toFixed(2)}`, G],
             ['Target 2', `$${c.target2.toFixed(2)}`, '#4ade80'],
             ['Stop Loss', `$${c.stopLoss.toFixed(2)}`, R],
-            ['R:R', `${c.rrRatio.toFixed(1)}:1`, '#a78bfa'],
+            ['Max Loss', `$${((c.maxLoss ?? c.entryMid - c.stopLoss) * 100).toFixed(0)}/contract`, R],
+            ['R:R', `${c.rrRatio.toFixed(1)}:1`, c.rrRatio >= 2 ? G : c.rrRatio >= 1.5 ? A : R],
           ]},
           { title: 'Contract Metrics', rows: [
-            ['IV', `${c.ivPct.toFixed(0)}%`, c.ivPct > 80 ? A : '#9ca3af'],
+            ['Bid / Ask', `$${c.bid.toFixed(2)} / $${c.ask.toFixed(2)}`, '#9ca3af'],
+            ['Last Price', `$${(c.lastPrice ?? c.mid).toFixed(2)}`, '#9ca3af'],
+            ['Volume', c.volume.toLocaleString(), c.volume >= 500 ? G : '#9ca3af'],
             ['OI', c.openInterest.toLocaleString(), '#9ca3af'],
+            ['IV', `${c.ivPct.toFixed(0)}%`, c.ivPct > 80 ? A : '#9ca3af'],
             ['Spread', `${c.spreadPct.toFixed(1)}%`, c.spreadPct > 15 ? A : '#9ca3af'],
             ['Delta', c.deltaApprox.toFixed(2), '#9ca3af'],
-            ['Hold', `${c.holdDays}d`, '#9ca3af'],
+            ['Theta/day', `${c.thetaEstDailyPct.toFixed(1)}%`, c.thetaEstDailyPct > 3 ? A : '#9ca3af'],
           ]},
         ].map(({ title, rows }) => (
           <div key={title} className="rounded-lg p-3" style={{ background: '#13161d' }}>
@@ -459,11 +578,13 @@ function MiniOption({ opt, label }: { opt: ScoredOption; label: string }) {
           ['Strike', `$${opt.strike.toFixed(opt.strike < 50 ? 2 : 0)}`, '#f0f0f0'],
           ['Exp', expiryLabel(opt.expiration), '#f0f0f0'],
           ['DTE', `${opt.dte}d`, '#9ca3af'],
+          ['Bid/Ask', `$${opt.bid.toFixed(2)}/$${opt.ask.toFixed(2)}`, '#9ca3af'],
           ['Entry', `$${opt.entryMid.toFixed(2)}`, isCall ? G : R],
-          ['T1', `$${opt.target1.toFixed(2)}`, G],
-          ['Runner', `$${opt.target2.toFixed(2)}`, '#4ade80'],
-          ['Stop', `$${opt.stopLoss.toFixed(2)}`, R],
-          ['R:R', `${opt.rrRatio.toFixed(1)}x`, '#a78bfa'],
+          ['Bkeven', `$${(opt.breakeven ?? 0).toFixed(2)}`, '#a78bfa'],
+          ['T1 (+100%)', `$${opt.target1.toFixed(2)}`, G],
+          ['Stop (−50%)', `$${opt.stopLoss.toFixed(2)}`, R],
+          ['R:R', `${opt.rrRatio.toFixed(1)}:1`, opt.rrRatio >= 2 ? G : A],
+          ['Action', (opt.action ?? 'watch').toUpperCase(), opt.action === 'enter' ? G : opt.action === 'watch' ? A : '#6b7280'],
         ].map(([l, v, color]) => (
           <span key={l} className="text-xs">
             <span style={{ color: '#374151' }}>{l} </span>
@@ -668,41 +789,60 @@ function ScannerNav({ counts }: { counts: Record<string, number> }) {
 
 function ScanMacroBar({ data }: { data: ScanOutput }) {
   const color = biasC(data.macroTrend);
+  const fd = data.futuresData;
   return (
-    <div className="flex flex-wrap gap-3 items-center mb-4 p-3 rounded-xl"
-      style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }}>
-      <div className="flex items-center gap-2">
-        <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: G }} />
-        <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#374151' }}>Macro</span>
-        <span className="text-sm font-black" style={{ color }}>{data.macroTrend.toUpperCase()}</span>
-      </div>
-      <div className="h-4 w-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
-      <div className="flex items-center gap-1.5 text-xs">
-        <span style={{ color: '#374151' }}>VIX</span>
-        <span className="font-mono font-bold" style={{ color: data.vixPrice > 25 ? R : data.vixPrice > 18 ? A : '#f0f0f0' }}>
-          {data.vixPrice.toFixed(1)}
-        </span>
-      </div>
-      <div className="h-4 w-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
-      <div className="flex items-center gap-1.5 text-xs">
-        <span style={{ color: '#374151' }}>SPY</span>
-        <span className="font-mono font-bold" style={{ color: pctC(data.spyChangePct) }}>{fmt2(data.spyChangePct)}%</span>
-      </div>
-      <div className="flex items-center gap-1.5 text-xs">
-        <span style={{ color: '#374151' }}>QQQ</span>
-        <span className="font-mono font-bold" style={{ color: pctC(data.qqqChangePct) }}>{fmt2(data.qqqChangePct)}%</span>
-      </div>
-      <div className="h-4 w-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
-      <div className="flex gap-2 flex-wrap text-xs">
-        {data.sectorRotation.slice(0, 4).map(s => (
-          <span key={s.etf} className="font-mono font-medium" style={{ color: pctC(s.relStrength) }}>
-            {s.etf} {s.relStrength >= 0 ? '+' : ''}{s.relStrength.toFixed(1)}%
+    <div className="space-y-2 mb-4">
+      <div className="flex flex-wrap gap-3 items-center p-3 rounded-xl"
+        style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }}>
+        <div className="flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: G }} />
+          <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#374151' }}>Macro</span>
+          <span className="text-sm font-black" style={{ color }}>{data.macroTrend.toUpperCase()}</span>
+        </div>
+        <div className="h-4 w-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
+        {fd && (
+          <>
+            {[
+              { label: 'ES', val: fd.es.changePct },
+              { label: 'NQ', val: fd.nq.changePct },
+            ].map(({ label, val }) => (
+              <span key={label} className="text-xs font-mono font-bold"
+                style={{ color: val > 0.1 ? G : val < -0.1 ? R : '#9ca3af' }}>
+                {label} {val >= 0 ? '+' : ''}{val.toFixed(2)}%
+              </span>
+            ))}
+            <span className="text-xs font-bold px-1.5 py-0.5 rounded"
+              style={{ color: fd.confirmed ? G : A, background: fd.confirmed ? 'rgba(0,255,136,0.08)' : 'rgba(245,158,11,0.08)', border: `1px solid ${fd.confirmed ? 'rgba(0,255,136,0.25)' : 'rgba(245,158,11,0.25)'}` }}>
+              Futures {fd.confirmed ? 'CONFIRMED ✓' : 'NOT CONFIRMED ⚠'}
+            </span>
+            <div className="h-4 w-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
+          </>
+        )}
+        <div className="flex items-center gap-1.5 text-xs">
+          <span style={{ color: '#374151' }}>VIX</span>
+          <span className="font-mono font-bold" style={{ color: data.vixPrice > 25 ? R : data.vixPrice > 18 ? A : '#f0f0f0' }}>
+            {data.vixPrice.toFixed(1)}
           </span>
-        ))}
+        </div>
+        <div className="h-4 w-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
+        <div className="flex items-center gap-1.5 text-xs">
+          <span style={{ color: '#374151' }}>SPY</span>
+          <span className="font-mono font-bold" style={{ color: pctC(data.spyChangePct) }}>{fmt2(data.spyChangePct)}%</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs">
+          <span style={{ color: '#374151' }}>QQQ</span>
+          <span className="font-mono font-bold" style={{ color: pctC(data.qqqChangePct) }}>{fmt2(data.qqqChangePct)}%</span>
+        </div>
+        <div className="ml-auto text-xs font-mono" style={{ color: '#374151' }}>
+          {data.fetchedAt ? `Scanned ${new Date(data.fetchedAt).toLocaleTimeString()}` : ''}
+        </div>
       </div>
-      <div className="ml-auto text-xs font-mono" style={{ color: '#374151' }}>
-        {data.fetchedAt ? `Scanned ${new Date(data.fetchedAt).toLocaleTimeString()}` : ''}
-      </div>
+      {(data.dataWarnings ?? []).map((w, i) => (
+        <div key={i} className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs"
+          style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: A }}>
+          ⚠ {w}
+        </div>
+      ))}
     </div>
   );
 }
@@ -740,6 +880,27 @@ function SingleAnalysisView({ data, symbol, onSymbol, loading, onRefresh }: {
           {loading ? 'Loading…' : 'Refresh'}
         </button>
       </div>
+
+      {/* Futures confirmation bar + data warnings */}
+      {data.futuresData && (
+        <FuturesBar
+          fd={data.futuresData}
+          dataWarnings={data.dataWarnings}
+          optionsAvailable={data.optionsDataAvailable}
+        />
+      )}
+      {!data.futuresData && (data.dataWarnings ?? []).length > 0 && (data.dataWarnings ?? []).map((w, i) => (
+        <div key={i} className="mb-2 flex items-start gap-2 px-4 py-2.5 rounded-xl text-xs"
+          style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: A }}>
+          ⚠ {w}
+        </div>
+      ))}
+      {data.optionsDataAvailable === false && !data.futuresData && (
+        <div className="mb-2 flex items-start gap-2 px-4 py-3 rounded-xl text-sm font-semibold"
+          style={{ background: 'rgba(255,59,59,0.12)', border: '1px solid rgba(255,59,59,0.4)', color: R }}>
+          ⛔ Live contract data unavailable — do not trade from this signal.
+        </div>
+      )}
 
       {/* MTF Alignment — NEW */}
       <MTFAlignmentScore weekly={data.weeklyBias} daily={data.dailyBias} fourH={data.fourHourBias} />
@@ -967,9 +1128,12 @@ function SingleAnalysisView({ data, symbol, onSymbol, loading, onRefresh }: {
       <div className="flex flex-wrap gap-4 text-xs p-3 rounded-xl" style={{ background: '#111318', border: '1px solid rgba(255,255,255,0.07)' }}>
         <span className="font-semibold" style={{ color: '#f0f0f0' }}>Trade Guide:</span>
         <span style={{ color: '#6b7280' }}>· <span style={{ color: '#f0f0f0' }}>Mid</span> = entry</span>
-        <span style={{ color: '#6b7280' }}>· <span style={{ color: G }}>T1</span> = +65% (first scale)</span>
-        <span style={{ color: '#6b7280' }}>· <span style={{ color: '#4ade80' }}>T2</span> = +160% (runners)</span>
-        <span style={{ color: '#6b7280' }}>· <span style={{ color: R }}>Stop</span> = −55% (hard stop)</span>
+        <span style={{ color: '#6b7280' }}>· <span style={{ color: '#a78bfa' }}>Bkeven</span> = stock price at breakeven</span>
+        <span style={{ color: '#6b7280' }}>· <span style={{ color: G }}>T1</span> = +100% (2:1 R:R)</span>
+        <span style={{ color: '#6b7280' }}>· <span style={{ color: '#4ade80' }}>T2</span> = +175% (3.5:1 R:R)</span>
+        <span style={{ color: '#6b7280' }}>· <span style={{ color: R }}>Stop</span> = −50% (hard stop)</span>
+        <span style={{ color: '#6b7280' }}>· <span style={{ color: G }}>ENTER</span> = R:R ≥ 2:1, A+ grade</span>
+        <span style={{ color: '#6b7280' }}>· <span style={{ color: A }}>WATCH</span> = monitor, not yet ideal</span>
       </div>
 
       {/* Theta + Volatility */}

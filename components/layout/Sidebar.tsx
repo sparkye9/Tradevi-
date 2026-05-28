@@ -5,12 +5,14 @@ import { X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 const NAV = [
-  { href: '/',                label: 'Dashboard'    },
-  { href: '/swing-engine',    label: 'Swing Trades' },
-  { href: '/intraday-scanner',label: 'Intraday'     },
-  { href: '/mnq-dashboard',   label: 'Mini Futures' },
-  { href: '/power-hour',      label: 'Power Hour'   },
-  { href: '/settings',        label: 'Settings'     },
+  { href: '/',                  label: 'Dashboard'        },
+  { href: '/trade-discovery',   label: 'Trade Discovery'  },
+  { href: '/swing-engine',      label: 'Swing Trades'     },
+  { href: '/intraday-scanner',  label: 'Intraday'         },
+  { href: '/options-chain',     label: 'Options Chain'    },
+  { href: '/mnq-dashboard',     label: 'Mini Futures'     },
+  { href: '/power-hour',        label: 'Power Hour'       },
+  { href: '/settings',          label: 'Settings'         },
 ];
 
 const SCRIPTURES = [
