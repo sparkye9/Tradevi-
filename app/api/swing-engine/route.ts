@@ -311,13 +311,17 @@ async function fetchExpiry(symbol: string, expDate: number): Promise<{ calls: Ya
 export interface ScoredOption {
   contractSymbol: string; symbol: string; type: 'call' | 'put';
   strike: number; expiration: number; dte: number;
-  bid: number; ask: number; mid: number; spread: number; spreadPct: number;
+  bid: number; ask: number; mid: number; lastPrice: number;
+  spread: number; spreadPct: number;
   volume: number; openInterest: number; iv: number; ivPct: number;
   inTheMoney: boolean; moneyness: number; deltaApprox: number;
+  theta: number; breakeven: number;
   expectedMoveByExp: number; probabilityOtm: number;
   entryMid: number; target1: number; target2: number; stopLoss: number;
+  maxLoss: number; potentialReward: number;
   rrRatio: number; holdDays: number; thetaEstDailyPct: number;
   swingScore: number; grade: 'A+' | 'A' | 'B' | 'C' | 'D'; rationale: string;
+  action: 'enter' | 'watch' | 'skip';
 }
 
 const ncdf = (x: number) => (1 + Math.sign(x) * (1 - Math.exp(-0.717 * Math.abs(x) - 0.416 * x * x))) / 2;
@@ -347,10 +351,20 @@ function scoreContracts(contracts: YahooOption[], type: 'call' | 'put', symbol: 
     const expectedMoveByExp = r2(currentPrice * iv * sqrtT);
     const d2 = currentPrice > 0 && c.strike > 0 ? (Math.log(currentPrice / c.strike) + (-0.5 * iv * iv) * (dte / 365)) / (iv * sqrtT) : 0;
     const probabilityOtm = type === 'call' ? r2((1 - ncdf(d2)) * 100) : r2(ncdf(d2) * 100);
-    const entryMid = mid, target1 = r2(mid * 1.65), target2 = r2(mid * 2.6), stopLoss = r2(mid * 0.45);
-    const rrRatio = stopLoss > 0 ? r2((target1 - entryMid) / (entryMid - stopLoss)) : 0;
+    // entry = mid; stop = 50% loss; target1 = 2:1 R:R (gain 100%); target2 = 3.5:1 R:R (gain 175%)
+    const entryMid = mid;
+    const stopLoss = r2(mid * 0.50);          // hard stop at -50%
+    const maxLoss  = r2(entryMid - stopLoss); // $$ at risk per share
+    const target1  = r2(mid * 2.00);          // +100% → 2:1 R:R
+    const target2  = r2(mid * 2.75);          // +175% → 3.5:1 R:R
+    const potentialReward = r2(target1 - entryMid);
+    const rrRatio  = maxLoss > 0 ? r2(potentialReward / maxLoss) : 0;
+    // Breakeven: stock price at expiration where option intrinsic = premium paid
+    const breakeven = type === 'call' ? r2(c.strike + mid) : r2(c.strike - mid);
     const holdDays = Math.max(5, Math.min(dte - 7, Math.round(dte * 0.55)));
     const thetaEstDailyPct = dte > 0 ? r2((mid * iv / (2 * sqrtT)) / dte * 100) : 0;
+    const theta = dte > 0 ? r2(-(mid * 0.5 * iv) / (2 * Math.sqrt(dte / 365) * dte)) : 0;
+    const lastPrice = c.lastPrice ?? mid;
     let score = 0;
     score += Math.min(oi / 1000, 1) * 12;
     score += Math.min(volume / 300, 1) * 6;
@@ -360,11 +374,64 @@ function scoreContracts(contracts: YahooOption[], type: 'call' | 'put', symbol: 
     score += ivPct < 35 ? 18 : ivPct < 55 ? 13 : ivPct < 90 ? 8 : 3;
     score += ((type === 'call' && macroDirection === 'bullish') || (type === 'put' && macroDirection === 'bearish')) ? 18 : 0;
     const swingScore = Math.min(100, Math.round(score));
-    const grade: ScoredOption['grade'] = swingScore >= 80 ? 'A+' : swingScore >= 65 ? 'A' : swingScore >= 48 ? 'B' : swingScore >= 32 ? 'C' : 'D';
+    // Grade enforces minimum R:R: A+ requires rrRatio >= 2.0, A requires >= 1.5
+    const grade: ScoredOption['grade'] =
+      swingScore >= 80 && rrRatio >= 2.0 && volume >= 50 && oi >= 100 ? 'A+' :
+      swingScore >= 65 && rrRatio >= 1.5 ? 'A' :
+      swingScore >= 48 ? 'B' :
+      swingScore >= 32 ? 'C' : 'D';
     if (grade === 'D') continue;
-    out.push({ contractSymbol: c.contractSymbol, symbol, type, strike: c.strike, expiration: c.expiration, dte, bid, ask, mid, spread, spreadPct, volume, openInterest: oi, iv, ivPct, inTheMoney: c.inTheMoney, moneyness, deltaApprox, expectedMoveByExp, probabilityOtm, entryMid, target1, target2, stopLoss, rrRatio, holdDays, thetaEstDailyPct, swingScore, grade, rationale: `${dte}DTE · IV ${ivPct}% · OI ${oi.toLocaleString()} · ${spreadPct.toFixed(1)}% spread` });
+    const action: ScoredOption['action'] =
+      grade === 'A+' && rrRatio >= 2.0 ? 'enter' :
+      grade === 'A' || grade === 'B' ? 'watch' : 'skip';
+    out.push({ contractSymbol: c.contractSymbol, symbol, type, strike: c.strike, expiration: c.expiration, dte, bid, ask, mid, lastPrice, spread, spreadPct, volume, openInterest: oi, iv, ivPct, inTheMoney: c.inTheMoney, moneyness, deltaApprox, theta, breakeven, expectedMoveByExp, probabilityOtm, entryMid, target1, target2, stopLoss, maxLoss, potentialReward, rrRatio, holdDays, thetaEstDailyPct, swingScore, grade, action, rationale: `${dte}DTE · IV ${ivPct}% · OI ${oi.toLocaleString()} · ${spreadPct.toFixed(1)}% spread · R:R ${rrRatio.toFixed(1)}:1` });
   }
   return out.sort((a, b) => b.swingScore - a.swingScore).slice(0, 10);
+}
+
+// ─── Futures-aware macro trend ────────────────────────────────────────────────
+
+type FuturesBias = 'bullish' | 'bearish' | 'mixed';
+
+function computeFuturesBias(esChange: number, nqChange: number): FuturesBias {
+  if (esChange > 0.1 && nqChange > 0.1) return 'bullish';
+  if (esChange < -0.1 && nqChange < -0.1) return 'bearish';
+  return 'mixed';
+}
+
+function computeMacroWithFutures(
+  weeklyBias: BiasResult,
+  dailyBias: BiasResult,
+  futuresBias: FuturesBias,
+): 'bullish' | 'bearish' | 'neutral' {
+  const spyBullish = weeklyBias.bias === 'bullish' && dailyBias.bias !== 'bearish';
+  const spyBearish = weeklyBias.bias === 'bearish' && dailyBias.bias !== 'bullish';
+
+  // Futures override: if futures strongly contradict equity trend → neutral (mixed)
+  if (futuresBias === 'bearish' && spyBullish) return 'neutral';
+  if (futuresBias === 'bullish' && spyBearish) return 'neutral';
+
+  // Agreement
+  if (futuresBias === 'bearish') return 'bearish';
+  if (futuresBias === 'bullish' && spyBullish) return 'bullish';
+  if (spyBullish) return 'bullish';
+  if (spyBearish) return 'bearish';
+  return 'neutral';
+}
+
+function getFuturesWarnings(
+  futuresBias: FuturesBias,
+  vixChangePct: number,
+  spyBias: 'bullish' | 'bearish' | 'neutral',
+): string[] {
+  const warnings: string[] = [];
+  if (futuresBias === 'bearish' && spyBias !== 'bearish')
+    warnings.push('Futures bearish while equity trend shows green — do not call market bullish. Elevated risk for longs.');
+  if (futuresBias === 'bearish' && vixChangePct > 2)
+    warnings.push('VIX rising + futures red — bullish trades carry significantly higher risk.');
+  if (futuresBias === 'mixed')
+    warnings.push('Mixed futures signal — confirm with price action before entering directional trades.');
+  return warnings;
 }
 
 // ─── Sectors ──────────────────────────────────────────────────────────────────
@@ -526,18 +593,23 @@ async function runMarketScan() {
   const sectorEtfs = SECTORS.map(s => s.etf);
   const allStockSymbols = Array.from(new Set([...SCAN_WATCHLIST, ...sectorEtfs]));
 
-  // Phase 1: macro + quotes + SPY candles + discovery (parallel)
-  const [quotes, spyDaily, spyWeekly, discoveredRaw, vixQ] = await Promise.all([
+  // Phase 1: macro + quotes + SPY candles + discovery + futures (parallel)
+  const [quotes, spyDaily, spyWeekly, discoveredRaw, vixQ, esQ, nqQ] = await Promise.all([
     fetchMultiQuote(allStockSymbols),
     fetchCandles('SPY', '1d', '3mo'),
     fetchCandles('SPY', '1wk', '1y'),
     fetchDynamicDiscovery(new Set(SCAN_WATCHLIST)),
     fetchQuote('^VIX'),
+    fetchQuote('ES=F'),
+    fetchQuote('NQ=F'),
   ]);
 
   const vixPrice = vixQ?.price ?? 18;
   const spyChangePct = quotes.get('SPY')?.changePct ?? 0;
   const qqqChangePct = quotes.get('QQQ')?.changePct ?? 0;
+  const esChange  = esQ?.changePct ?? 0;
+  const nqChange  = nqQ?.changePct ?? 0;
+  const futuresBias = computeFuturesBias(esChange, nqChange);
 
   // Phase 2: daily candles for all scan symbols + discovered (parallel)
   const allScanSymbols = Array.from(new Set([...SCAN_WATCHLIST, ...discoveredRaw]));
@@ -640,12 +712,22 @@ async function runMarketScan() {
 
   const spyDailyBias   = computeBias(spyDaily);
   const spyWeeklyBias  = computeBias(spyWeekly);
-  const macroTrend     = spyDailyBias.bias === 'bullish' && spyWeeklyBias.bias !== 'bearish' ? 'bullish' as const
-    : spyDailyBias.bias === 'bearish' && spyWeeklyBias.bias !== 'bullish' ? 'bearish' as const : 'neutral' as const;
+  const macroTrend = computeMacroWithFutures(spyWeeklyBias, spyDailyBias, futuresBias);
+  const futuresWarnings = getFuturesWarnings(futuresBias, vixQ?.changePct ?? 0, spyDailyBias.bias);
 
   return {
     success: true,
     vixPrice, macroTrend, spyChangePct, qqqChangePct,
+    futuresData: {
+      es: { price: r2(esQ?.price ?? 0), changePct: r2(esChange) },
+      nq: { price: r2(nqQ?.price ?? 0), changePct: r2(nqChange) },
+      bias: futuresBias,
+      confirmed: futuresBias !== 'mixed' && (
+        (futuresBias === 'bullish' && spyDailyBias.bias !== 'bearish') ||
+        (futuresBias === 'bearish' && spyDailyBias.bias !== 'bullish')
+      ),
+    },
+    dataWarnings: futuresWarnings,
     allResults: results, bullishSetups, bearishSetups, breakoutSetups,
     pullbackFVGSetups, highConvictionOptions, avoidList, top5Today, discoveredSymbols,
     sectorRotation, fetchedAt: new Date().toISOString(),
@@ -671,7 +753,7 @@ export async function GET(req: NextRequest) {
   // ── Single symbol mode ──
   try {
     const sectorEtfs   = SECTORS.map(s => s.etf);
-    const quoteSymbols = ['^VIX', 'DX-Y.NYB', '^TNX', 'HYG', 'GLD', 'SPY', 'QQQ', 'IWM', ...sectorEtfs];
+    const quoteSymbols = ['^VIX', 'DX-Y.NYB', '^TNX', 'HYG', 'GLD', 'SPY', 'QQQ', 'IWM', 'ES=F', 'NQ=F', 'YM=F', 'RTY=F', ...sectorEtfs];
     if (!quoteSymbols.includes(symbol)) quoteSymbols.push(symbol);
 
     const [quotePairs, spyDaily, qqqDaily, spyWeekly, symDaily, symHourly] = await Promise.all([
@@ -691,9 +773,16 @@ export async function GET(req: NextRequest) {
     const gldQ   = quotes.get('GLD');
     const spyQ   = quotes.get('SPY');
     const qqqQ   = quotes.get('QQQ');
+    const esQ    = quotes.get('ES=F');
+    const nqQ    = quotes.get('NQ=F');
+    const ymQ    = quotes.get('YM=F');
+    const rtyQ   = quotes.get('RTY=F');
     const symbolQ = quotes.get(symbol);
     const vixPrice    = vixQ?.price ?? 18;
     const currentPrice = symbolQ?.price ?? symDaily[symDaily.length - 1]?.close ?? 0;
+    const esChange = esQ?.changePct ?? 0;
+    const nqChange = nqQ?.changePct ?? 0;
+    const futuresBias = computeFuturesBias(esChange, nqChange);
 
     const weeklyBias   = computeBias(spyWeekly);
     const dailyBias    = computeBias(spyDaily);
@@ -731,9 +820,27 @@ export async function GET(req: NextRequest) {
     }
     const uniqueCalls = Array.from(new Map(allCalls.map(c => [c.contractSymbol, c])).values());
     const uniquePuts  = Array.from(new Map(allPuts.map(c  => [c.contractSymbol, c])).values());
-    const macroDir: 'bullish' | 'bearish' = dailyBias.bias === 'bearish' ? 'bearish' : 'bullish';
+    // macroDir must factor in futures — if futures are bearish, don't score calls as macro-aligned
+    const macroDir: 'bullish' | 'bearish' =
+      futuresBias === 'bearish' ? 'bearish' :
+      futuresBias === 'bullish' ? 'bullish' :
+      dailyBias.bias === 'bearish' ? 'bearish' : 'bullish';
     const scoredCalls = scoreContracts(uniqueCalls, 'call', symbol, currentPrice, macroDir);
     const scoredPuts  = scoreContracts(uniquePuts,  'put',  symbol, currentPrice, macroDir);
+
+    // Safety: warn if options data is missing or stale
+    const optionsDataAvailable = uniqueCalls.length > 0 || uniquePuts.length > 0;
+    const dataWarnings: string[] = [];
+    if (!optionsDataAvailable)
+      dataWarnings.push('Live contract data unavailable — do not trade from this signal.');
+    dataWarnings.push(...getFuturesWarnings(futuresBias, vixQ?.changePct ?? 0, dailyBias.bias));
+
+    // Relative strength / weakness labels vs futures
+    const symbolChange = symbolQ?.changePct ?? 0;
+    if (futuresBias === 'bearish' && symbolChange > 1.0)
+      dataWarnings.push(`Relative strength detected: ${symbol} +${symbolChange.toFixed(2)}% while ES/NQ futures are red.`);
+    if (futuresBias === 'bullish' && symbolChange < -1.0)
+      dataWarnings.push(`Relative weakness detected: ${symbol} ${symbolChange.toFixed(2)}% while ES/NQ futures are green.`);
 
     const vixRegime: 'low' | 'normal' | 'elevated' | 'extreme' = vixPrice < 14 ? 'low' : vixPrice < 20 ? 'normal' : vixPrice < 30 ? 'elevated' : 'extreme';
     const bullSectors = sectorRotation.filter(s => s.trend === 'bullish').length;
@@ -741,7 +848,7 @@ export async function GET(req: NextRequest) {
     const riskOnSignals  = [(hygQ?.changePct ?? 0) > 0, (dxyQ?.changePct ?? 0) < -0.2, vixPrice < 18].filter(Boolean).length;
     const riskOffSignals = [(hygQ?.changePct ?? 0) < -0.5, vixPrice > 25, (dxyQ?.changePct ?? 0) > 0.4].filter(Boolean).length;
     const riskEnv: 'risk-on' | 'risk-off' | 'mixed' = riskOnSignals >= 2 ? 'risk-on' : riskOffSignals >= 2 ? 'risk-off' : 'mixed';
-    const macroTrend = weeklyBias.bias === 'bullish' && dailyBias.bias !== 'bearish' ? 'bullish' as const : weeklyBias.bias === 'bearish' && dailyBias.bias !== 'bullish' ? 'bearish' as const : 'neutral' as const;
+    const macroTrend = computeMacroWithFutures(weeklyBias, dailyBias, futuresBias);
     const keyRisks: string[] = [];
     if (vixPrice > 25) keyRisks.push(`VIX ${vixPrice.toFixed(1)} — premium elevated, consider spreads`);
     if ((tnxQ?.changePct ?? 0) > 3) keyRisks.push('Yield spike — rate-sensitive sectors under pressure');
@@ -763,8 +870,24 @@ export async function GET(req: NextRequest) {
     const highestConviction = [...scoredCalls, ...scoredPuts].sort((a, b) => b.swingScore - a.swingScore)[0] ?? null;
     const ivExpanding = (vixQ?.changePct ?? 0) > 3;
 
+    const futuresConfirmed = futuresBias !== 'mixed' && (
+      (futuresBias === 'bullish' && dailyBias.bias !== 'bearish') ||
+      (futuresBias === 'bearish' && dailyBias.bias !== 'bullish')
+    );
+
     return NextResponse.json({
       success: true, symbol, currentPrice: r2(currentPrice),
+      optionsDataAvailable,
+      dataWarnings,
+      futuresData: {
+        es:  { price: r2(esQ?.price  ?? 0), changePct: r2(esChange) },
+        nq:  { price: r2(nqQ?.price  ?? 0), changePct: r2(nqChange) },
+        ym:  { price: r2(ymQ?.price  ?? 0), changePct: r2(ymQ?.changePct  ?? 0) },
+        rty: { price: r2(rtyQ?.price ?? 0), changePct: r2(rtyQ?.changePct ?? 0) },
+        bias: futuresBias,
+        confirmed: futuresConfirmed,
+        marketBias: macroTrend,
+      },
       macroOutlook: {
         trend: macroTrend, riskEnv, vix: r2(vixPrice), vixChange: r2(vixQ?.changePct ?? 0), vixRegime,
         spyAboveEma200: !!(spyQ && dailyBias.ema50 != null && spyQ.price > dailyBias.ema50),
