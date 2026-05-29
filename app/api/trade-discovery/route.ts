@@ -16,6 +16,7 @@ const YF_HEADERS = {
 // Universe of symbols to scan
 const FUTURES_SYMBOLS = ['ES=F', 'NQ=F', 'YM=F', 'RTY=F'];
 const INDEX_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA', '^VIX'];
+const MACRO_SYMBOLS = ['^TNX', 'DX=F', 'CL=F', 'GC=F']; // 10Y yield, DXY, Oil, Gold
 const SECTOR_SYMBOLS = ['XLK', 'XLE', 'XLF', 'XLV', 'XLI', 'XLY', 'XLP', 'XLRE', 'SMH'];
 const MEGA_CAP = ['AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NVDA', 'TSLA', 'AVGO', 'AMD'];
 const HIGH_BETA = ['PLTR', 'MSTR', 'COIN', 'HOOD', 'RIOT', 'MARA', 'SOFI', 'LCID', 'RIVN'];
@@ -25,6 +26,7 @@ const WATCHLIST_SYMBOLS = ['JPM', 'BAC', 'GS', 'C', 'COST', 'WMT', 'CAT', 'DE', 
 const ALL_SYMBOLS = [
   ...FUTURES_SYMBOLS,
   ...INDEX_SYMBOLS,
+  ...MACRO_SYMBOLS,
   ...SECTOR_SYMBOLS,
   ...MEGA_CAP,
   ...HIGH_BETA,
@@ -96,6 +98,8 @@ interface ScoreBreakdown {
   crowdSaturation: number;
 }
 
+export type MoverClassification = 'Momentum Buy' | 'Pullback Buy' | 'Breakout Watch' | 'Extended / Wait' | 'Avoid';
+
 export interface Mover {
   symbol: string;
   shortName: string;
@@ -108,10 +112,25 @@ export interface Mover {
   relativeStrength: number; // vs SPY on same day
   fiftyTwoWeekHigh: number;
   fiftyTwoWeekLow: number;
+  // Classification fields
+  classification: MoverClassification;
+  classificationReason: string;
+  preferredEntry: string;
+  stopLossNote: string;
+  rrNote: string;
+  vwapEstimate: number;
+  distanceFromVwapPct: number;
+  distanceFromVwapATR: number;
+  atrEstimate: number;
+  // Validation
+  hasConflict: boolean;
+  conflictNote: string;
 }
 
 export interface MarketTruth {
   score: number; // 0-100, >60 bullish, <40 bearish
+  biasScore: number; // new: -7 to +4 (sum of directional signals)
+  confidence: number; // 0-100 percent
   label: 'Strongly Bullish' | 'Bullish' | 'Mixed' | 'Bearish' | 'Strongly Bearish';
   futuresBias: 'bullish' | 'bearish' | 'mixed';
   futuresConfirmed: boolean;
@@ -121,7 +140,15 @@ export interface MarketTruth {
   qqChange: number;
   esChange: number;
   nqChange: number;
+  ymChange: number;
+  rtyChange: number;
+  dxyChange: number;
+  tenYieldChange: number;
+  oilChange: number;
+  goldChange: number;
   warnings: string[];
+  drivers: string[];
+  risks: string[];
 }
 
 export interface PolicyWatchlistItem {
@@ -265,92 +292,124 @@ async function batchFetchQuotes(
 function computeMarketTruth(quotes: Map<string, RawQuote>): MarketTruth {
   const es = quotes.get('ES=F');
   const nq = quotes.get('NQ=F');
+  const ym = quotes.get('YM=F');
+  const rty = quotes.get('RTY=F');
   const spy = quotes.get('SPY');
   const qq = quotes.get('QQQ');
   const vix = quotes.get('^VIX');
+  const dxy = quotes.get('DX=F');
+  const tenY = quotes.get('^TNX');
+  const oil = quotes.get('CL=F');
+  const gold = quotes.get('GC=F');
 
   const esChange = es?.changePercent ?? 0;
   const nqChange = nq?.changePercent ?? 0;
+  const ymChange = ym?.changePercent ?? 0;
+  const rtyChange = rty?.changePercent ?? 0;
   const spyChange = spy?.changePercent ?? 0;
   const qqChange = qq?.changePercent ?? 0;
   const vixLevel = vix?.price ?? 20;
   const vixChange = vix?.changePercent ?? 0;
+  const dxyChange = dxy?.changePercent ?? 0;
+  const tenYieldChange = tenY?.changePercent ?? 0;
+  const oilChange = oil?.changePercent ?? 0;
+  const goldChange = gold?.changePercent ?? 0;
 
-  let score = 50;
-  const warnings: string[] = [];
+  // ── New bias scoring system ──────────────────────────────────────────────
+  // +1 per green future, -1 per risk factor
+  let biasScore = 0;
+  const drivers: string[] = [];
+  const risks: string[] = [];
 
-  // Futures contribution (±25 pts)
-  if (esChange > 0.5) score += 15;
-  else if (esChange > 0.2) score += 8;
-  else if (esChange < -0.5) score -= 15;
-  else if (esChange < -0.2) score -= 8;
+  if (esChange > 0)  { biasScore += 1; drivers.push('ES Green'); }
+  else if (esChange < 0) { biasScore -= 1; risks.push('ES Red'); }
 
-  if (nqChange > 0.5) score += 10;
-  else if (nqChange > 0.2) score += 5;
-  else if (nqChange < -0.5) score -= 10;
-  else if (nqChange < -0.2) score -= 5;
+  if (nqChange > 0)  { biasScore += 1; drivers.push('NQ Green'); }
+  else if (nqChange < 0) { biasScore -= 1; risks.push('NQ Red'); }
 
-  // VIX contribution (±20 pts)
-  if (vixLevel < 15) score += 10;
-  else if (vixLevel < 18) score += 5;
-  else if (vixLevel > 30) score -= 20;
-  else if (vixLevel > 25) score -= 12;
-  else if (vixLevel > 20) score -= 5;
+  if (ymChange > 0)  { biasScore += 1; drivers.push('YM Green'); }
+  else if (ymChange < 0) { biasScore -= 1; risks.push('YM Red'); }
 
-  // SPY contribution (±10 pts)
-  if (spyChange > 0.5) score += 8;
-  else if (spyChange > 0.2) score += 4;
-  else if (spyChange < -0.5) score -= 8;
-  else if (spyChange < -0.2) score -= 4;
+  if (rtyChange > 0) { biasScore += 1; drivers.push('RTY Green — Breadth Positive'); }
+  else if (rtyChange < 0) { biasScore -= 1; risks.push('RTY Red — Breadth Negative'); }
 
-  // QQQ contribution (±10 pts)
-  if (qqChange > 0.5) score += 7;
-  else if (qqChange > 0.2) score += 3;
-  else if (qqChange < -0.5) score -= 7;
-  else if (qqChange < -0.2) score -= 3;
+  if (vixChange > 2)  { biasScore -= 1; risks.push('VIX Rising'); }
+  else if (vixChange < -2) { drivers.push('VIX Falling'); }
 
-  score = Math.max(0, Math.min(100, score));
+  if (dxyChange > 0.5)    { biasScore -= 1; risks.push('DXY Rising'); }
+  else if (dxyChange < -0.5) { drivers.push('DXY Falling'); }
 
-  // Futures bias
-  const bothGreen = esChange > 0.1 && nqChange > 0.1;
-  const bothRed = esChange < -0.1 && nqChange < -0.1;
-  const futuresBias: 'bullish' | 'bearish' | 'mixed' = bothGreen ? 'bullish' : bothRed ? 'bearish' : 'mixed';
+  if (tenYieldChange > 0.5)    { biasScore -= 1; risks.push('10Y Yield Rising'); }
+  else if (tenYieldChange < -0.5) { drivers.push('10Y Yield Falling'); }
 
-  // Confirmation: futures agree with equity index direction
+  if (oilChange < -1.5) { risks.push('Oil Weak'); }
+  else if (oilChange > 1.5) { risks.push('Oil Rising — Cost Pressure'); }
+
+  if (goldChange > 1)  { risks.push('Gold Rising — Flight to Safety'); }
+
+  // Confidence: ratio of aligned signals to total active signals
+  const totalActive = drivers.length + risks.length;
+  const dominantCount = biasScore >= 0 ? drivers.length : risks.length;
+  const baseConfidence = totalActive > 0 ? (dominantCount / totalActive) * 100 : 50;
+  const biasBoost = Math.min(20, Math.abs(biasScore) * 4);
+  const confidence = Math.min(98, Math.max(30, Math.round(baseConfidence + biasBoost)));
+
+  // Determine futuresBias from the 4 index futures
+  const futuresPositive = [esChange > 0, nqChange > 0, ymChange > 0, rtyChange > 0].filter(Boolean).length;
+  const futuresNegative = 4 - futuresPositive;
+  const futuresBias: 'bullish' | 'bearish' | 'mixed' =
+    futuresPositive >= 3 ? 'bullish' :
+    futuresNegative >= 3 ? 'bearish' : 'mixed';
+
+  // Confirmation: futures bias aligns with equity direction
   const equityBullish = spyChange > 0 && qqChange > 0;
   const equityBearish = spyChange < 0 && qqChange < 0;
   const futuresConfirmed = (futuresBias === 'bullish' && equityBullish) || (futuresBias === 'bearish' && equityBearish);
 
-  // Warnings
-  if (bothRed && equityBullish) {
-    warnings.push('Futures RED while equities are green — divergence, use caution');
-    score = Math.min(score, 45);
+  const warnings: string[] = [];
+
+  if (futuresBias === 'bearish' && equityBullish) {
+    warnings.push('Futures red but equities green — divergence detected, elevated risk for longs');
   }
-  if (vixLevel > 25 && bothRed) {
-    warnings.push(`VIX ${vixLevel.toFixed(1)} + futures red — elevated volatility, consider puts or cash`);
-    score = Math.min(score, 38);
+  if (futuresBias === 'bullish' && equityBearish) {
+    warnings.push('Futures green but equities lagging — wait for equity confirmation');
+  }
+  if (vixLevel > 25 && futuresBias === 'bearish') {
+    warnings.push(`VIX ${vixLevel.toFixed(1)} + futures red — elevated volatility, tread carefully`);
   }
   if (vixChange > 10) {
-    warnings.push(`VIX spiking +${vixChange.toFixed(1)}% — fear rising, tread carefully`);
+    warnings.push(`VIX spiking +${vixChange.toFixed(1)}% — fear rising sharply`);
   }
-  if (bothGreen && equityBearish) {
-    warnings.push('Futures green but equities lagging — mixed signal, wait for confirmation');
+  if (dxyChange > 0.5 && esChange > 0) {
+    warnings.push('DXY rising alongside equities — watch for reversal pressure');
   }
   if (!es && !nq) {
-    warnings.push('Futures data unavailable — market truth is based on equities only');
+    warnings.push('Futures data unavailable — bias based on equities only');
   }
 
   const vixWarning = vixLevel > 25 || vixChange > 8;
 
+  // Legacy 0-100 score for backwards-compatible UI elements
+  let score = 50;
+  score += biasScore * 8;
+  if (vixLevel < 15) score += 5;
+  else if (vixLevel > 30) score -= 10;
+  else if (vixLevel > 25) score -= 5;
+  score = Math.max(0, Math.min(100, score));
+
+  // Apply divergence penalty to score
+  if (futuresBias === 'bearish' && equityBullish) score = Math.min(score, 45);
+  if (vixLevel > 25 && futuresBias === 'bearish') score = Math.min(score, 38);
+
   let label: MarketTruth['label'];
-  if (score >= 70) label = 'Strongly Bullish';
-  else if (score >= 58) label = 'Bullish';
-  else if (score >= 43) label = 'Mixed';
-  else if (score >= 30) label = 'Bearish';
-  else label = 'Strongly Bearish';
+  if (biasScore >= 3)       label = score >= 70 ? 'Strongly Bullish' : 'Bullish';
+  else if (biasScore <= -3) label = score <= 30 ? 'Strongly Bearish' : 'Bearish';
+  else                      label = 'Mixed';
 
   return {
     score,
+    biasScore,
+    confidence,
     label,
     futuresBias,
     futuresConfirmed,
@@ -360,7 +419,165 @@ function computeMarketTruth(quotes: Map<string, RawQuote>): MarketTruth {
     qqChange,
     esChange,
     nqChange,
+    ymChange,
+    rtyChange,
+    dxyChange,
+    tenYieldChange,
+    oilChange,
+    goldChange,
     warnings,
+    drivers,
+    risks,
+  };
+}
+
+// ─── Mover Classification ─────────────────────────────────────────────────────
+
+function classifyMover(
+  q: RawQuote,
+  relativeStrength: number,
+  volumeRatio: number,
+): {
+  classification: MoverClassification;
+  reason: string;
+  preferredEntry: string;
+  stopLossNote: string;
+  rrNote: string;
+  vwapEstimate: number;
+  distanceFromVwapPct: number;
+  distanceFromVwapATR: number;
+  atrEstimate: number;
+} {
+  const { price, regularMarketOpen: open, regularMarketDayHigh: high, regularMarketDayLow: low, changePercent } = q;
+
+  // Intraday VWAP approximation: (High + Low + Close + Open) / 4
+  const vwapEstimate = (high + low + price + open) / 4;
+
+  // ATR approximation using day's range (floor at 0.5% of price to avoid division issues)
+  const atrEstimate = Math.max(high - low, price * 0.005);
+
+  // Distance from VWAP
+  const distanceFromVwapPct = vwapEstimate > 0 ? ((price - vwapEstimate) / vwapEstimate) * 100 : 0;
+  const distanceFromVwapATR = atrEstimate > 0 ? (price - vwapEstimate) / atrEstimate : 0;
+
+  const isExtendedIntraday = Math.abs(changePercent) > 5;
+  const isExtendedFromVwap = Math.abs(distanceFromVwapATR) > 2;
+
+  // Extended / Wait: big move OR too far from VWAP
+  if (isExtendedIntraday || isExtendedFromVwap) {
+    const reasons: string[] = [];
+    if (isExtendedIntraday) reasons.push(`${Math.abs(changePercent).toFixed(1)}% intraday move`);
+    if (isExtendedFromVwap) reasons.push(`${Math.abs(distanceFromVwapATR).toFixed(1)} ATR from VWAP`);
+    return {
+      classification: 'Extended / Wait',
+      reason: reasons.join(', ') + ' — risk/reward deteriorated',
+      preferredEntry: `Pullback to ${changePercent > 0 ? '9 EMA or VWAP' : 'VWAP or 9 EMA'}`,
+      stopLossNote: 'Below VWAP',
+      rrNote: 'Wait for pullback',
+      vwapEstimate,
+      distanceFromVwapPct,
+      distanceFromVwapATR,
+      atrEstimate,
+    };
+  }
+
+  // Avoid: weak RS, weak volume, or bearish structure
+  const isWeakRS = relativeStrength < -1;
+  const isWeakVolume = volumeRatio < 0.8 && changePercent < 0;
+  const isBearishStructure = changePercent < -3 && relativeStrength < 0;
+  const isVeryWeakRS = relativeStrength < -3;
+
+  if (isVeryWeakRS || isBearishStructure || (isWeakRS && isWeakVolume)) {
+    const reasons: string[] = [];
+    if (isWeakRS || isVeryWeakRS) reasons.push('weak relative strength');
+    if (isWeakVolume) reasons.push('below-average volume');
+    if (isBearishStructure) reasons.push('bearish structure');
+    return {
+      classification: 'Avoid',
+      reason: reasons.join(', '),
+      preferredEntry: 'N/A — Avoid',
+      stopLossNote: 'N/A',
+      rrNote: 'N/A',
+      vwapEstimate,
+      distanceFromVwapPct,
+      distanceFromVwapATR,
+      atrEstimate,
+    };
+  }
+
+  // Momentum Buy: strong RS + volume + within 2 ATR of VWAP
+  const isMomentumBuy = relativeStrength > 3 && volumeRatio >= 1.2 && Math.abs(distanceFromVwapATR) <= 2;
+  if (isMomentumBuy) {
+    return {
+      classification: 'Momentum Buy',
+      reason: `RS +${relativeStrength.toFixed(1)}% vs SPY, ${volumeRatio.toFixed(1)}x avg volume`,
+      preferredEntry: `Current or pullback to $${vwapEstimate.toFixed(2)}`,
+      stopLossNote: `Below VWAP ($${vwapEstimate.toFixed(2)})`,
+      rrNote: '2:1+',
+      vwapEstimate,
+      distanceFromVwapPct,
+      distanceFromVwapATR,
+      atrEstimate,
+    };
+  }
+
+  // Pullback Buy: positive RS, positive change, close to VWAP
+  const isPullbackBuy = relativeStrength > 0 && changePercent > 0 && Math.abs(distanceFromVwapPct) < 1.5;
+  if (isPullbackBuy) {
+    return {
+      classification: 'Pullback Buy',
+      reason: 'Pulling into VWAP — potential continuation setup',
+      preferredEntry: `VWAP ($${vwapEstimate.toFixed(2)}) or 9 EMA`,
+      stopLossNote: 'Below VWAP',
+      rrNote: '2:1+',
+      vwapEstimate,
+      distanceFromVwapPct,
+      distanceFromVwapATR,
+      atrEstimate,
+    };
+  }
+
+  // Breakout Watch: volume picking up, moderate RS, not overextended
+  const isBreakoutWatch = volumeRatio >= 1.2 && relativeStrength >= 0 && Math.abs(changePercent) < 4;
+  if (isBreakoutWatch) {
+    return {
+      classification: 'Breakout Watch',
+      reason: `${volumeRatio.toFixed(1)}x volume, consolidating near resistance`,
+      preferredEntry: `Break above recent high`,
+      stopLossNote: `Below VWAP ($${vwapEstimate.toFixed(2)})`,
+      rrNote: '2:1+',
+      vwapEstimate,
+      distanceFromVwapPct,
+      distanceFromVwapATR,
+      atrEstimate,
+    };
+  }
+
+  // Default: Breakout Watch for positive movers, Avoid for negative
+  if (changePercent < -1.5 && relativeStrength < 0) {
+    return {
+      classification: 'Avoid',
+      reason: 'Negative price action with weak relative strength',
+      preferredEntry: 'N/A — Avoid',
+      stopLossNote: 'N/A',
+      rrNote: 'N/A',
+      vwapEstimate,
+      distanceFromVwapPct,
+      distanceFromVwapATR,
+      atrEstimate,
+    };
+  }
+
+  return {
+    classification: 'Breakout Watch',
+    reason: 'Monitoring for cleaner setup',
+    preferredEntry: `Above $${(price * 1.01).toFixed(2)}`,
+    stopLossNote: `Below VWAP ($${vwapEstimate.toFixed(2)})`,
+    rrNote: '2:1+',
+    vwapEstimate,
+    distanceFromVwapPct,
+    distanceFromVwapATR,
+    atrEstimate,
   };
 }
 
@@ -381,6 +598,8 @@ function detectMovers(
     const volumeRatio = q.avgVolume > 0 ? q.volume / q.avgVolume : 0;
     const relativeStrength = q.changePercent - spyChange;
 
+    const classData = classifyMover(q, relativeStrength, volumeRatio);
+
     const mover: Mover = {
       symbol: sym,
       shortName: q.shortName,
@@ -393,6 +612,17 @@ function detectMovers(
       relativeStrength,
       fiftyTwoWeekHigh: q.fiftyTwoWeekHigh,
       fiftyTwoWeekLow: q.fiftyTwoWeekLow,
+      classification: classData.classification,
+      classificationReason: classData.reason,
+      preferredEntry: classData.preferredEntry,
+      stopLossNote: classData.stopLossNote,
+      rrNote: classData.rrNote,
+      vwapEstimate: Math.round(classData.vwapEstimate * 100) / 100,
+      distanceFromVwapPct: Math.round(classData.distanceFromVwapPct * 10) / 10,
+      distanceFromVwapATR: Math.round(classData.distanceFromVwapATR * 10) / 10,
+      atrEstimate: Math.round(classData.atrEstimate * 100) / 100,
+      hasConflict: false,
+      conflictNote: '',
     };
 
     if (Math.abs(q.changePercent) >= 1.5) {
@@ -400,7 +630,7 @@ function detectMovers(
     }
 
     if (volumeRatio >= 2.0 && q.volume > 100_000) {
-      unusualVolume.push(mover);
+      unusualVolume.push({ ...mover });
     }
   }
 
@@ -652,6 +882,7 @@ function buildAvoidSignals(
   quotes: Map<string, RawQuote>,
   marketTruth: MarketTruth,
   contracts: DiscoveryContract[],
+  movers: Mover[],
 ): AvoidSignal[] {
   const signals: AvoidSignal[] = [];
 
@@ -661,17 +892,41 @@ function buildAvoidSignals(
   }
 
   // Futures red + buying calls
-  if (marketTruth.futuresBias === 'bearish' && marketTruth.score < 40) {
-    signals.push({ symbol: 'MARKET', reason: 'Futures bearish — avoid buying calls until futures confirm reversal', severity: 'critical' });
+  if (marketTruth.futuresBias === 'bearish' && marketTruth.biasScore <= -3) {
+    signals.push({ symbol: 'MARKET', reason: 'Bearish futures bias confirmed — avoid long calls until futures reverse', severity: 'critical' });
   }
 
-  // Chasing stocks already up >4%
+  // DXY risk
+  if (marketTruth.dxyChange > 0.7) {
+    signals.push({ symbol: 'DXY', reason: `Dollar Index rising +${marketTruth.dxyChange.toFixed(1)}% — headwind for equities and risk assets`, severity: 'warning' });
+  }
+
+  // 10Y yield pressure
+  if (marketTruth.tenYieldChange > 1) {
+    signals.push({ symbol: '10Y YIELD', reason: `10-Year yield rising sharply (+${marketTruth.tenYieldChange.toFixed(1)}%) — compression risk for growth/tech`, severity: 'warning' });
+  }
+
+  // Stocks with genuine AVOID classification (weak RS, weak volume, bearish structure)
+  // Do NOT add stocks just because they're up big — use classification system for that
+  const moverSymbolsSet = new Set(movers.map(m => m.symbol));
   const stockSymbols = [...MEGA_CAP, ...HIGH_BETA, ...POLICY_SYMBOLS];
   for (const sym of stockSymbols) {
     const q = quotes.get(sym);
     if (!q) continue;
-    if (q.changePercent > 4.5) {
-      signals.push({ symbol: sym, reason: `+${q.changePercent.toFixed(1)}% today — don't chase, risk/reward poor at this extension`, severity: 'warning' });
+    const spyChg = quotes.get('SPY')?.changePercent ?? 0;
+    const volRatio = q.avgVolume > 0 ? q.volume / q.avgVolume : 0;
+    const rs = q.changePercent - spyChg;
+
+    // Only add to avoid signals if stock has genuinely bearish structure
+    // AND it's not already a mover being tracked with "Avoid" classification
+    const isBearishStructure = q.changePercent < -3 && rs < -2;
+    const isVeryWeakRS = rs < -4;
+    if ((isBearishStructure || isVeryWeakRS) && !moverSymbolsSet.has(sym)) {
+      signals.push({
+        symbol: sym,
+        reason: `Bearish structure: ${q.changePercent.toFixed(1)}% intraday, RS ${rs.toFixed(1)}% vs SPY`,
+        severity: 'warning',
+      });
     }
   }
 
@@ -682,10 +937,53 @@ function buildAvoidSignals(
     }
   }
 
-  // Near earnings (can't detect without calendar API — note it statically)
-  signals.push({ symbol: 'EARNINGS', reason: 'Always check earnings dates before entering — options IV crushes after earnings', severity: 'warning' });
+  // Always-on earnings reminder
+  signals.push({ symbol: 'EARNINGS', reason: 'Always verify earnings dates before entering — options IV crushes post-earnings', severity: 'warning' });
 
   return signals.slice(0, 8);
+}
+
+// ─── Validation Engine ────────────────────────────────────────────────────────
+// Ensures no stock appears simultaneously as a "Top Opportunity" and "Avoid Trade"
+// without an explicit explanation.
+
+function validateSignals(
+  movers: Mover[],
+  avoidSignals: AvoidSignal[],
+): Mover[] {
+  const avoidSymbols = new Set(avoidSignals.map(s => s.symbol.split(' ')[0]));
+
+  return movers.map(mover => {
+    const inAvoid = avoidSymbols.has(mover.symbol);
+
+    if (!inAvoid) return mover;
+
+    // Conflict detected: stock is in both movers and avoid signals
+    if (mover.classification === 'Avoid') {
+      // Already classified as Avoid in movers — consistent, just note it
+      return {
+        ...mover,
+        hasConflict: false,
+        conflictNote: '',
+      };
+    }
+
+    if (mover.classification === 'Extended / Wait') {
+      // Extended and also in avoid — downgrade to show both contexts
+      return {
+        ...mover,
+        hasConflict: true,
+        conflictNote: 'Also flagged in Avoid Trades — confirm structure before entry',
+      };
+    }
+
+    // Momentum/Breakout but showing in avoid signals — display mixed signal warning
+    return {
+      ...mover,
+      hasConflict: true,
+      conflictNote: 'Mixed Signals — conflicting indicators detected. Verify before trading.',
+    };
+  });
 }
 
 // ─── Policy Watchlist Enrichment ──────────────────────────────────────────────
@@ -827,8 +1125,11 @@ export async function GET(_request: NextRequest) {
       .sort((a, b) => b.rrRatio - a.rrRatio)
       .slice(0, 10);
 
-    // Avoid signals
-    const avoidSignals = buildAvoidSignals(quotes, marketTruth, allContracts);
+    // Avoid signals — pass movers so we don't double-flag stocks already classified
+    const avoidSignals = buildAvoidSignals(quotes, marketTruth, allContracts, movers);
+
+    // Validation engine: resolve conflicts between movers and avoid signals
+    const validatedMovers = validateSignals(movers, avoidSignals);
 
     // Policy watchlist
     const policyWatchlist = buildPolicyWatchlist(quotes);
@@ -840,7 +1141,7 @@ export async function GET(_request: NextRequest) {
     const response: TradeDiscoveryResponse = {
       success: true,
       marketTruth,
-      topMovers: movers,
+      topMovers: validatedMovers,
       unusualVolume,
       shortTermContracts,
       longTermContracts,
