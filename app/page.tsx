@@ -92,22 +92,65 @@ function Panel({
 
 // ── Market Bias Panel ─────────────────────────────────────────────────────────
 
-type FuturesBias = 'bullish' | 'bearish' | 'mixed';
+type FuturesBias = 'bullish' | 'bearish' | 'mixed' | 'neutral';
 
-function computeFuturesBias(esChg: number, nqChg: number): FuturesBias {
-  if (esChg > 0.1 && nqChg > 0.1) return 'bullish';
-  if (esChg < -0.1 && nqChg < -0.1) return 'bearish';
-  return 'mixed';
+interface BiasResult {
+  bias: 'Bullish' | 'Bearish' | 'Neutral';
+  biasScore: number;
+  confidence: number;
+  color: string;
+  bg: string;
+  border: string;
+  drivers: string[];
+  risks: string[];
 }
 
-function computeMarketBias(
-  spyChg: number, qqqChg: number, futuresBias: FuturesBias
-): { bias: 'Bullish' | 'Bearish' | 'Mixed'; color: string; bg: string; border: string } {
-  const equityBull = spyChg > 0 && qqqChg > 0;
-  const equityBear = spyChg < 0 && qqqChg < 0;
-  if (futuresBias === 'bullish' && equityBull) return { bias: 'Bullish', color: '#00ff88', bg: 'rgba(0,255,136,0.08)', border: 'rgba(0,255,136,0.3)' };
-  if (futuresBias === 'bearish' && equityBear) return { bias: 'Bearish', color: '#ff3b3b', bg: 'rgba(255,59,59,0.08)', border: 'rgba(255,59,59,0.3)' };
-  return { bias: 'Mixed', color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.3)' };
+function computeBiasFromSignals(
+  esChg: number, nqChg: number, ymChg: number, rtyChg: number,
+  vixChg: number, dxyChg: number, tenYChg: number,
+  oilChg: number, goldChg: number,
+): BiasResult {
+  let biasScore = 0;
+  const drivers: string[] = [];
+  const risks: string[] = [];
+
+  if (esChg > 0)  { biasScore += 1; drivers.push('ES Green'); }
+  else if (esChg < 0) { biasScore -= 1; risks.push('ES Red'); }
+
+  if (nqChg > 0)  { biasScore += 1; drivers.push('NQ Green'); }
+  else if (nqChg < 0) { biasScore -= 1; risks.push('NQ Red'); }
+
+  if (ymChg > 0)  { biasScore += 1; drivers.push('YM Green'); }
+  else if (ymChg < 0) { biasScore -= 1; risks.push('YM Red'); }
+
+  if (rtyChg > 0) { biasScore += 1; drivers.push('RTY Green — Breadth Positive'); }
+  else if (rtyChg < 0) { biasScore -= 1; risks.push('RTY Red — Breadth Negative'); }
+
+  if (vixChg < -2)  { drivers.push('VIX Falling'); }
+  else if (vixChg > 2) { biasScore -= 1; risks.push('VIX Rising'); }
+
+  if (dxyChg < -0.5)    { drivers.push('DXY Falling'); }
+  else if (dxyChg > 0.5) { biasScore -= 1; risks.push('DXY Rising'); }
+
+  if (tenYChg < -0.5)    { drivers.push('10Y Yield Falling'); }
+  else if (tenYChg > 0.5) { biasScore -= 1; risks.push('10Y Yield Rising'); }
+
+  if (oilChg < -1.5) { risks.push('Oil Weak'); }
+  if (goldChg > 1)   { risks.push('Gold Rising — Flight to Safety'); }
+
+  const totalActive = drivers.length + risks.length;
+  const dominantCount = biasScore >= 0 ? drivers.length : risks.length;
+  const baseConf = totalActive > 0 ? (dominantCount / totalActive) * 100 : 50;
+  const biasBoost = Math.min(20, Math.abs(biasScore) * 4);
+  const confidence = Math.min(98, Math.max(30, Math.round(baseConf + biasBoost)));
+
+  if (biasScore >= 3) {
+    return { bias: 'Bullish', biasScore, confidence, color: '#00ff88', bg: 'rgba(0,255,136,0.08)', border: 'rgba(0,255,136,0.3)', drivers, risks };
+  }
+  if (biasScore <= -3) {
+    return { bias: 'Bearish', biasScore, confidence, color: '#ff3b3b', bg: 'rgba(255,59,59,0.08)', border: 'rgba(255,59,59,0.3)', drivers, risks };
+  }
+  return { bias: 'Neutral', biasScore, confidence, color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.3)', drivers, risks };
 }
 
 function MarketBiasPanel() {
@@ -115,7 +158,7 @@ function MarketBiasPanel() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const syms = ['SPY', 'QQQ', 'VIX', 'ES=F', 'NQ=F', 'YM=F', 'RTY=F'];
+    const syms = ['SPY', 'QQQ', '^VIX', 'ES=F', 'NQ=F', 'YM=F', 'RTY=F', 'DX=F', '^TNX', 'CL=F', 'GC=F'];
     Promise.allSettled(syms.map(s => fetchQuote(s))).then(results => {
       const map: Record<string, QuoteData | null> = {};
       results.forEach((r, i) => { map[syms[i]] = r.status === 'fulfilled' ? r.value : null; });
@@ -130,28 +173,38 @@ function MarketBiasPanel() {
 
   const spyChg  = quotes['SPY']?.changePercent ?? 0;
   const qqqChg  = quotes['QQQ']?.changePercent ?? 0;
-  const vixChg  = quotes['VIX']?.changePercent ?? 0;
-  const vixPx   = quotes['VIX']?.price ?? 0;
+  const vixChg  = quotes['^VIX']?.changePercent ?? 0;
+  const vixPx   = quotes['^VIX']?.price ?? 0;
   const esChg   = quotes['ES=F']?.changePercent ?? 0;
   const nqChg   = quotes['NQ=F']?.changePercent ?? 0;
   const ymChg   = quotes['YM=F']?.changePercent ?? 0;
   const rtyChg  = quotes['RTY=F']?.changePercent ?? 0;
+  const dxyChg  = quotes['DX=F']?.changePercent ?? 0;
+  const tenYChg = quotes['^TNX']?.changePercent ?? 0;
+  const oilChg  = quotes['CL=F']?.changePercent ?? 0;
+  const goldChg = quotes['GC=F']?.changePercent ?? 0;
 
-  const futuresBias   = computeFuturesBias(esChg, nqChg);
-  const { bias: mktBias, color: mktColor, bg: mktBg, border: mktBorder } = computeMarketBias(spyChg, qqqChg, futuresBias);
-  const futuresConfirmed = futuresBias !== 'mixed' &&
-    ((futuresBias === 'bullish' && spyChg > 0) || (futuresBias === 'bearish' && spyChg < 0));
+  const result = computeBiasFromSignals(esChg, nqChg, ymChg, rtyChg, vixChg, dxyChg, tenYChg, oilChg, goldChg);
+  const { bias: mktBias, confidence, color: mktColor, bg: mktBg, border: mktBorder, drivers, risks } = result;
+
+  const equityBull = spyChg > 0 && qqqChg > 0;
+  const equityBear = spyChg < 0 && qqqChg < 0;
+  const futuresPos = [esChg > 0, nqChg > 0, ymChg > 0, rtyChg > 0].filter(Boolean).length;
+  const futuresBiasLabel: FuturesBias = futuresPos >= 3 ? 'bullish' : futuresPos <= 1 ? 'bearish' : 'neutral';
+  const futuresConfirmed = (futuresBiasLabel === 'bullish' && equityBull) || (futuresBiasLabel === 'bearish' && equityBear);
   const confColor = futuresConfirmed ? '#00ff88' : '#f59e0b';
 
   const warnings: string[] = [];
-  if (futuresBias === 'bearish' && spyChg > 0)
-    warnings.push('Futures red but equities green — label is MIXED, not bullish. Elevated risk for longs.');
-  if (futuresBias === 'bearish' && vixChg > 2)
+  if (futuresBiasLabel === 'bearish' && equityBull)
+    warnings.push('Futures red but equities green — divergence, elevated risk for longs.');
+  if (vixChg > 2 && futuresBiasLabel === 'bearish')
     warnings.push('VIX rising + futures red — bullish trades carry higher risk.');
-  if (futuresBias === 'bullish' && spyChg < 0)
-    warnings.push('Futures green but equities weak — relative weakness detected.');
+  if (futuresBiasLabel === 'bullish' && equityBear)
+    warnings.push('Futures green but equities weak — wait for equity confirmation.');
+  if (dxyChg > 0.7)
+    warnings.push(`DXY +${dxyChg.toFixed(1)}% — dollar strength headwind for equities.`);
 
-  const futBiasColor = futuresBias === 'bullish' ? '#00ff88' : futuresBias === 'bearish' ? '#ff3b3b' : '#f59e0b';
+  const futBiasColor = futuresBiasLabel === 'bullish' ? '#00ff88' : futuresBiasLabel === 'bearish' ? '#ff3b3b' : '#f59e0b';
 
   return (
     <div className="rounded-xl overflow-hidden" style={{ background: '#111318', border: `1px solid ${mktBorder}` }}>
@@ -161,11 +214,14 @@ function MarketBiasPanel() {
         <span className="text-sm font-black px-2 py-0.5 rounded" style={{ color: mktColor, background: mktBg, border: `1px solid ${mktBorder}` }}>
           {mktBias.toUpperCase()}
         </span>
+        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded" style={{ color: mktColor, background: `${mktColor}14`, border: `1px solid ${mktColor}30` }}>
+          {confidence}% Confidence
+        </span>
         <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ color: confColor, background: `${confColor}14`, border: `1px solid ${confColor}40` }}>
           Futures {futuresConfirmed ? 'CONFIRMED ✓' : 'NOT CONFIRMED ⚠'}
         </span>
         <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ color: futBiasColor, background: `${futBiasColor}10`, border: `1px solid ${futBiasColor}30` }}>
-          Futures {futuresBias.toUpperCase()}
+          Futures {futuresBiasLabel.toUpperCase()}
         </span>
         {vixPx > 0 && (
           <span className="text-xs font-mono font-bold ml-auto" style={{ color: vixPx > 25 ? '#ff3b3b' : vixPx > 18 ? '#f59e0b' : '#9ca3af' }}>
@@ -175,7 +231,7 @@ function MarketBiasPanel() {
       </div>
 
       {/* Futures strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px" style={{ borderBottom: warnings.length > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
         {[
           { label: 'ES (S&P)', q: quotes['ES=F']  },
           { label: 'NQ (NAS)', q: quotes['NQ=F']  },
@@ -203,6 +259,59 @@ function MarketBiasPanel() {
           );
         })}
       </div>
+
+      {/* Macro strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px" style={{ borderBottom: (drivers.length > 0 || risks.length > 0 || warnings.length > 0) ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+        {[
+          { label: 'DXY', q: quotes['DX=F'], invertColor: true },
+          { label: '10Y Yield', q: quotes['^TNX'], invertColor: true },
+          { label: 'Oil', q: quotes['CL=F'], invertColor: false },
+          { label: 'Gold', q: quotes['GC=F'], invertColor: false },
+        ].map(({ label, q, invertColor }) => {
+          const chg = q?.changePercent ?? 0;
+          // For DXY and 10Y, rising is a risk (bearish for equities)
+          const c = invertColor
+            ? (chg > 0.3 ? '#f59e0b' : chg < -0.3 ? '#00ff88' : '#6b7280')
+            : (chg > 0.1 ? '#00ff88' : chg < -0.1 ? '#ff3b3b' : '#6b7280');
+          return (
+            <div key={label} className="flex flex-col items-center py-2 px-3" style={{ background: '#0a0c10' }}>
+              <span className="text-xs" style={{ color: '#374151', fontSize: 9 }}>{label}</span>
+              {q ? (
+                <>
+                  <span className="text-xs font-mono font-bold" style={{ color: '#f0f0f0' }}>
+                    {q.price.toFixed(label === '10Y Yield' ? 3 : 2)}
+                  </span>
+                  <span className="text-xs font-mono font-semibold" style={{ color: c }}>
+                    {chg >= 0 ? '+' : ''}{chg.toFixed(2)}%
+                  </span>
+                </>
+              ) : (
+                <span className="text-xs" style={{ color: '#374151' }}>—</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Drivers & Risks */}
+      {(drivers.length > 0 || risks.length > 0) && (
+        <div className="px-4 py-2 grid grid-cols-2 gap-2" style={{ borderBottom: warnings.length > 0 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+          <div>
+            {drivers.map((d, i) => (
+              <div key={i} className="flex items-center gap-1.5 text-xs py-0.5" style={{ color: '#00ff88' }}>
+                <span style={{ fontWeight: 700 }}>✓</span> {d}
+              </div>
+            ))}
+          </div>
+          <div>
+            {risks.map((r, i) => (
+              <div key={i} className="flex items-center gap-1.5 text-xs py-0.5" style={{ color: '#f59e0b' }}>
+                <span>⚠</span> {r}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Warnings */}
       {warnings.map((w, i) => (

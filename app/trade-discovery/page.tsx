@@ -57,6 +57,8 @@ interface DiscoveryContract {
   underlyingPrice: number;
 }
 
+type MoverClassification = 'Momentum Buy' | 'Pullback Buy' | 'Breakout Watch' | 'Extended / Wait' | 'Avoid';
+
 interface Mover {
   symbol: string;
   shortName: string;
@@ -69,10 +71,23 @@ interface Mover {
   relativeStrength: number;
   fiftyTwoWeekHigh: number;
   fiftyTwoWeekLow: number;
+  classification: MoverClassification;
+  classificationReason: string;
+  preferredEntry: string;
+  stopLossNote: string;
+  rrNote: string;
+  vwapEstimate: number;
+  distanceFromVwapPct: number;
+  distanceFromVwapATR: number;
+  atrEstimate: number;
+  hasConflict: boolean;
+  conflictNote: string;
 }
 
 interface MarketTruth {
   score: number;
+  biasScore: number;
+  confidence: number;
   label: 'Strongly Bullish' | 'Bullish' | 'Mixed' | 'Bearish' | 'Strongly Bearish';
   futuresBias: 'bullish' | 'bearish' | 'mixed';
   futuresConfirmed: boolean;
@@ -82,7 +97,15 @@ interface MarketTruth {
   qqChange: number;
   esChange: number;
   nqChange: number;
+  ymChange: number;
+  rtyChange: number;
+  dxyChange: number;
+  tenYieldChange: number;
+  oilChange: number;
+  goldChange: number;
   warnings: string[];
+  drivers: string[];
+  risks: string[];
 }
 
 interface PolicyWatchlistItem {
@@ -151,65 +174,98 @@ function dateLabel(s: string) {
 // ─── Market Truth Meter ───────────────────────────────────────────────────────
 
 function MarketTruthMeter({ mt }: { mt: MarketTruth }) {
-  const score = mt.score;
+  const biasScore = mt.biasScore ?? 0;
+  const confidence = mt.confidence ?? 50;
 
-  const barColor =
-    score >= 70 ? 'bg-green-500' :
-    score >= 58 ? 'bg-emerald-400' :
-    score >= 43 ? 'bg-yellow-400' :
-    score >= 30 ? 'bg-orange-400' :
-    'bg-red-500';
+  const isBullish = biasScore >= 3;
+  const isBearish = biasScore <= -3;
 
-  const labelColor =
-    score >= 58 ? 'text-green-700' :
-    score >= 43 ? 'text-yellow-700' :
-    'text-red-700';
+  const biasColor = isBullish ? 'text-green-700' : isBearish ? 'text-red-700' : 'text-yellow-700';
+  const biasBg = isBullish ? 'bg-green-50 border-green-200' : isBearish ? 'bg-red-50 border-red-200' : 'bg-yellow-50 border-yellow-200';
+  const confBarColor = isBullish ? 'bg-green-500' : isBearish ? 'bg-red-500' : 'bg-yellow-400';
 
-  const labelBg =
-    score >= 58 ? 'bg-green-50 border-green-200' :
-    score >= 43 ? 'bg-yellow-50 border-yellow-200' :
-    'bg-red-50 border-red-200';
+  const drivers: string[] = mt.drivers ?? [];
+  const risks: string[] = mt.risks ?? [];
 
   return (
     <div className="space-y-4">
-      {/* Score bar */}
-      <div>
-        <div className="flex justify-between items-end mb-2">
-          <span className="text-xs text-gray-500 uppercase tracking-wide font-semibold">Market Truth Score</span>
-          <span className={`text-2xl font-bold ${labelColor}`}>{score}/100</span>
+      {/* Bias label + confidence */}
+      <div className={`rounded-xl border px-4 py-3 ${biasBg}`}>
+        <div className="flex items-center justify-between mb-1">
+          <p className={`text-base font-bold ${biasColor}`}>{mt.label}</p>
+          <span className={`text-sm font-black ${biasColor}`}>{confidence}% Confidence</span>
         </div>
-        <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all ${barColor}`}
-            style={{ width: `${score}%` }}
-          />
+        <div className="h-2 bg-white/60 rounded-full overflow-hidden mt-2">
+          <div className={`h-full rounded-full ${confBarColor}`} style={{ width: `${confidence}%` }} />
         </div>
-        <div className="flex justify-between text-xs text-gray-400 mt-1">
-          <span>Bearish</span>
-          <span>Neutral</span>
-          <span>Bullish</span>
-        </div>
+        <p className="text-xs text-gray-500 mt-1.5">
+          Bias score: {biasScore >= 0 ? '+' : ''}{biasScore} · Based on 4 futures + VIX, DXY, 10Y
+        </p>
       </div>
 
-      {/* Label */}
-      <div className={`rounded-xl border px-4 py-3 ${labelBg}`}>
-        <p className={`text-sm font-bold ${labelColor}`}>{mt.label}</p>
-        <p className="text-xs text-gray-500 mt-0.5">Based on futures, VIX, and index performance</p>
-      </div>
+      {/* Drivers & Risks */}
+      {(drivers.length > 0 || risks.length > 0) && (
+        <div className="grid grid-cols-2 gap-3">
+          {drivers.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Drivers</p>
+              <div className="space-y-1">
+                {drivers.map((d, i) => (
+                  <div key={i} className="flex items-center gap-1.5 text-xs text-green-700">
+                    <span className="font-bold">✓</span> {d}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {risks.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Risks</p>
+              <div className="space-y-1">
+                {risks.map((r, i) => (
+                  <div key={i} className="flex items-center gap-1.5 text-xs text-amber-700">
+                    <span>⚠</span> {r}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Quick stats grid */}
+      {/* Futures grid */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
-          { label: 'ES/S&P', value: fmtPct(mt.esChange), up: mt.esChange >= 0 },
-          { label: 'NQ/NASDAQ', value: fmtPct(mt.nqChange), up: mt.nqChange >= 0 },
-          { label: 'SPY', value: fmtPct(mt.spyChange), up: mt.spyChange >= 0 },
-          { label: 'VIX', value: mt.vixLevel.toFixed(1), up: false, warn: mt.vixWarning },
-        ].map(({ label, value, up, warn }) => (
-          <div key={label} className={`rounded-xl border p-3 text-center ${warn ? 'border-orange-200 bg-orange-50' : 'border-gray-100 bg-white'}`}>
-            <p className="text-xs text-gray-400 mb-1">{label}</p>
-            <p className={`text-sm font-bold ${warn ? 'text-orange-600' : up ? 'text-green-600' : 'text-red-600'}`}>{value}</p>
+          { label: 'ES', value: fmtPct(mt.esChange), up: mt.esChange >= 0 },
+          { label: 'NQ', value: fmtPct(mt.nqChange), up: mt.nqChange >= 0 },
+          { label: 'YM', value: fmtPct(mt.ymChange ?? 0), up: (mt.ymChange ?? 0) >= 0 },
+          { label: 'RTY', value: fmtPct(mt.rtyChange ?? 0), up: (mt.rtyChange ?? 0) >= 0 },
+        ].map(({ label, value, up }) => (
+          <div key={label} className="rounded-xl border border-gray-100 bg-white p-2 text-center">
+            <p className="text-xs text-gray-400 mb-0.5">{label}</p>
+            <p className={`text-xs font-bold ${up ? 'text-green-600' : 'text-red-600'}`}>{value}</p>
           </div>
         ))}
+      </div>
+
+      {/* Macro grid */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {[
+          { label: 'VIX', value: mt.vixLevel.toFixed(1), warn: mt.vixWarning, invert: true, chg: 0 },
+          { label: 'DXY', value: fmtPct(mt.dxyChange ?? 0), warn: (mt.dxyChange ?? 0) > 0.5, invert: true, chg: mt.dxyChange ?? 0 },
+          { label: '10Y', value: fmtPct(mt.tenYieldChange ?? 0), warn: (mt.tenYieldChange ?? 0) > 0.5, invert: true, chg: mt.tenYieldChange ?? 0 },
+          { label: 'SPY', value: fmtPct(mt.spyChange), warn: false, invert: false, chg: mt.spyChange },
+        ].map(({ label, value, warn, invert, chg }) => {
+          const color = warn ? 'text-orange-600' : invert
+            ? (chg > 0.3 ? 'text-orange-500' : 'text-green-600')
+            : (chg >= 0 ? 'text-green-600' : 'text-red-600');
+          return (
+            <div key={label} className={`rounded-xl border p-2 text-center ${warn ? 'border-orange-200 bg-orange-50' : 'border-gray-100 bg-white'}`}>
+              <p className="text-xs text-gray-400 mb-0.5">{label}</p>
+              <p className={`text-xs font-bold ${color}`}>{value}</p>
+            </div>
+          );
+        })}
       </div>
 
       {/* Futures confirmation chip */}
@@ -450,26 +506,105 @@ function ContractsTable({ contracts, title }: { contracts: DiscoveryContract[]; 
 
 // ─── Mover Card ───────────────────────────────────────────────────────────────
 
+const CLASSIFICATION_STYLES: Record<MoverClassification, { label: string; color: string; bg: string; border: string }> = {
+  'Momentum Buy':    { label: 'Momentum Buy',    color: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-200'  },
+  'Pullback Buy':    { label: 'Pullback Buy',     color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+  'Breakout Watch':  { label: 'Breakout Watch',   color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-200'   },
+  'Extended / Wait': { label: 'Extended / Wait',  color: 'text-amber-700',  bg: 'bg-amber-50',  border: 'border-amber-200'  },
+  'Avoid':           { label: 'Avoid',            color: 'text-red-700',    bg: 'bg-red-50',    border: 'border-red-200'    },
+};
+
 function MoverCard({ m }: { m: Mover }) {
+  const [open, setOpen] = useState(false);
   const up = m.changePercent >= 0;
+  const cls = m.classification ?? 'Breakout Watch';
+  const style = CLASSIFICATION_STYLES[cls];
+
   return (
-    <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-bold text-gray-900">{m.symbol}</p>
-          <p className="text-xs text-gray-500 truncate max-w-[110px]">{m.shortName}</p>
+    <div className={`bg-white rounded-2xl shadow-sm overflow-hidden border ${style.border}`}>
+      {/* Header */}
+      <div
+        className={`px-4 pt-3 pb-2 ${style.bg} cursor-pointer`}
+        onClick={() => setOpen((v: boolean) => !v)}
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-sm font-bold text-gray-900">{m.symbol}</p>
+            <p className="text-xs text-gray-500 truncate max-w-[110px]">{m.shortName}</p>
+          </div>
+          <span className={`text-sm font-bold ${up ? 'text-green-600' : 'text-red-600'}`}>{fmtPct(m.changePercent)}</span>
         </div>
-        <span className={`text-sm font-bold ${up ? 'text-green-600' : 'text-red-600'}`}>{fmtPct(m.changePercent)}</span>
+        <div className="flex items-center justify-between mt-1.5">
+          <p className="text-base font-semibold text-gray-800">{fmtMoney(m.price)}</p>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${style.bg} ${style.border} ${style.color}`}>
+            {style.label}
+          </span>
+        </div>
       </div>
-      <p className="text-lg font-semibold text-gray-800 mt-2">{fmtMoney(m.price)}</p>
-      <div className="flex justify-between text-xs text-gray-400 mt-2">
+
+      {/* Mixed signal / conflict warning */}
+      {m.hasConflict && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border-t border-amber-200">
+          <AlertTriangle size={11} className="text-amber-500 shrink-0" />
+          <p className="text-xs text-amber-700 font-medium">{m.conflictNote}</p>
+        </div>
+      )}
+
+      {/* Summary row */}
+      <div className="flex justify-between text-xs text-gray-400 px-4 py-2 border-t border-gray-100">
         <span>Vol: {fmtK(m.volume)}</span>
         <span className={m.volumeRatio >= 2 ? 'text-orange-600 font-semibold' : ''}>{m.volumeRatio.toFixed(1)}x avg</span>
+        {Math.abs(m.relativeStrength) >= 0.3 && (
+          <span className={m.relativeStrength > 0 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+            RS {fmtPct(m.relativeStrength)}
+          </span>
+        )}
       </div>
-      {Math.abs(m.relativeStrength) >= 0.5 && (
-        <p className={`text-xs mt-1 font-medium ${m.relativeStrength > 0 ? 'text-green-600' : 'text-red-600'}`}>
-          {m.relativeStrength > 0 ? '▲' : '▼'} RS: {fmtPct(m.relativeStrength)} vs SPY
-        </p>
+
+      {/* Expanded detail */}
+      {open && (
+        <div className="px-4 pb-3 border-t border-gray-100 space-y-2 text-xs">
+          <p className="text-gray-500 italic pt-1">{m.classificationReason}</p>
+
+          {cls !== 'Avoid' && (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              <div className="flex justify-between">
+                <span className="text-gray-400">Entry Zone</span>
+                <span className="font-medium text-gray-700">{m.preferredEntry}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">Stop Loss</span>
+                <span className="font-medium text-red-600">{m.stopLossNote}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">R:R</span>
+                <span className={`font-bold ${m.rrNote !== 'N/A' ? 'text-green-700' : 'text-gray-400'}`}>{m.rrNote}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">VWAP Est.</span>
+                <span className="font-medium text-gray-700">{fmtMoney(m.vwapEstimate)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">Dist. VWAP</span>
+                <span className={`font-medium ${Math.abs(m.distanceFromVwapPct) > 3 ? 'text-amber-600' : 'text-gray-600'}`}>
+                  {m.distanceFromVwapPct >= 0 ? '+' : ''}{m.distanceFromVwapPct.toFixed(1)}%
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">VWAP ATR dist.</span>
+                <span className={`font-medium ${Math.abs(m.distanceFromVwapATR) > 2 ? 'text-red-600' : 'text-gray-600'}`}>
+                  {m.distanceFromVwapATR >= 0 ? '+' : ''}{m.distanceFromVwapATR.toFixed(1)} ATR
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* 52w context */}
+          <div className="flex justify-between pt-1 border-t border-gray-100 text-gray-400">
+            <span>52w L: {fmtMoney(m.fiftyTwoWeekLow)}</span>
+            <span>52w H: {fmtMoney(m.fiftyTwoWeekHigh)}</span>
+          </div>
+        </div>
       )}
     </div>
   );
