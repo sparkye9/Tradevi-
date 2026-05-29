@@ -514,11 +514,12 @@ const CLASSIFICATION_STYLES: Record<MoverClassification, { label: string; color:
   'Avoid':           { label: 'Avoid',            color: 'text-red-700',    bg: 'bg-red-50',    border: 'border-red-200'    },
 };
 
-function MoverCard({ m }: { m: Mover }) {
+function MoverCard({ m, contracts }: { m: Mover; contracts?: DiscoveryContract[] }) {
   const [open, setOpen] = useState(false);
   const up = m.changePercent >= 0;
   const cls = m.classification ?? 'Breakout Watch';
   const style = CLASSIFICATION_STYLES[cls];
+  const topContracts = contracts?.slice(0, 3) ?? [];
 
   return (
     <div className={`bg-white rounded-2xl shadow-sm overflow-hidden border ${style.border}`}>
@@ -560,6 +561,37 @@ function MoverCard({ m }: { m: Mover }) {
           </span>
         )}
       </div>
+
+      {/* Top options contracts */}
+      {topContracts.length > 0 && (
+        <div className="px-4 py-2 border-t border-gray-100 bg-gray-50">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Top Options</p>
+          <div className="space-y-1.5">
+            {topContracts.map(c => (
+              <div key={c.contractSymbol} className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-xs font-bold ${c.type === 'call' ? 'text-green-600' : 'text-red-600'}`}>
+                    {c.type === 'call' ? 'C' : 'P'}
+                  </span>
+                  <span className="text-xs text-gray-700 font-medium">${c.strike} · {dateLabel(c.expiration)}</span>
+                  <span className="text-xs text-gray-400">{c.dte}d</span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-xs text-gray-600">{fmtMoney(c.ask)}</span>
+                  <GradeChip grade={c.grade} />
+                  <span className="text-xs font-semibold text-blue-700">{fmt(c.rrRatio, 1)}:1</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {topContracts.length === 0 && cls !== 'Avoid' && (
+        <div className="px-4 py-2 border-t border-gray-100">
+          <p className="text-xs text-gray-400 italic">No qualifying options found</p>
+        </div>
+      )}
 
       {/* Expanded detail */}
       {open && (
@@ -880,8 +912,14 @@ export default function TradeDiscoveryPage() {
                   <span className="text-xs text-gray-400 ml-1">Today's biggest price moves</span>
                 </div>
                 {data.topMovers.length > 0 ? (
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-3 2xl:grid-cols-4">
-                    {data.topMovers.slice(0, 8).map(m => <MoverCard key={m.symbol} m={m} />)}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3">
+                    {data.topMovers.slice(0, 8).map(m => {
+                      const moverContracts = [...(data.shortTermContracts ?? []), ...(data.longTermContracts ?? [])]
+                        .filter(c => c.symbol === m.symbol)
+                        .sort((a, b) => b.aiScore - a.aiScore)
+                        .slice(0, 3);
+                      return <MoverCard key={m.symbol} m={m} contracts={moverContracts} />;
+                    })}
                   </div>
                 ) : (
                   <p className="text-sm text-gray-400 text-center py-8">No significant movers detected. Market may be closed or data delayed.</p>
@@ -897,8 +935,14 @@ export default function TradeDiscoveryPage() {
                   <h2 className="text-sm font-semibold text-gray-900">Unusual Volume</h2>
                   <span className="text-xs text-gray-400 ml-1">Volume 2x+ above 3-month average</span>
                 </div>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
-                  {data.unusualVolume.slice(0, 10).map(m => <MoverCard key={m.symbol} m={m} />)}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {data.unusualVolume.slice(0, 10).map(m => {
+                    const moverContracts = [...(data.shortTermContracts ?? []), ...(data.longTermContracts ?? [])]
+                      .filter(c => c.symbol === m.symbol)
+                      .sort((a, b) => b.aiScore - a.aiScore)
+                      .slice(0, 3);
+                    return <MoverCard key={m.symbol} m={m} contracts={moverContracts} />;
+                  })}
                 </div>
               </Card>
             )}
