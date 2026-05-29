@@ -199,6 +199,64 @@ function GreeksTable({ contracts, type }: { contracts: IntradayScoredOption[]; t
   );
 }
 
+function Top5IntradayContracts({ calls, puts }: { calls: IntradayScoredOption[]; puts: IntradayScoredOption[] }) {
+  const all = [...calls, ...puts].sort((a, b) => b.score - a.score).slice(0, 5);
+  if (!all.length) return <p className="text-xs py-3 text-center italic" style={{ color: '#6b7280' }}>No qualifying contracts found</p>;
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+      {all.map((c, i) => {
+        const isCall = c.type === 'call';
+        const col = isCall ? G : R;
+        return (
+          <div key={i} className="rounded-lg p-3"
+            style={{
+              background: '#13161d',
+              border: `1px solid ${isCall ? 'rgba(0,255,136,0.15)' : 'rgba(255,59,59,0.15)'}`,
+              borderTop: `2px solid ${col}`,
+            }}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-black px-1.5 py-0.5 rounded"
+                style={{ color: A, background: 'rgba(245,158,11,0.1)' }}>
+                #{i + 1}
+              </span>
+              <div className="flex gap-1">
+                <Chip color={col}>{c.type.toUpperCase()}</Chip>
+                <Chip color={gradeC(c.grade)}>{c.grade}</Chip>
+              </div>
+            </div>
+            <div className="text-center mb-2">
+              <p className="font-black font-mono" style={{ color: scoreC(c.score), fontSize: '26px', lineHeight: 1 }}>{c.score}</p>
+              <p className="text-[10px]" style={{ color: '#374151' }}>score / 100</p>
+            </div>
+            <div className="space-y-0.5 text-[11px]">
+              {([
+                ['Strike', `$${c.strike.toFixed(c.strike < 50 ? 2 : 0)}`, '#f0f0f0'],
+                ['Exp',    expLabel(c.expiration),                          '#6b7280'],
+                ['DTE',    `${c.dte}d`,                                    c.dte === 0 ? A : '#9ca3af'],
+                ['Entry',  `$${c.entryMid.toFixed(2)}`,                    col],
+                ['Delta',  c.delta.toFixed(2),                             '#7dd3fc'],
+                ['IV',     `${c.ivPct.toFixed(0)}%`,                       '#9ca3af'],
+                ['T1',     `$${c.target1.toFixed(2)}`,                     G],
+                ['Stop',   `$${c.stopLoss.toFixed(2)}`,                    R],
+                ['R:R',    `${c.rrRatio.toFixed(1)}:1`,                    '#a78bfa'],
+              ] as [string, string, string][]).map(([l, v, color]) => (
+                <div key={l} className="flex justify-between">
+                  <span style={{ color: '#374151' }}>{l}</span>
+                  <span className="font-mono font-semibold" style={{ color }}>{v}</span>
+                </div>
+              ))}
+              <div className="flex gap-1 mt-1 flex-wrap">
+                {c.scalp0DTE && <Chip color={A}>0DTE</Chip>}
+                {c.institutionalActivity && <Chip color="#22d3ee">INST</Chip>}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ScenarioCard({ scenario }: { scenario: Scenario }) {
   const bull = scenario.direction === 'bullish';
   const col = bull ? G : R;
@@ -271,6 +329,7 @@ function ConfidenceRing({ score }: { score: number }) {
 }
 
 const SECTIONS = [
+  { id: 's0', label: 'Top 5' },
   { id: 's1', label: 'Bias' },{ id: 's2', label: 'Structure' },{ id: 's3', label: 'FVGs' },
   { id: 's4', label: 'Sweeps' },{ id: 's5', label: 'Levels' },{ id: 's6', label: 'Scenarios' },
   { id: 's7', label: 'Calls' },{ id: 's8', label: 'Puts' },{ id: 's9', label: 'Best R:R' },
@@ -341,6 +400,13 @@ function AnalysisView({ d }: { d: IntradayData }) {
     <div className="space-y-5">
       <MarketBar d={d} />
       <StickyNav />
+
+      {/* S0 — Top 5 Best Contracts */}
+      <CpCard id="s0" accentColor={G}>
+        <SecHeader icon={<Flame size={14} />} title="Top 5 Best Contracts"
+          right={<div className="flex gap-2"><Chip color={G}>0–7 DTE</Chip><Chip color="#6b7280">RANKED BY SCORE</Chip></div>} />
+        <Top5IntradayContracts calls={d.topCalls} puts={d.topPuts} />
+      </CpCard>
 
       {/* S1 */}
       <CpCard id="s1" accentColor={biasC(d.overallBias)}>

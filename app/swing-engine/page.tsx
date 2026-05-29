@@ -388,7 +388,7 @@ function OptionsTable({ contracts, type, currentPrice }: { contracts: ScoredOpti
           </tr>
         </thead>
         <tbody>
-          {contracts.slice(0, 8).map((c, i) => {
+          {contracts.slice(0, 5).map((c, i) => {
             const gs = gradeS(c.grade);
             const actColor = c.action === 'enter' ? G : c.action === 'watch' ? A : '#6b7280';
             return (
@@ -535,6 +535,111 @@ function ConfidenceGauge({ score }: { score: number }) {
         <text x={cx} y={cy + 6} textAnchor="middle" fill={color} fontSize={20} fontWeight="bold">{score}</text>
       </svg>
       <div className="text-xs -mt-2" style={{ color: '#374151' }}>Confidence / 100</div>
+    </div>
+  );
+}
+
+// ─── Top 5 Contracts (single analysis) ───────────────────────────────────────
+
+function Top5Contracts({ calls, puts }: { calls: ScoredOption[]; puts: ScoredOption[] }) {
+  const all = [...calls, ...puts].sort((a, b) => b.swingScore - a.swingScore).slice(0, 5);
+  if (!all.length) return null;
+  return (
+    <div className="mb-2">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-0.5 h-4 rounded-full" style={{ background: G }} />
+        <p className="sec-label" style={{ margin: 0 }}>Top 5 Best Contracts</p>
+        <Chip label="RANKED BY SCORE" color={G} bg="rgba(0,255,136,0.1)" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+        {all.map((c, i) => {
+          const isCall = c.type === 'call';
+          const gs = gradeS(c.grade);
+          const actColor = c.action === 'enter' ? G : c.action === 'watch' ? A : '#6b7280';
+          return (
+            <CpCard key={i} accentColor={isCall ? G : R}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-black px-1.5 py-0.5 rounded"
+                  style={{ color: A, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                  #{i + 1}
+                </span>
+                <div className="flex gap-1">
+                  <Chip label={c.type.toUpperCase()} color={isCall ? G : R} bg={isCall ? 'rgba(0,255,136,0.08)' : 'rgba(255,59,59,0.08)'} />
+                  <Chip label={c.grade} color={gs.color} bg={gs.bg} border={gs.border} />
+                </div>
+              </div>
+              <div className="text-center mb-3">
+                <p className="font-black font-mono" style={{ color: scoreC(c.swingScore), fontSize: '28px', lineHeight: 1 }}>{c.swingScore}</p>
+                <p className="text-xs" style={{ color: '#374151' }}>score / 100</p>
+              </div>
+              <div className="space-y-0.5 text-xs">
+                {([
+                  ['Symbol',     c.symbol,                                        '#f0f0f0'],
+                  ['Strike',     `$${c.strike.toFixed(c.strike < 50 ? 2 : 0)}`,   '#f0f0f0'],
+                  ['Exp',        expiryLabel(c.expiration),                        '#6b7280'],
+                  ['DTE',        `${c.dte}d`,                                      '#9ca3af'],
+                  ['Entry',      `$${c.entryMid.toFixed(2)}`,                      isCall ? G : R],
+                  ['T1 (+100%)', `$${c.target1.toFixed(2)}`,                       G],
+                  ['Stop (−50%)',`$${c.stopLoss.toFixed(2)}`,                      R],
+                  ['R:R',        `${c.rrRatio.toFixed(1)}:1`,                      c.rrRatio >= 2 ? G : A],
+                  ['Action',     c.action.toUpperCase(),                           actColor],
+                ] as [string, string, string][]).map(([l, v, color]) => (
+                  <div key={l} className="flex justify-between">
+                    <span style={{ color: '#374151' }}>{l}</span>
+                    <span className="font-mono font-semibold" style={{ color }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+            </CpCard>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Top 5 Contracts (scan mode) ──────────────────────────────────────────────
+
+function Top5ScanContracts({ results }: { results: ScanResult[] }) {
+  const contracts: ScoredOption[] = [];
+  for (const r of results) {
+    if (r.bestCall) contracts.push(r.bestCall);
+    if (r.bestPut)  contracts.push(r.bestPut);
+  }
+  const top5 = contracts.sort((a, b) => b.swingScore - a.swingScore).slice(0, 5);
+  if (!top5.length) return null;
+  return (
+    <div id="top5contracts" className="scroll-mt-16 mb-6">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-0.5 h-4 rounded-full" style={{ background: G }} />
+        <p className="sec-label" style={{ margin: 0 }}>Top 5 Contracts From This Scan</p>
+        <Chip label="BEST OPTIONS PLAYS" color={G} bg="rgba(0,255,136,0.1)" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+        {top5.map((c, i) => {
+          const isCall = c.type === 'call';
+          const gs = gradeS(c.grade);
+          return (
+            <CpCard key={i} accentColor={isCall ? G : R}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-black px-1.5 py-0.5 rounded"
+                  style={{ color: A, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                  #{i + 1}
+                </span>
+                <div className="flex gap-1">
+                  <Chip label={c.type.toUpperCase()} color={isCall ? G : R} bg={isCall ? 'rgba(0,255,136,0.08)' : 'rgba(255,59,59,0.08)'} />
+                  <Chip label={c.grade} color={gs.color} bg={gs.bg} border={gs.border} />
+                </div>
+              </div>
+              <div className="text-center mb-3">
+                <p className="font-black font-mono" style={{ color: scoreC(c.swingScore), fontSize: '28px', lineHeight: 1 }}>{c.swingScore}</p>
+                <p className="text-xs" style={{ color: '#374151' }}>score / 100</p>
+              </div>
+              <MiniOption opt={c} label={c.symbol} />
+            </CpCard>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -756,8 +861,9 @@ function ScannerSection({ id, title, results, emptyMsg, accentColor }: {
 
 function ScannerNav({ counts }: { counts: Record<string, number> }) {
   const sections = [
-    { id: 'top5',      label: 'Top 5',                       color: A        },
-    { id: 'bullish',   label: `Bullish (${counts.bullish})`,  color: G        },
+    { id: 'top5contracts', label: 'Top 5 Contracts',              color: G        },
+    { id: 'top5',          label: `Top 5 Setups`,                 color: A        },
+    { id: 'bullish',       label: `Bullish (${counts.bullish})`,  color: G        },
     { id: 'bearish',   label: `Bearish (${counts.bearish})`,  color: R        },
     { id: 'breakout',  label: `Breakout (${counts.breakout})`,color: '#60a5fa' },
     { id: 'pullback',  label: `FVG Pull (${counts.pullback})`,color: '#a78bfa' },
@@ -1110,6 +1216,9 @@ function SingleAnalysisView({ data, symbol, onSymbol, loading, onRefresh }: {
         </div>
       </CpCard>
 
+      {/* Top 5 Best Contracts */}
+      <Top5Contracts calls={data.scoredCalls} puts={data.scoredPuts} />
+
       {/* Options Tables */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <CpCard>
@@ -1411,6 +1520,7 @@ export default function SwingEnginePage() {
             <>
               <ScannerNav counts={scanCounts} />
               <ScanMacroBar data={scanData} />
+              <Top5ScanContracts results={scanData.allResults} />
               <div className="flex justify-end mb-4">
                 <button onClick={loadScan}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all"
