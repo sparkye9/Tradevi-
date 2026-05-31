@@ -5,7 +5,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import {
   Layers, TrendingUp, TrendingDown, Activity, AlertTriangle,
   RefreshCw, Zap, Shield, Target, BarChart2, Minus,
-  CheckCircle, XCircle,
+  CheckCircle, XCircle, ChevronLeft, ChevronRight, Flame, Eye,
 } from 'lucide-react';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -49,6 +49,8 @@ interface OptionsFlowResult {
   phaseReason: string;
   sweeps: { type: 'call' | 'put'; strike: number; volume: number; oi: number; premium: number; ratio: number }[];
   largeBlocks: { type: 'call' | 'put'; strike: number; volume: number; premium: number; iv: number }[];
+  unusualHighVol: { type: 'call' | 'put'; strike: number; volume: number; oi: number; iv: number; premium: number; lastPrice: number; volOiRatio: number; tradeStyle: 'long-term' | 'scalp' }[];
+  unusualLowVol: { type: 'call' | 'put'; strike: number; volume: number; oi: number; iv: number; premium: number; lastPrice: number; volOiRatio: number; tradeStyle: 'scalp' }[];
   ivExpanding: boolean;
   unusualActivity: boolean;
   suggestion: 'CALLS' | 'PUTS' | 'WAIT' | 'SCALP';
@@ -62,6 +64,7 @@ interface OptionsFlowResult {
 
 const TICKERS = ['QQQ', 'SPY', 'TQQQ', 'NVDA', 'TSLA'] as const;
 type Ticker = typeof TICKERS[number];
+const ROWS_PER_PAGE = 10;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -241,6 +244,7 @@ export default function OptionsFlowPage() {
   const [error, setError]       = useState('');
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('all');
+  const [sweepPage, setSweepPage] = useState(0);
   const [lastUpdated, setLastUpdated] = useState('');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -294,8 +298,12 @@ export default function OptionsFlowPage() {
       if (activeFilter === 'calls')  return data.sweeps.filter(s => s.type === 'call');
       if (activeFilter === 'puts')   return data.sweeps.filter(s => s.type === 'put');
       if (activeFilter === 'blocks') return data.largeBlocks;
-      return [...data.sweeps, ...data.largeBlocks].sort((a, b) => b.premium - a.premium).slice(0, 20);
+      return [...data.sweeps, ...data.largeBlocks].sort((a, b) => b.premium - a.premium);
     })() : [];
+
+  const totalSweepPages = Math.max(1, Math.ceil(tableRows.length / ROWS_PER_PAGE));
+  const safeSweepPage   = Math.min(sweepPage, totalSweepPages - 1);
+  const paginatedRows   = tableRows.slice(safeSweepPage * ROWS_PER_PAGE, (safeSweepPage + 1) * ROWS_PER_PAGE);
 
   // Suggestion label
   const suggestionLabel =
@@ -327,7 +335,7 @@ export default function OptionsFlowPage() {
             {/* Ticker pills */}
             <div className="flex gap-1">
               {TICKERS.map(t => (
-                <button key={t} onClick={() => { setSelectedTicker(t); setData(null); setError(''); }}
+                <button key={t} onClick={() => { setSelectedTicker(t); setData(null); setError(''); setSweepPage(0); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
                     selectedTicker === t
                       ? 'bg-purple-600 text-white border-purple-500'
@@ -926,7 +934,7 @@ export default function OptionsFlowPage() {
                 right={
                   <div className="flex gap-1">
                     {(['all', 'calls', 'puts', 'blocks'] as ActiveFilter[]).map(f => (
-                      <button key={f} onClick={() => setActiveFilter(f)}
+                      <button key={f} onClick={() => { setActiveFilter(f); setSweepPage(0); }}
                         className={`px-2 py-0.5 rounded text-xs font-bold border transition-colors ${
                           activeFilter === f
                             ? 'bg-purple-600 text-white border-purple-500'
@@ -945,52 +953,191 @@ export default function OptionsFlowPage() {
                   <p className="text-sm">No sweeps detected — market flowing normally</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-gray-600 border-b border-gray-800">
-                        <th className="text-left py-2 px-2">Type</th>
-                        <th className="text-right py-2 px-2">Strike</th>
-                        <th className="text-right py-2 px-2">Volume</th>
-                        {'oi' in (tableRows[0] ?? {}) && <th className="text-right py-2 px-2">OI</th>}
-                        {'ratio' in (tableRows[0] ?? {}) && <th className="text-right py-2 px-2">V/OI</th>}
-                        {'iv' in (tableRows[0] ?? {}) && <th className="text-right py-2 px-2">IV</th>}
-                        <th className="text-right py-2 px-2">Premium</th>
-                        <th className="text-center py-2 px-2">Dir</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tableRows.map((row, i) => {
-                        const isCall = row.type === 'call';
-                        const rowBg = isCall ? 'bg-emerald-950/20 hover:bg-emerald-950/30' : 'bg-red-950/20 hover:bg-red-950/30';
-                        const textC = isCall ? 'text-emerald-400' : 'text-red-400';
-                        const hasSweepFields = 'oi' in row;
-                        return (
-                          <tr key={i} className={`border-b border-gray-800/50 transition-colors ${rowBg}`}>
-                            <td className={`py-2 px-2 font-bold uppercase ${textC}`}>{row.type}</td>
-                            <td className="py-2 px-2 text-right text-gray-300 font-mono">${row.strike}</td>
-                            <td className="py-2 px-2 text-right text-gray-300">{fmtNum(row.volume)}</td>
-                            {hasSweepFields && (
-                              <td className="py-2 px-2 text-right text-gray-500">{fmtNum((row as { oi: number }).oi)}</td>
-                            )}
-                            {hasSweepFields && (
-                              <td className={`py-2 px-2 text-right font-bold ${textC}`}>{(row as { ratio: number }).ratio.toFixed(1)}x</td>
-                            )}
-                            {!hasSweepFields && (
-                              <td className="py-2 px-2 text-right text-gray-500">{((row as { iv: number }).iv * 100).toFixed(1)}%</td>
-                            )}
-                            <td className={`py-2 px-2 text-right font-bold ${textC}`}>{fmtPremium(row.premium)}</td>
-                            <td className={`py-2 px-2 text-center font-black text-lg ${textC}`}>
-                              {isCall ? '↑' : '↓'}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-gray-600 border-b border-gray-800">
+                          <th className="text-left py-2 px-2">Type</th>
+                          <th className="text-right py-2 px-2">Strike</th>
+                          <th className="text-right py-2 px-2">Volume</th>
+                          {'oi' in (paginatedRows[0] ?? {}) && <th className="text-right py-2 px-2">OI</th>}
+                          {'ratio' in (paginatedRows[0] ?? {}) && <th className="text-right py-2 px-2">V/OI</th>}
+                          {'iv' in (paginatedRows[0] ?? {}) && <th className="text-right py-2 px-2">IV</th>}
+                          <th className="text-right py-2 px-2">Premium</th>
+                          <th className="text-center py-2 px-2">Dir</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedRows.map((row, i) => {
+                          const isCall = row.type === 'call';
+                          const rowBg = isCall ? 'bg-emerald-950/20 hover:bg-emerald-950/30' : 'bg-red-950/20 hover:bg-red-950/30';
+                          const textC = isCall ? 'text-emerald-400' : 'text-red-400';
+                          const hasSweepFields = 'oi' in row;
+                          return (
+                            <tr key={i} className={`border-b border-gray-800/50 transition-colors ${rowBg}`}>
+                              <td className={`py-2 px-2 font-bold uppercase ${textC}`}>{row.type}</td>
+                              <td className="py-2 px-2 text-right text-gray-300 font-mono">${row.strike}</td>
+                              <td className="py-2 px-2 text-right text-gray-300">{fmtNum(row.volume)}</td>
+                              {hasSweepFields && (
+                                <td className="py-2 px-2 text-right text-gray-500">{fmtNum((row as { oi: number }).oi)}</td>
+                              )}
+                              {hasSweepFields && (
+                                <td className={`py-2 px-2 text-right font-bold ${textC}`}>{(row as { ratio: number }).ratio.toFixed(1)}x</td>
+                              )}
+                              {!hasSweepFields && (
+                                <td className="py-2 px-2 text-right text-gray-500">{((row as { iv: number }).iv * 100).toFixed(1)}%</td>
+                              )}
+                              <td className={`py-2 px-2 text-right font-bold ${textC}`}>{fmtPremium(row.premium)}</td>
+                              <td className={`py-2 px-2 text-center font-black text-lg ${textC}`}>
+                                {isCall ? '↑' : '↓'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Pagination controls */}
+                  {totalSweepPages > 1 && (
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-800">
+                      <button
+                        onClick={() => setSweepPage(p => Math.max(0, p - 1))}
+                        disabled={safeSweepPage === 0}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-400 border border-gray-700 bg-gray-800 hover:border-gray-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronLeft size={12} /> Prev
+                      </button>
+                      <span className="text-xs text-gray-600">
+                        Page {safeSweepPage + 1} / {totalSweepPages}
+                        <span className="ml-2 text-gray-700">({tableRows.length} total)</span>
+                      </span>
+                      <button
+                        onClick={() => setSweepPage(p => Math.min(totalSweepPages - 1, p + 1))}
+                        disabled={safeSweepPage >= totalSweepPages - 1}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-400 border border-gray-700 bg-gray-800 hover:border-gray-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Next <ChevronRight size={12} />
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </DarkCard>
+
+            {/* ── SECTION 8.5: UNUSUAL VOLUME CONTRACT FLOW ─────────── */}
+            {(data.unusualHighVol.length > 0 || data.unusualLowVol.length > 0) && (
+              <DarkCard>
+                <SectionTitle
+                  icon={<Flame size={15} />}
+                  title="Unusual Volume Contract Flow"
+                  right={
+                    <span className="text-xs text-gray-600">
+                      {data.unusualHighVol.length} high · {data.unusualLowVol.length} low
+                    </span>
+                  }
+                />
+                <p className="text-gray-600 text-xs mb-3">
+                  Extreme volume spikes flag long-term call/put candidates. Extremely thin volume with strong OI reveals scalp setups.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                  {/* HIGH VOLUME — Long-term call candidates */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Flame size={13} className="text-orange-400" />
+                      <span className="text-xs font-bold text-orange-300 uppercase tracking-wide">Extremely High Volume</span>
+                      <span className="text-[10px] text-gray-600 ml-auto">Long-Term / Scalp Targets</span>
+                    </div>
+                    {data.unusualHighVol.length === 0 ? (
+                      <p className="text-gray-700 text-xs py-4 text-center">No extreme high-volume contracts detected</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {data.unusualHighVol.map((c, i) => {
+                          const isCall = c.type === 'call';
+                          const tc = isCall ? 'text-emerald-400' : 'text-red-400';
+                          const bg = isCall ? 'bg-emerald-950/25 border-emerald-900/60' : 'bg-red-950/25 border-red-900/60';
+                          return (
+                            <div key={i} className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${bg}`}>
+                              <span className={`font-black text-xs uppercase w-8 shrink-0 ${tc}`}>{c.type}</span>
+                              <span className="text-gray-300 font-mono text-xs w-16 shrink-0">${c.strike}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`font-bold text-xs ${tc}`}>{fmtNum(c.volume)}</span>
+                                  <span className="text-gray-600 text-[10px]">vol</span>
+                                  {c.oi > 0 && <span className="text-gray-600 text-[10px]">· OI {fmtNum(c.oi)}</span>}
+                                  <span className="text-gray-600 text-[10px]">· {(c.iv * 100).toFixed(0)}% IV</span>
+                                </div>
+                              </div>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${
+                                c.tradeStyle === 'scalp'
+                                  ? 'text-amber-400 bg-amber-950/40 border-amber-800'
+                                  : 'text-blue-400 bg-blue-950/40 border-blue-800'
+                              }`}>
+                                {c.tradeStyle === 'scalp' ? 'SCALP' : 'LONG CALL'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* LOW VOLUME — Scalp candidates */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Eye size={13} className="text-purple-400" />
+                      <span className="text-xs font-bold text-purple-300 uppercase tracking-wide">Extremely Low Volume</span>
+                      <span className="text-[10px] text-gray-600 ml-auto">Scalp Watch · Stealth OI</span>
+                    </div>
+                    {data.unusualLowVol.length === 0 ? (
+                      <p className="text-gray-700 text-xs py-4 text-center">No extreme low-volume contracts detected</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {data.unusualLowVol.map((c, i) => {
+                          const isCall = c.type === 'call';
+                          const tc = isCall ? 'text-emerald-400' : 'text-red-400';
+                          const bg = isCall ? 'bg-emerald-950/20 border-emerald-900/40' : 'bg-red-950/20 border-red-900/40';
+                          return (
+                            <div key={i} className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${bg}`}>
+                              <span className={`font-black text-xs uppercase w-8 shrink-0 ${tc}`}>{c.type}</span>
+                              <span className="text-gray-300 font-mono text-xs w-16 shrink-0">${c.strike}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-bold text-xs text-purple-400">{c.volume}</span>
+                                  <span className="text-gray-600 text-[10px]">vol</span>
+                                  <span className="text-gray-600 text-[10px]">· OI {fmtNum(c.oi)}</span>
+                                  <span className="text-gray-600 text-[10px]">· {(c.iv * 100).toFixed(0)}% IV</span>
+                                </div>
+                              </div>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border text-amber-400 bg-amber-950/40 border-amber-800 shrink-0">
+                                DAY SCALP
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-gray-800 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                  {[
+                    { label: 'High Vol Calls', value: data.unusualHighVol.filter(c => c.type === 'call').length, color: 'text-emerald-400' },
+                    { label: 'High Vol Puts',  value: data.unusualHighVol.filter(c => c.type === 'put').length,  color: 'text-red-400' },
+                    { label: 'Low Vol Calls',  value: data.unusualLowVol.filter(c => c.type === 'call').length,  color: 'text-emerald-300' },
+                    { label: 'Low Vol Puts',   value: data.unusualLowVol.filter(c => c.type === 'put').length,   color: 'text-red-300' },
+                  ].map(stat => (
+                    <div key={stat.label} className="bg-gray-800/50 rounded-lg px-2 py-2">
+                      <p className="text-gray-600 text-[10px]">{stat.label}</p>
+                      <p className={`font-black text-lg ${stat.color}`}>{stat.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </DarkCard>
+            )}
 
             {/* ── SECTION 9: AI FLOW INTERPRETATION ────────────────── */}
             <DarkCard glow="neutral">

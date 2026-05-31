@@ -66,6 +66,8 @@ export interface OptionsFlowResult {
   phaseReason: string;
   sweeps: { type: 'call' | 'put'; strike: number; volume: number; oi: number; premium: number; ratio: number }[];
   largeBlocks: { type: 'call' | 'put'; strike: number; volume: number; premium: number; iv: number }[];
+  unusualHighVol: { type: 'call' | 'put'; strike: number; volume: number; oi: number; iv: number; premium: number; lastPrice: number; volOiRatio: number; tradeStyle: 'long-term' | 'scalp' }[];
+  unusualLowVol: { type: 'call' | 'put'; strike: number; volume: number; oi: number; iv: number; premium: number; lastPrice: number; volOiRatio: number; tradeStyle: 'scalp' }[];
   ivExpanding: boolean;
   unusualActivity: boolean;
   suggestion: 'CALLS' | 'PUTS' | 'WAIT' | 'SCALP';
@@ -336,6 +338,50 @@ function computeFlow(
     phaseReason = 'Insufficient signal confluence to determine a definitive market phase.';
   }
 
+  // ── Unusual volume detection ──────────────────────────────────────────────────
+  const _vols: number[] = [];
+  for (const c of calls) { const v = safeNum(c.volume); if (v > 0) _vols.push(v); }
+  for (const p of puts)  { const v = safeNum(p.volume); if (v > 0) _vols.push(v); }
+
+  let _avgVol = 0, _medVol = 0;
+  if (_vols.length > 0) {
+    _avgVol = _vols.reduce((s, v) => s + v, 0) / _vols.length;
+    const _sv = [..._vols].sort((a, b) => a - b);
+    _medVol = _sv[Math.floor(_sv.length / 2)];
+  }
+
+  const _highThresh = Math.max(_medVol * 5, _avgVol * 3, 500);
+  const _lowMax     = Math.max(Math.floor(_medVol * 0.1), 3);
+
+  const unusualHighVol: { type: 'call'|'put'; strike: number; volume: number; oi: number; iv: number; premium: number; lastPrice: number; volOiRatio: number; tradeStyle: 'long-term'|'scalp' }[] = [];
+  const unusualLowVol:  { type: 'call'|'put'; strike: number; volume: number; oi: number; iv: number; premium: number; lastPrice: number; volOiRatio: number; tradeStyle: 'scalp' }[] = [];
+
+  const _classify = (opts: YahooOption[], ctype: 'call'|'put') => {
+    for (const c of opts) {
+      const vol  = safeNum(c.volume);
+      const oi   = safeNum(c.openInterest);
+      const lp   = safeNum(c.lastPrice);
+      const iv   = safeNum(c.impliedVolatility);
+      const prem = Math.round(vol * lp * 100);
+      const rat  = oi > 0 ? r2(vol / oi) : 0;
+
+      if (vol >= _highThresh) {
+        const atmDist = price > 0 ? Math.abs(c.strike - price) / price : 1;
+        const style: 'long-term'|'scalp' = (atmDist <= 0.02 && expiryDaysAway <= 5) ? 'scalp' : 'long-term';
+        unusualHighVol.push({ type: ctype, strike: c.strike, volume: vol, oi, iv: r4(iv), premium: prem, lastPrice: lp, volOiRatio: rat, tradeStyle: style });
+      }
+
+      if (vol > 0 && vol <= _lowMax && oi >= 100) {
+        unusualLowVol.push({ type: ctype, strike: c.strike, volume: vol, oi, iv: r4(iv), premium: prem, lastPrice: lp, volOiRatio: rat, tradeStyle: 'scalp' });
+      }
+    }
+  };
+
+  _classify(calls, 'call');
+  _classify(puts, 'put');
+  unusualHighVol.sort((a, b) => b.volume - a.volume);
+  unusualLowVol.sort((a, b) => b.oi - a.oi);
+
   // ── Trade suggestion ──────────────────────────────────────────────────────────
   let suggestion: OptionsFlowResult['suggestion'];
   if (phase === 'manipulation' || confidence < 40) {
@@ -407,6 +453,8 @@ function computeFlow(
     phaseReason,
     sweeps: sweeps.slice(0, 10),
     largeBlocks: largeBlocks.slice(0, 10),
+    unusualHighVol: unusualHighVol.slice(0, 15),
+    unusualLowVol: unusualLowVol.slice(0, 10),
     ivExpanding,
     unusualActivity,
     suggestion,
