@@ -1,5 +1,5 @@
 // lib/finviz.ts — Server-side Finviz Elite fetcher
-// Uses _finviz_toekn cookie (Finviz's own typo) from FINVIZ_SESSION_COOKIE env var
+// Authenticates with FINVIZ_EMAIL + FINVIZ_PASSWORD, caches the session cookie.
 
 export interface FinvizQuote {
   symbol: string;
@@ -37,6 +37,9 @@ export interface FinvizResult<T> {
 
 const cache = new Map<string, { data: unknown; ts: number }>();
 const TTL = 60_000;
+// Session cookie cached separately with a longer TTL (8 hours)
+let sessionCache: { cookie: string; ts: number } | null = null;
+const SESSION_TTL = 8 * 60 * 60 * 1000;
 
 function getCached<T>(key: string): T | null {
   const entry = cache.get(key);
@@ -48,8 +51,46 @@ function setCache(key: string, data: unknown): void {
   cache.set(key, { data, ts: Date.now() });
 }
 
-function getSessionCookie(): string | null {
-  return process.env.FINVIZ_SESSION_COOKIE ?? null;
+async function getSessionCookie(): Promise<{ cookie: string | null; error?: string }> {
+  // 1. Prefer an already-valid cached session
+  if (sessionCache && Date.now() - sessionCache.ts < SESSION_TTL) {
+    return { cookie: sessionCache.cookie };
+  }
+  // 2. Hard-coded override still supported
+  const override = process.env.FINVIZ_SESSION_COOKIE;
+  if (override) {
+    sessionCache = { cookie: override, ts: Date.now() };
+    return { cookie: override };
+  }
+  // 3. Auto-login with email + password
+  const email = process.env.FINVIZ_EMAIL;
+  const password = process.env.FINVIZ_PASSWORD;
+  if (!email || !password) {
+    return { cookie: null, error: 'Set FINVIZ_EMAIL and FINVIZ_PASSWORD in .env.local' };
+  }
+  try {
+    const resp = await fetch('https://finviz.com/login_submit.ashx', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (compatible; Tradevi/3.0)',
+        Referer: 'https://finviz.com/login.ashx',
+      },
+      body: new URLSearchParams({ email, password, remember: 'on' }).toString(),
+      redirect: 'manual',
+    });
+    // Finviz sets _finviz_toekn (their typo) in a Set-Cookie header on successful login
+    const raw = resp.headers.get('set-cookie') ?? '';
+    const match = raw.match(/_finviz_toekn=([^;]+)/);
+    if (!match) {
+      return { cookie: null, error: 'Finviz login failed — check FINVIZ_EMAIL and FINVIZ_PASSWORD' };
+    }
+    const cookie = match[1];
+    sessionCache = { cookie, ts: Date.now() };
+    return { cookie };
+  } catch (err) {
+    return { cookie: null, error: `Finviz login error: ${String(err)}` };
+  }
 }
 
 function makeHeaders(cookie: string): Record<string, string> {
@@ -107,11 +148,11 @@ export async function fetchFinvizScreener(
     return { data: [], lastUpdated: new Date().toISOString() };
   }
 
-  const cookie = getSessionCookie();
+  const { cookie, error: sessionError } = await getSessionCookie();
   if (!cookie) {
     return {
       data: [],
-      sourceError: 'FINVIZ_SESSION_COOKIE not set',
+      sourceError: sessionError ?? 'Finviz credentials not configured',
       lastUpdated: new Date().toISOString(),
     };
   }
@@ -121,12 +162,6 @@ export async function fetchFinvizScreener(
   if (cached) return cached;
 
   const tickerParam = tickers.join(',');
-  // v=152 returns: No, Ticker, Company, Sector, Industry, Country, MarketCap, P/E, Forward P/E,
-  // PEG, P/S, P/B, P/C, P/FCF, Dividend, Payout, EPS, EPS this Y, EPS next Y, EPS past 5Y,
-  // EPS next 5Y, Sales past 5Y, EPS Q/Q, Sales Q/Q, Outstanding, Float, Insider Own, Insider Trans,
-  // Inst Own, Inst Trans, Float Short, Short Ratio, Earn Date, Perf Week, Perf Month, Perf Quart,
-  // Perf Half, Perf Year, Perf YTD, Beta, ATR, Volatility W, Volatility M, SMA20, SMA50, SMA200,
-  // 52W High, 52W Low, RSI, Change, Volume, Avg Volume, Rel Volume, Price, Change from Open, Gap
   const url = `https://elite.finviz.com/screener.ashx?v=152&t=${encodeURIComponent(tickerParam)}&o=-change`;
 
   let html: string;
@@ -289,7 +324,7 @@ export async function fetchFinvizFutures(): Promise<FinvizResult<FinvizFuture>> 
   const cached = getCached<FinvizResult<FinvizFuture>>(cacheKey);
   if (cached) return cached;
 
-  const cookie = getSessionCookie();
+  const { cookie } = await getSessionCookie();
   const headers: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (compatible; Tradevi/3.0)',
     Accept: 'text/html,application/xhtml+xml',
