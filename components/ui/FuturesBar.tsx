@@ -8,7 +8,7 @@ interface Future {
   direction: 'up' | 'down' | 'flat' | null;
 }
 
-const SYMBOLS = ['ES', 'NQ', 'YM', 'RTY', 'NKD'];
+const SYMBOLS = ['ES', 'NQ', 'YM', 'RTY', 'VIX', 'GC'];
 
 const PLACEHOLDERS: Future[] = SYMBOLS.map((symbol) => ({
   symbol,
@@ -111,15 +111,19 @@ export default function FuturesBar() {
       {futures.map((f) => {
         const isUp = f.direction === 'up';
         const isDown = f.direction === 'down';
-        const chgColor = isUp ? 'text-emerald-400' : isDown ? 'text-red-400' : 'text-gray-500';
+        // VIX: rising is bearish (red), falling is bullish (green)
+        const chgColor = f.symbol === 'VIX'
+          ? (isUp ? 'text-red-400' : isDown ? 'text-emerald-400' : 'text-gray-500')
+          : (isUp ? 'text-emerald-400' : isDown ? 'text-red-400' : 'text-gray-500');
         const arrow = isUp ? '▲' : isDown ? '▼' : '';
         const isPlaceholder = !loaded || f.price === null;
+        const label = f.symbol === 'GC' ? 'Gold' : f.symbol;
         return (
           <div
             key={f.symbol}
             className="flex items-center gap-2 whitespace-nowrap bg-[#1a1a1a] rounded px-3 py-1"
           >
-            <span className="text-gray-400 font-mono text-xs">{f.symbol}</span>
+            <span className="text-gray-400 font-mono text-xs">{label}</span>
             {!isPlaceholder ? (
               <>
                 <span className="text-white font-mono text-xs">{f.price!.toLocaleString()}</span>

@@ -10,7 +10,8 @@ const FUTURES_MAP: { yahoo: string; symbol: string; name: string }[] = [
   { yahoo: 'NQ=F',  symbol: 'NQ',  name: 'Nasdaq 100 Futures' },
   { yahoo: 'YM=F',  symbol: 'YM',  name: 'Dow Jones Futures' },
   { yahoo: 'RTY=F', symbol: 'RTY', name: 'Russell 2000 Futures' },
-  { yahoo: 'NKD=F', symbol: 'NKD', name: 'Nikkei 225 Futures' },
+  { yahoo: '^VIX',  symbol: 'VIX', name: 'CBOE Volatility Index' },
+  { yahoo: 'GC=F',  symbol: 'GC',  name: 'Gold Futures' },
 ];
 
 // Last successful result — serves stale data if all live fetches fail
