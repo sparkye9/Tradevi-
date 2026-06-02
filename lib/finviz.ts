@@ -94,10 +94,16 @@ async function getSessionCookie(): Promise<{ cookie: string | null; error?: stri
 }
 
 function makeHeaders(cookie: string): Record<string, string> {
+  // Send both known Finviz cookie names — Elite uses _finviz_t, older accounts used _finviz_toekn
+  const cookieStr = cookie.includes('=')
+    ? cookie // already a full cookie string
+    : `_finviz_t=${cookie}; _finviz_toekn=${cookie}`;
   return {
-    Cookie: `_finviz_toekn=${cookie}`,
-    'User-Agent': 'Mozilla/5.0 (compatible; Tradevi/3.0)',
-    Accept: 'text/html,application/xhtml+xml',
+    Cookie: cookieStr,
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    Referer: 'https://elite.finviz.com/screener.ashx',
   };
 }
 
@@ -326,10 +332,13 @@ export async function fetchFinvizFutures(): Promise<FinvizResult<FinvizFuture>> 
 
   const { cookie } = await getSessionCookie();
   const headers: Record<string, string> = {
-    'User-Agent': 'Mozilla/5.0 (compatible; Tradevi/3.0)',
-    Accept: 'text/html,application/xhtml+xml',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
   };
-  if (cookie) headers['Cookie'] = `_finviz_toekn=${cookie}`;
+  if (cookie) {
+    headers['Cookie'] = cookie.includes('=') ? cookie : `_finviz_t=${cookie}; _finviz_toekn=${cookie}`;
+  }
 
   let html: string;
   try {
