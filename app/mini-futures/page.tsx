@@ -40,7 +40,7 @@ export default function MiniFuturesPage() {
       </div>
 
       <div className="flex items-center gap-4">
-        {data && <SourceTag source="Finviz" lastUpdated={data.lastUpdated} />}
+        {data && <SourceTag source={data.source ?? 'Finviz'} lastUpdated={data.lastUpdated} />}
         {loading && <span className="text-gray-500 text-sm">Loading...</span>}
       </div>
 

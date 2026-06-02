@@ -1,6 +1,25 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+export const MARKET_TICKERS = [
+  // Mega cap tech
+  'AAPL','MSFT','NVDA','GOOGL','META','AMZN','TSLA','AMD','INTC','QCOM',
+  // Finance
+  'JPM','BAC','GS','MS','WFC','BRK-B','V','MA','AXP','C',
+  // Healthcare
+  'JNJ','UNH','PFE','ABBV','MRK','LLY','TMO','ABT','DHR','BMY',
+  // Consumer
+  'WMT','COST','HD','NKE','MCD','SBUX','TGT','LOW','TJX',
+  // Energy
+  'XOM','CVX','COP','SLB','EOG','PXD','MPC','VLO','HAL','OXY',
+  // ETFs
+  'SPY','QQQ','IWM','DIA','XLK','XLF','XLV','XLE','XLY','GLD',
+  // High momentum names
+  'SHOP','PLTR','SNOW','CRWD','NET','DDOG','PANW','ZS','COIN','HOOD',
+  // Other popular
+  'NFLX','DIS','BA','CAT','DE','MMM','GE','F','GM','UBER',
+];
+
 export interface ManualCheck {
   choch: boolean;
   bos: boolean;
@@ -37,6 +56,10 @@ export interface TradeviStore {
   // Tradeify rule threshold
   tradeifyConcentrationLimit: number;
   setTradeifyConcentrationLimit: (n: number) => void;
+
+  // Scan mode
+  scanMode: 'watchlist' | 'market';
+  setScanMode: (m: 'watchlist' | 'market') => void;
 }
 
 const DEFAULT_WATCHLIST = [
@@ -121,6 +144,9 @@ export const useTradeviStore = create<TradeviStore>()(
 
       tradeifyConcentrationLimit: 30,
       setTradeifyConcentrationLimit: (n) => set({ tradeifyConcentrationLimit: n }),
+
+      scanMode: 'watchlist',
+      setScanMode: (m) => set({ scanMode: m }),
     }),
     { name: 'tradevi-store' }
   )

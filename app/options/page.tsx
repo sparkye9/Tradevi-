@@ -18,8 +18,8 @@ function ContractsTable({ contracts, isTradier }: {
   contracts: TradierContract[];
   isTradier: boolean;
 }) {
-  const calls = contracts.filter((c) => c.type === 'call').slice(0, 5);
-  const puts = contracts.filter((c) => c.type === 'put').slice(0, 5);
+  const calls = contracts.filter((c) => c.type === 'call').slice(0, 10);
+  const puts = contracts.filter((c) => c.type === 'put').slice(0, 10);
 
   function Row({ c }: { c: TradierContract }) {
     return (
@@ -198,7 +198,7 @@ export default function OptionsPage() {
       return intraday || swing;
     })
     .sort((a, b) => (b.rvol ?? 0) - (a.rvol ?? 0))
-    .slice(0, 8);
+    .slice(0, 10);
 
   return (
     <div className="space-y-6 max-w-5xl">
