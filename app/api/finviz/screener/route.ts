@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchFinvizScreener } from '@/lib/finviz';
+import { fetchFinvizPublicScreener } from '@/lib/finviz-public';
+import { fetchYahooScreener } from '@/lib/yahoo-screener';
 
 export const runtime = 'nodejs';
 
@@ -14,6 +15,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ data: [], lastUpdated: new Date().toISOString() });
   }
 
-  const result = await fetchFinvizScreener(tickers);
-  return NextResponse.json(result);
+  // Try Finviz public screener first (same approach as finvizfinance Python library)
+  const finvizResult = await fetchFinvizPublicScreener(tickers);
+  if (!finvizResult.blocked && !finvizResult.sourceError && finvizResult.data.length > 0) {
+    return NextResponse.json(finvizResult);
+  }
+
+  // Fall back to Yahoo Finance
+  const yahooResult = await fetchYahooScreener(tickers);
+  return NextResponse.json({
+    ...yahooResult,
+    finvizError: finvizResult.sourceError,
+  });
 }
