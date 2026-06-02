@@ -98,7 +98,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-white font-semibold text-sm">Market Posture</h2>
           {indexData && (
-            <SourceTag source="Finviz Elite" lastUpdated={indexData.lastUpdated} />
+            <SourceTag source={indexData.source ?? 'Yahoo Finance'} lastUpdated={indexData.lastUpdated} />
           )}
         </div>
 
@@ -128,7 +128,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-white font-semibold text-sm">Futures Bias</h2>
           {futuresData && (
-            <SourceTag source="Finviz" lastUpdated={futuresData.lastUpdated} />
+            <SourceTag source={futuresData.source ?? 'Finviz'} lastUpdated={futuresData.lastUpdated} />
           )}
         </div>
         {futuresData?.sourceError ? (

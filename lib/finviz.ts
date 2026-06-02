@@ -32,6 +32,7 @@ export interface FinvizFuture {
 export interface FinvizResult<T> {
   data: T[];
   sourceError?: string;
+  source?: string;
   lastUpdated: string;
 }
 
