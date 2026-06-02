@@ -60,6 +60,10 @@ export interface TradeviStore {
   // Scan mode
   scanMode: 'watchlist' | 'market';
   setScanMode: (m: 'watchlist' | 'market') => void;
+
+  // Capital selector for opportunity finder
+  capitalAmount: number;
+  setCapitalAmount: (n: number) => void;
 }
 
 const DEFAULT_WATCHLIST = [
@@ -147,6 +151,9 @@ export const useTradeviStore = create<TradeviStore>()(
 
       scanMode: 'watchlist',
       setScanMode: (m) => set({ scanMode: m }),
+
+      capitalAmount: 100,
+      setCapitalAmount: (n) => set({ capitalAmount: n }),
     }),
     { name: 'tradevi-store' }
   )
