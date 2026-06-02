@@ -9,21 +9,20 @@ export interface YahooContract {
   strike: number;
   type: 'call' | 'put';
   iv: number | null;
-  volume: number;
-  openInterest: number;
+  volume: number | null;
+  openInterest: number | null;
   bid: number | null;
   ask: number | null;
-  source: 'Yahoo Finance (delayed)';
 }
 
 export interface YahooOptionsResult {
   contracts: YahooContract[];
   sourceError?: string;
-  lastUpdated: string;
   source: 'Yahoo Finance (delayed)';
+  lastUpdated: string;
 }
 
-interface YahooOptionRaw {
+interface YahooOptionContract {
   contractSymbol?: string;
   expiration?: number;
   strike?: number;
@@ -34,75 +33,99 @@ interface YahooOptionRaw {
   ask?: number;
 }
 
+interface YahooOptionsResponse {
+  optionChain?: {
+    result?: Array<{
+      options?: Array<{
+        expirationDate?: number;
+        calls?: YahooOptionContract[];
+        puts?: YahooOptionContract[];
+      }>;
+    }>;
+    error?: string | null;
+  };
+}
+
+function parseYahooContract(
+  opt: YahooOptionContract,
+  type: 'call' | 'put',
+  expiration: string
+): YahooContract {
+  return {
+    symbol: opt.contractSymbol ?? '',
+    expiration,
+    strike: opt.strike ?? 0,
+    type,
+    iv: opt.impliedVolatility != null ? opt.impliedVolatility : null,
+    volume: opt.volume != null ? opt.volume : null,
+    openInterest: opt.openInterest != null ? opt.openInterest : null,
+    bid: opt.bid != null ? opt.bid : null,
+    ask: opt.ask != null ? opt.ask : null,
+  };
+}
+
 export async function fetchYahooOptions(symbol: string): Promise<YahooOptionsResult> {
   const now = new Date().toISOString();
-  const source = 'Yahoo Finance (delayed)' as const;
+  const url = `https://query1.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
 
+  let json: YahooOptionsResponse;
   try {
-    const url = `https://query1.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
     const resp = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; Tradevi/3.0)',
-        Accept: 'application/json',
-      },
-      next: { revalidate: 0 },
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Tradevi/3.0)' },
+      cache: 'no-store',
     });
-
     if (!resp.ok) {
-      return { contracts: [], sourceError: `Yahoo Finance HTTP ${resp.status}`, lastUpdated: now, source };
-    }
-
-    const json = await resp.json() as {
-      optionChain?: {
-        result?: Array<{
-          options?: Array<{
-            calls?: YahooOptionRaw[];
-            puts?: YahooOptionRaw[];
-            expirationDate?: number;
-          }>;
-        }>;
+      return {
+        contracts: [],
+        sourceError: `Yahoo Finance HTTP ${resp.status}`,
+        source: 'Yahoo Finance (delayed)',
+        lastUpdated: now,
       };
-    };
-
-    const result = json?.optionChain?.result?.[0];
-    if (!result) {
-      return { contracts: [], sourceError: 'No option data from Yahoo Finance', lastUpdated: now, source };
     }
+    json = (await resp.json()) as YahooOptionsResponse;
+  } catch (err) {
+    return {
+      contracts: [],
+      sourceError: `Yahoo Finance fetch failed: ${String(err)}`,
+      source: 'Yahoo Finance (delayed)',
+      lastUpdated: now,
+    };
+  }
 
-    const options = result.options?.[0];
-    const expTs = options?.expirationDate;
-    const expiration = expTs
+  const result = json.optionChain?.result?.[0];
+  if (!result) {
+    return {
+      contracts: [],
+      sourceError: 'Yahoo Finance returned no options data',
+      source: 'Yahoo Finance (delayed)',
+      lastUpdated: now,
+    };
+  }
+
+  const contracts: YahooContract[] = [];
+
+  for (const optionSet of result.options ?? []) {
+    const expTs = optionSet.expirationDate;
+    const expDate = expTs
       ? new Date(expTs * 1000).toISOString().split('T')[0]
       : 'unknown';
 
-    const mapContracts = (
-      raws: YahooOptionRaw[] | undefined,
-      type: 'call' | 'put'
-    ): YahooContract[] => {
-      if (!raws) return [];
-      return raws.map((o): YahooContract => ({
-        symbol: o.contractSymbol ?? '',
-        expiration,
-        strike: o.strike ?? 0,
-        type,
-        iv: o.impliedVolatility !== undefined ? o.impliedVolatility : null,
-        volume: o.volume ?? 0,
-        openInterest: o.openInterest ?? 0,
-        bid: o.bid ?? null,
-        ask: o.ask ?? null,
-        source,
-      }));
-    };
-
-    const calls = mapContracts(options?.calls, 'call');
-    const puts = mapContracts(options?.puts, 'put');
-    const contracts = [...calls, ...puts].sort(
-      (a, b) => (b.volume ?? 0) - (a.volume ?? 0)
-    );
-
-    return { contracts, lastUpdated: now, source };
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { contracts: [], sourceError: `Yahoo Finance error: ${msg}`, lastUpdated: now, source };
+    for (const call of optionSet.calls ?? []) {
+      contracts.push(parseYahooContract(call, 'call', expDate));
+    }
+    for (const put of optionSet.puts ?? []) {
+      contracts.push(parseYahooContract(put, 'put', expDate));
+    }
   }
+
+  // Filter: volume > 50, OI > 100 where available
+  const filtered = contracts.filter(
+    (c) => (c.volume === null || c.volume > 50) && (c.openInterest === null || c.openInterest > 100)
+  );
+
+  return {
+    contracts: filtered.slice(0, 20),
+    source: 'Yahoo Finance (delayed)',
+    lastUpdated: now,
+  };
 }

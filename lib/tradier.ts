@@ -1,5 +1,4 @@
-// lib/tradier.ts
-// Tradier API options fetcher. Uses TRADIER_TOKEN + TRADIER_ENV env vars.
+// lib/tradier.ts — Tradier API options fetcher
 
 export interface TradierContract {
   symbol: string;
@@ -11,8 +10,8 @@ export interface TradierContract {
   theta: number | null;
   vega: number | null;
   iv: number | null;
-  volume: number;
-  openInterest: number;
+  volume: number | null;
+  openInterest: number | null;
   bid: number | null;
   ask: number | null;
   greeksUpdated: string; // ISO
@@ -21,24 +20,29 @@ export interface TradierContract {
 export interface TradierOptionsResult {
   contracts: TradierContract[];
   sourceError?: string;
+  source: string;
   lastUpdated: string;
 }
 
-function getBase(): string {
+function getBaseUrl(): string {
   const env = process.env.TRADIER_ENV ?? 'production';
   return env === 'sandbox'
     ? 'https://sandbox.tradier.com/v1'
     : 'https://api.tradier.com/v1';
 }
 
+function getToken(): string | null {
+  return process.env.TRADIER_TOKEN ?? null;
+}
+
 async function tradierGet<T>(path: string, token: string): Promise<T> {
-  const base = getBase();
+  const base = getBaseUrl();
   const resp = await fetch(`${base}${path}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: 'application/json',
     },
-    next: { revalidate: 0 },
+    cache: 'no-store',
   });
   if (!resp.ok) {
     throw new Error(`Tradier HTTP ${resp.status} for ${path}`);
@@ -46,103 +50,122 @@ async function tradierGet<T>(path: string, token: string): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
-export async function fetchTradierOptions(
-  symbol: string
-): Promise<TradierOptionsResult> {
-  const now = new Date().toISOString();
-  const token = process.env.TRADIER_TOKEN;
+export async function fetchTradierOptions(symbol: string): Promise<TradierOptionsResult> {
+  const token = getToken();
   if (!token) {
-    return { contracts: [], sourceError: 'Tradier not connected', lastUpdated: now };
+    return {
+      contracts: [],
+      sourceError: 'Tradier not connected',
+      source: 'Tradier',
+      lastUpdated: new Date().toISOString(),
+    };
   }
+
+  const now = new Date().toISOString();
+
+  let expirations: string[];
+  try {
+    const expData = await tradierGet<{
+      expirations: { date: string[] } | null;
+    }>(`/markets/options/expirations?symbol=${encodeURIComponent(symbol)}`, token);
+    expirations = expData.expirations?.date ?? [];
+  } catch (err) {
+    return {
+      contracts: [],
+      sourceError: `Tradier expirations failed: ${String(err)}`,
+      source: 'Tradier',
+      lastUpdated: now,
+    };
+  }
+
+  if (!expirations.length) {
+    return {
+      contracts: [],
+      sourceError: `No expirations found for ${symbol}`,
+      source: 'Tradier',
+      lastUpdated: now,
+    };
+  }
+
+  // Use nearest expiration
+  const expiration = expirations[0];
+
+  let chainData: {
+    options: {
+      option: Array<{
+        symbol: string;
+        expiration_date: string;
+        strike: number;
+        option_type: string;
+        bid: number;
+        ask: number;
+        volume: number;
+        open_interest: number;
+        greeks?: {
+          delta?: number;
+          gamma?: number;
+          theta?: number;
+          vega?: number;
+          mid_iv?: number;
+          updated_at?: string;
+        };
+      }>;
+    } | null;
+  };
 
   try {
-    // Step 1: get nearest expiration
-    const expResp = await tradierGet<{
-      expirations: { expiration: { date: string[] | string } };
-    }>(`/markets/options/expirations?symbol=${symbol}`, token);
-
-    const dates = expResp?.expirations?.expiration;
-    if (!dates) {
-      return { contracts: [], sourceError: 'No expirations returned by Tradier', lastUpdated: now };
-    }
-
-    const dateList: string[] = Array.isArray(dates) ? dates : [dates as unknown as string];
-    const expiration = dateList[0];
-    if (!expiration) {
-      return { contracts: [], sourceError: 'No valid expiration found', lastUpdated: now };
-    }
-
-    // Step 2: fetch option chain with greeks
-    const chainResp = await tradierGet<{
-      options: { option: unknown[] };
-    }>(
-      `/markets/options/chains?symbol=${symbol}&expiration=${expiration}&greeks=true`,
+    chainData = await tradierGet(
+      `/markets/options/chains?symbol=${encodeURIComponent(symbol)}&expiration=${expiration}&greeks=true`,
       token
     );
-
-    const rawOptions = chainResp?.options?.option;
-    if (!rawOptions || !Array.isArray(rawOptions)) {
-      return { contracts: [], sourceError: 'No option chain data from Tradier', lastUpdated: now };
-    }
-
-    interface RawOption {
-      symbol?: string;
-      expiration_date?: string;
-      strike?: number;
-      option_type?: string;
-      volume?: number;
-      open_interest?: number;
-      bid?: number;
-      ask?: number;
-      greeks?: {
-        delta?: number;
-        gamma?: number;
-        theta?: number;
-        vega?: number;
-        mid_iv?: number;
-        smv_vol?: number;
-      };
-    }
-
-    const contracts: TradierContract[] = (rawOptions as RawOption[])
-      .map((o): TradierContract | null => {
-        const delta = o.greeks?.delta ?? null;
-        const gamma = o.greeks?.gamma ?? null;
-        const theta = o.greeks?.theta ?? null;
-        const vega = o.greeks?.vega ?? null;
-        const iv = o.greeks?.mid_iv ?? o.greeks?.smv_vol ?? null;
-        const volume = o.volume ?? 0;
-        const oi = o.open_interest ?? 0;
-
-        // Filter by delta 0.20-0.70, volume > 50, OI > 100
-        const absDelta = delta !== null ? Math.abs(delta) : null;
-        if (absDelta === null || absDelta < 0.20 || absDelta > 0.70) return null;
-        if (volume <= 50) return null;
-        if (oi <= 100) return null;
-
-        return {
-          symbol: o.symbol ?? '',
-          expiration: o.expiration_date ?? expiration,
-          strike: o.strike ?? 0,
-          type: (o.option_type === 'call' ? 'call' : 'put') as 'call' | 'put',
-          delta,
-          gamma,
-          theta,
-          vega,
-          iv,
-          volume,
-          openInterest: oi,
-          bid: o.bid ?? null,
-          ask: o.ask ?? null,
-          greeksUpdated: now,
-        };
-      })
-      .filter((c): c is TradierContract => c !== null)
-      .sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
-
-    return { contracts, lastUpdated: now };
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { contracts: [], sourceError: `Tradier error: ${msg}`, lastUpdated: now };
+  } catch (err) {
+    return {
+      contracts: [],
+      sourceError: `Tradier chain fetch failed: ${String(err)}`,
+      source: 'Tradier',
+      lastUpdated: now,
+    };
   }
+
+  const options = chainData.options?.option ?? [];
+  const contracts: TradierContract[] = [];
+
+  for (const opt of options) {
+    const delta = opt.greeks?.delta ?? null;
+    const volume = opt.volume ?? null;
+    const oi = opt.open_interest ?? null;
+
+    // Filter: delta 0.20-0.70 (absolute), volume > 50, OI > 100
+    if (delta === null) continue;
+    const absDelta = Math.abs(delta);
+    if (absDelta < 0.2 || absDelta > 0.7) continue;
+    if (volume !== null && volume <= 50) continue;
+    if (oi !== null && oi <= 100) continue;
+
+    contracts.push({
+      symbol: opt.symbol,
+      expiration: opt.expiration_date,
+      strike: opt.strike,
+      type: opt.option_type === 'call' ? 'call' : 'put',
+      delta,
+      gamma: opt.greeks?.gamma ?? null,
+      theta: opt.greeks?.theta ?? null,
+      vega: opt.greeks?.vega ?? null,
+      iv: opt.greeks?.mid_iv ?? null,
+      volume,
+      openInterest: oi,
+      bid: opt.bid ?? null,
+      ask: opt.ask ?? null,
+      greeksUpdated: opt.greeks?.updated_at ?? now,
+    });
+  }
+
+  // Sort by volume desc
+  contracts.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
+
+  return {
+    contracts,
+    source: 'Tradier',
+    lastUpdated: now,
+  };
 }

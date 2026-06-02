@@ -1,7 +1,5 @@
-// lib/finviz.ts
-// Server-side Finviz Elite data fetcher.
-// Uses the _finviz_toekn session cookie (note Finviz's intentional typo).
-// Never substitutes fake data. Returns sourceError on failure.
+// lib/finviz.ts — Server-side Finviz Elite fetcher
+// Uses _finviz_toekn cookie (Finviz's own typo) from FINVIZ_SESSION_COOKIE env var
 
 export interface FinvizQuote {
   symbol: string;
@@ -19,7 +17,7 @@ export interface FinvizQuote {
   industry: string | null;
   groupStrength: 'strong' | 'weak' | 'neutral' | null;
   price: number | null;
-  lastUpdated: string; // ISO
+  lastUpdated: string;
 }
 
 export interface FinvizFuture {
@@ -28,7 +26,7 @@ export interface FinvizFuture {
   price: number | null;
   changePercent: number | null;
   direction: 'up' | 'down' | 'flat' | null;
-  lastUpdated: string; // ISO
+  lastUpdated: string;
 }
 
 export interface FinvizResult<T> {
@@ -37,375 +35,342 @@ export interface FinvizResult<T> {
   lastUpdated: string;
 }
 
-// 60-second in-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();
-const CACHE_TTL = 60_000;
+const TTL = 60_000;
 
 function getCached<T>(key: string): T | null {
   const entry = cache.get(key);
-  if (entry && Date.now() - entry.ts < CACHE_TTL) {
-    return entry.data as T;
-  }
+  if (entry && Date.now() - entry.ts < TTL) return entry.data as T;
   return null;
 }
 
-function setCached(key: string, data: unknown): void {
+function setCache(key: string, data: unknown): void {
   cache.set(key, { data, ts: Date.now() });
 }
 
-function getCookie(): string | null {
+function getSessionCookie(): string | null {
   return process.env.FINVIZ_SESSION_COOKIE ?? null;
 }
 
-// Parse a number string like "1.23M", "456K", "1.2B" or plain "123.45"
-function parseFinvizNumber(raw: string | undefined | null): number | null {
-  if (!raw || raw === '-' || raw === '') return null;
-  const s = raw.trim().replace(/,/g, '');
-  const multipliers: Record<string, number> = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 };
-  const last = s[s.length - 1].toUpperCase();
-  if (multipliers[last]) {
-    const n = parseFloat(s.slice(0, -1));
-    return isNaN(n) ? null : n * multipliers[last];
-  }
-  const n = parseFloat(s);
-  return isNaN(n) ? null : n;
-}
-
-// Extract text from a simple HTML tag
-function extractCells(html: string): string[] {
-  const cells: string[] = [];
-  const re = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) !== null) {
-    // Strip inner tags
-    cells.push(m[1].replace(/<[^>]+>/g, '').trim());
-  }
-  return cells;
-}
-
-// Finviz screener column indices for v=111 (overview)
-// We request specific columns via c= param. We'll parse what comes back.
-// Column map for the Finviz screener table (varies by view)
-// We'll use view 152 (custom) or rely on parsing header row.
-
-async function finvizFetch(url: string, cookie: string): Promise<string> {
-  const resp = await fetch(url, {
-    headers: {
-      Cookie: `_finviz_toekn=${cookie}`,
-      'User-Agent':
-        'Mozilla/5.0 (compatible; Tradevi/3.0; +https://tradevi.app)',
-      Accept: 'text/html,application/xhtml+xml',
-    },
-    next: { revalidate: 0 },
-  });
-  if (!resp.ok) {
-    throw new Error(`Finviz HTTP ${resp.status}`);
-  }
-  return resp.text();
-}
-
-// Parse screener HTML and map columns by header
-function parseScreenerHtml(html: string, tickers: string[]): FinvizQuote[] {
-  const now = new Date().toISOString();
-
-  // Find the screener results table
-  const tableMatch = html.match(
-    /<table[^>]+class="[^"]*screener-table[^"]*"[^>]*>([\s\S]*?)<\/table>/i
-  );
-  if (!tableMatch) {
-    // Try alternate pattern
-    const altMatch = html.match(/<table[^>]+id="screener-views-table"[^>]*>([\s\S]*?)<\/table>/i);
-    if (!altMatch) return [];
-  }
-
-  const tableHtml = tableMatch ? tableMatch[1] : '';
-
-  // Extract header row
-  const headerMatch = tableHtml.match(/<tr[^>]*>([\s\S]*?)<\/tr>/i);
-  const headers: string[] = [];
-  if (headerMatch) {
-    const hre = /<th[^>]*>([\s\S]*?)<\/th>/gi;
-    let hm: RegExpExecArray | null;
-    while ((hm = hre.exec(headerMatch[1])) !== null) {
-      headers.push(hm[1].replace(/<[^>]+>/g, '').trim());
-    }
-  }
-
-  // Extract data rows
-  const rows: string[][] = [];
-  const rowRe = /<tr[^>]*class="[^"]*row[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi;
-  let rm: RegExpExecArray | null;
-  while ((rm = rowRe.exec(tableHtml)) !== null) {
-    rows.push(extractCells(rm[1]));
-  }
-
-  if (rows.length === 0) return [];
-
-  // Build index map
-  const idx: Record<string, number> = {};
-  headers.forEach((h, i) => {
-    idx[h.toLowerCase()] = i;
-  });
-
-  const get = (row: string[], key: string): string | undefined => {
-    const i = idx[key.toLowerCase()];
-    return i !== undefined ? row[i] : undefined;
+function makeHeaders(cookie: string): Record<string, string> {
+  return {
+    Cookie: `_finviz_toekn=${cookie}`,
+    'User-Agent': 'Mozilla/5.0 (compatible; Tradevi/3.0)',
+    Accept: 'text/html,application/xhtml+xml',
   };
+}
 
-  return rows
-    .map((row): FinvizQuote | null => {
-      const symbol = get(row, 'ticker') ?? get(row, 'symbol') ?? '';
-      if (!symbol) return null;
+function parseFinvizNumber(raw: string | undefined): number | null {
+  if (!raw || raw === '-' || raw === 'N/A' || raw.trim() === '') return null;
+  const s = raw.trim();
+  const multiplier = s.endsWith('B') ? 1e9 : s.endsWith('M') ? 1e6 : s.endsWith('K') ? 1e3 : 1;
+  const num = parseFloat(s.replace(/[BMK%,]/g, ''));
+  if (isNaN(num)) return null;
+  return num * multiplier;
+}
 
-      const price = parseFinvizNumber(get(row, 'price'));
-      const changeStr = get(row, 'change') ?? get(row, '% change') ?? '';
-      const changePercent = parseFinvizNumber(changeStr.replace('%', ''));
-      const gapStr = get(row, 'gap') ?? '';
-      const gap = parseFinvizNumber(gapStr.replace('%', ''));
-      const rvolStr = get(row, 'rel volume') ?? get(row, 'rvol') ?? '';
-      const rvol = parseFinvizNumber(rvolStr);
-      const avgVolStr = get(row, 'avg volume') ?? get(row, 'average volume') ?? '';
-      const avgVolume = parseFinvizNumber(avgVolStr);
-      const floatStr = get(row, 'float') ?? '';
-      const floatVal = parseFinvizNumber(floatStr);
+function parsePercent(raw: string | undefined): number | null {
+  if (!raw || raw === '-' || raw === 'N/A') return null;
+  const num = parseFloat(raw.replace('%', ''));
+  return isNaN(num) ? null : num;
+}
 
-      const sma20Str = (get(row, 'sma20') ?? '').toLowerCase();
-      const sma50Str = (get(row, 'sma50') ?? '').toLowerCase();
-      const sma200Str = (get(row, 'sma200') ?? '').toLowerCase();
-
-      const smaRel = (s: string): 'above' | 'below' | null => {
-        if (s.includes('above') || s.startsWith('+')) return 'above';
-        if (s.includes('below') || s.startsWith('-')) return 'below';
-        return null;
-      };
-
-      const volumeStr = (get(row, 'volume') ?? '').toLowerCase();
-      const unusualVolume =
-        rvol !== null && rvol > 2.0;
-
-      const newHighDay =
-        (get(row, '52w high') ?? '').toLowerCase().includes('new') ||
-        (get(row, 'high') ?? '').toLowerCase().includes('new');
-
-      const sector = get(row, 'sector') ?? null;
-      const industry = get(row, 'industry') ?? get(row, 'group') ?? null;
-
-      // Group strength from sector performance columns if present
-      const perfStr = (get(row, 'perf ytd') ?? get(row, 'perf week') ?? '').replace('%', '');
-      const perfVal = parseFinvizNumber(perfStr);
-      let groupStrength: 'strong' | 'weak' | 'neutral' | null = null;
-      if (perfVal !== null) {
-        if (perfVal > 2) groupStrength = 'strong';
-        else if (perfVal < -2) groupStrength = 'weak';
-        else groupStrength = 'neutral';
-      }
-
-      return {
-        symbol,
-        rvol,
-        unusualVolume,
-        newHighDay,
-        changePercent,
-        gap,
-        sma20rel: smaRel(sma20Str),
-        sma50rel: smaRel(sma50Str),
-        sma200rel: smaRel(sma200Str),
-        avgVolume,
-        float: floatVal,
-        sector,
-        industry,
-        groupStrength,
-        price,
-        lastUpdated: now,
-      };
-    })
-    .filter((q): q is FinvizQuote => q !== null);
+function extractTableCells(html: string): string[][] {
+  const rows: string[][] = [];
+  const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let trMatch: RegExpExecArray | null;
+  while ((trMatch = trRegex.exec(html)) !== null) {
+    const trContent = trMatch[1];
+    const cells: string[] = [];
+    const tdRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+    let tdMatch: RegExpExecArray | null;
+    while ((tdMatch = tdRegex.exec(trContent)) !== null) {
+      const text = tdMatch[1]
+        .replace(/<[^>]+>/g, '')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&#\d+;/g, '')
+        .trim();
+      cells.push(text);
+    }
+    if (cells.length > 0) rows.push(cells);
+  }
+  return rows;
 }
 
 export async function fetchFinvizScreener(
   tickers: string[]
 ): Promise<FinvizResult<FinvizQuote>> {
-  const now = new Date().toISOString();
-  const cookie = getCookie();
+  if (tickers.length === 0) {
+    return { data: [], lastUpdated: new Date().toISOString() };
+  }
+
+  const cookie = getSessionCookie();
   if (!cookie) {
     return {
       data: [],
       sourceError: 'FINVIZ_SESSION_COOKIE not set',
-      lastUpdated: now,
+      lastUpdated: new Date().toISOString(),
     };
   }
 
-  const cacheKey = `screener:${tickers.sort().join(',')}`;
+  const cacheKey = `screener:${[...tickers].sort().join(',')}`;
   const cached = getCached<FinvizResult<FinvizQuote>>(cacheKey);
   if (cached) return cached;
 
+  const tickerParam = tickers.join(',');
+  // v=152 returns: No, Ticker, Company, Sector, Industry, Country, MarketCap, P/E, Forward P/E,
+  // PEG, P/S, P/B, P/C, P/FCF, Dividend, Payout, EPS, EPS this Y, EPS next Y, EPS past 5Y,
+  // EPS next 5Y, Sales past 5Y, EPS Q/Q, Sales Q/Q, Outstanding, Float, Insider Own, Insider Trans,
+  // Inst Own, Inst Trans, Float Short, Short Ratio, Earn Date, Perf Week, Perf Month, Perf Quart,
+  // Perf Half, Perf Year, Perf YTD, Beta, ATR, Volatility W, Volatility M, SMA20, SMA50, SMA200,
+  // 52W High, 52W Low, RSI, Change, Volume, Avg Volume, Rel Volume, Price, Change from Open, Gap
+  const url = `https://elite.finviz.com/screener.ashx?v=152&t=${encodeURIComponent(tickerParam)}&o=-change`;
+
+  let html: string;
   try {
-    const tickerList = tickers.join(',');
-    // View 152 = custom, include key columns
-    // c= param: 1=ticker,2=company,3=sector,4=industry,5=country,6=mktcap,7=pe,8=fwdpe,
-    // 9=peg,10=ps,11=pb,12=pcs,13=pcf,14=epsttm,15=epsnext,16=epspast5y,17=epsnext5y,
-    // 18=epsnextq,19=salespast5y,20=eps next y,21=eps this y,22=eps q/q,23=sales q/q,
-    // 24=outstanding,25=float,26=insiderOwn,27=transInst,28=short float,29=short ratio,
-    // 30=return on assets,31=return on equity,32=return on invest,33=curr ratio,34=quick ratio,
-    // 35=lt debt/eq,36=tot debt/eq,37=gross margin,38=oper margin,39=profit margin,
-    // 40=payout,41=52w high,42=52w low,43=rsi,44=from open,45=gap,46=avg volume,
-    // 47=relative volume,48=price,49=change,50=volume,51=earnings,52=target price,53=atr
-    const url =
-      `https://elite.finviz.com/screener.ashx?v=111&t=${tickerList}&o=-change` +
-      `&c=1,3,4,25,45,46,47,48,49,50,65,66,67`;
+    const resp = await fetch(url, {
+      headers: makeHeaders(cookie),
+      cache: 'no-store',
+    });
+    if (resp.status === 429) {
+      return {
+        data: [],
+        sourceError: 'Finviz rate limit — retry in 60s',
+        lastUpdated: new Date().toISOString(),
+      };
+    }
+    if (!resp.ok) {
+      return {
+        data: [],
+        sourceError: `Finviz returned HTTP ${resp.status}`,
+        lastUpdated: new Date().toISOString(),
+      };
+    }
+    html = await resp.text();
+  } catch (err) {
+    return {
+      data: [],
+      sourceError: `Finviz fetch failed: ${String(err)}`,
+      lastUpdated: new Date().toISOString(),
+    };
+  }
 
-    const html = await finvizFetch(url, cookie);
-    const quotes = parseScreenerHtml(html, tickers);
+  const now = new Date().toISOString();
+  const rows = extractTableCells(html);
 
-    // If parsing returned empty (possibly different HTML structure), still return gracefully
-    const result: FinvizResult<FinvizQuote> = {
-      data: quotes,
+  let headerIdx = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const lower = rows[i].map((c) => c.toLowerCase());
+    if (lower.includes('ticker') || lower.includes('no.')) {
+      headerIdx = i;
+      break;
+    }
+  }
+
+  if (headerIdx === -1) {
+    return {
+      data: [],
+      sourceError: 'Could not parse Finviz table — check FINVIZ_SESSION_COOKIE',
       lastUpdated: now,
     };
+  }
 
-    if (quotes.length === 0 && tickers.length > 0) {
-      // Try alternate URL format
-      const url2 = `https://elite.finviz.com/screener.ashx?v=152&t=${tickerList}`;
-      const html2 = await finvizFetch(url2, cookie);
-      const quotes2 = parseScreenerHtml(html2, tickers);
-      if (quotes2.length > 0) {
-        result.data = quotes2;
+  const headers = rows[headerIdx].map((h) => h.toLowerCase().trim());
+  const col = (name: string): number => {
+    const exact = headers.indexOf(name);
+    if (exact >= 0) return exact;
+    return headers.findIndex((h) => h.includes(name));
+  };
+
+  const iTicker = col('ticker') >= 0 ? col('ticker') : 1;
+  const iPrice = col('price');
+  const iChange = col('change');
+  const iVolume = col('volume');
+  const iAvgVol = col('avg volume') >= 0 ? col('avg volume') : col('avg vol');
+  const iRvol = col('rel volume') >= 0 ? col('rel volume') : col('rel vol');
+  const iFloat = col('float');
+  const iSma20 = col('sma20');
+  const iSma50 = col('sma50');
+  const iSma200 = col('sma200');
+  const iGap = col('gap');
+  const iSector = col('sector');
+  const iIndustry = col('industry');
+  const iPerfWeek = col('perf week') >= 0 ? col('perf week') : col('perf');
+
+  const upperTickers = tickers.map((t) => t.toUpperCase());
+  const data: FinvizQuote[] = [];
+
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (row.length < 5) continue;
+
+    const symbol = (iTicker >= 0 ? row[iTicker] : '').toUpperCase().trim();
+    if (!symbol || !upperTickers.includes(symbol)) continue;
+
+    const price = iPrice >= 0 ? parseFinvizNumber(row[iPrice]) : null;
+    const changePercent = iChange >= 0 ? parsePercent(row[iChange]) : null;
+    const volume = iVolume >= 0 ? parseFinvizNumber(row[iVolume]) : null;
+    const avgVolume = iAvgVol >= 0 ? parseFinvizNumber(row[iAvgVol]) : null;
+    const rvolRaw = iRvol >= 0 ? parseFinvizNumber(row[iRvol]) : null;
+    const rvol = rvolRaw ?? (volume && avgVolume && avgVolume > 0 ? volume / avgVolume : null);
+
+    const floatVal = iFloat >= 0 ? parseFinvizNumber(row[iFloat]) : null;
+    const gap = iGap >= 0 ? parsePercent(row[iGap]) : null;
+
+    const sma20pct = iSma20 >= 0 ? parsePercent(row[iSma20]) : null;
+    const sma50pct = iSma50 >= 0 ? parsePercent(row[iSma50]) : null;
+    const sma200pct = iSma200 >= 0 ? parsePercent(row[iSma200]) : null;
+
+    const sma20rel = sma20pct === null ? null : sma20pct >= 0 ? ('above' as const) : ('below' as const);
+    const sma50rel = sma50pct === null ? null : sma50pct >= 0 ? ('above' as const) : ('below' as const);
+    const sma200rel = sma200pct === null ? null : sma200pct >= 0 ? ('above' as const) : ('below' as const);
+
+    const sector = iSector >= 0 ? row[iSector] || null : null;
+    const industry = iIndustry >= 0 ? row[iIndustry] || null : null;
+
+    let groupStrength: FinvizQuote['groupStrength'] = null;
+    if (iPerfWeek >= 0) {
+      const perf = parsePercent(row[iPerfWeek]);
+      if (perf !== null) {
+        groupStrength = perf >= 1 ? 'strong' : perf <= -1 ? 'weak' : 'neutral';
       }
     }
 
-    setCached(cacheKey, result);
-    return result;
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return {
-      data: [],
-      sourceError: `Finviz fetch failed: ${msg}`,
+    const unusualVolume = rvol !== null && rvol >= 2;
+
+    // Finviz 52W High column check for new high of day
+    const iHighCol = headers.findIndex((h) => h === '52w high' || h === '52w h');
+    let newHighDay = false;
+    if (iHighCol >= 0) {
+      const val = row[iHighCol]?.trim() ?? '';
+      // "0.00%" means price is at 52-week high — reasonable proxy for new high of day on screener
+      newHighDay = val === '0.00%' || val === '0%';
+    }
+
+    data.push({
+      symbol,
+      rvol,
+      unusualVolume,
+      newHighDay,
+      changePercent,
+      gap,
+      sma20rel,
+      sma50rel,
+      sma200rel,
+      avgVolume,
+      float: floatVal,
+      sector,
+      industry,
+      groupStrength,
+      price,
       lastUpdated: now,
-    };
+    });
   }
+
+  const result: FinvizResult<FinvizQuote> = { data, lastUpdated: now };
+  setCache(cacheKey, result);
+  return result;
 }
 
-export async function fetchFinvizFutures(): Promise<FinvizResult<FinvizFuture>> {
-  const now = new Date().toISOString();
-  const cookie = getCookie();
-  if (!cookie) {
-    return {
-      data: [],
-      sourceError: 'FINVIZ_SESSION_COOKIE not set',
-      lastUpdated: now,
-    };
-  }
+const FUTURES_SYMBOLS = ['ES', 'NQ', 'YM', 'RTY', 'NKD'];
+const FUTURES_NAMES: Record<string, string> = {
+  ES: 'S&P 500 Futures',
+  NQ: 'Nasdaq 100 Futures',
+  YM: 'Dow Jones Futures',
+  RTY: 'Russell 2000 Futures',
+  NKD: 'Nikkei 225 Futures',
+};
 
+export async function fetchFinvizFutures(): Promise<FinvizResult<FinvizFuture>> {
   const cacheKey = 'futures';
   const cached = getCached<FinvizResult<FinvizFuture>>(cacheKey);
   if (cached) return cached;
 
+  const cookie = getSessionCookie();
+  const headers: Record<string, string> = {
+    'User-Agent': 'Mozilla/5.0 (compatible; Tradevi/3.0)',
+    Accept: 'text/html,application/xhtml+xml',
+  };
+  if (cookie) headers['Cookie'] = `_finviz_toekn=${cookie}`;
+
+  let html: string;
   try {
-    const html = await finvizFetch('https://finviz.com/futures.ashx', cookie);
-
-    // Target symbols
-    const targets: Record<string, string> = {
-      ES: 'E-mini S&P 500',
-      NQ: 'E-mini Nasdaq 100',
-      YM: 'E-mini Dow',
-      RTY: 'E-mini Russell 2000',
-      NKD: 'Nikkei 225',
-    };
-
-    const futures: FinvizFuture[] = [];
-
-    for (const [sym, name] of Object.entries(targets)) {
-      // Look for the symbol in the futures table
-      // Pattern: the row containing the symbol label
-      const pattern = new RegExp(
-        `>${sym}[^<]*</[^>]+>[\\s\\S]{0,500}?class="[^"]*futures[^"]*"`,
-        'i'
-      );
-
-      // Simpler approach: find all table rows and look for the symbol
-      const rowRe = new RegExp(
-        `<tr[^>]*>[\\s\\S]*?${sym}[\\s\\S]*?</tr>`,
-        'gi'
-      );
-      let rowMatch: RegExpExecArray | null;
-      let found = false;
-
-      while ((rowMatch = rowRe.exec(html)) !== null) {
-        const row = rowMatch[0];
-        const cells = extractCells(row);
-        if (cells.length < 2) continue;
-
-        // Find price and change in cells
-        let price: number | null = null;
-        let changePercent: number | null = null;
-
-        for (const cell of cells) {
-          if (price === null) {
-            const p = parseFinvizNumber(cell.replace(/[%+]/g, ''));
-            if (p !== null && p > 100) price = p;
-          }
-          if (cell.includes('%')) {
-            const c = parseFinvizNumber(cell.replace('%', ''));
-            if (c !== null) changePercent = c;
-          }
-        }
-
-        let direction: 'up' | 'down' | 'flat' | null = null;
-        if (changePercent !== null) {
-          if (changePercent > 0.05) direction = 'up';
-          else if (changePercent < -0.05) direction = 'down';
-          else direction = 'flat';
-        }
-
-        futures.push({ symbol: sym, name, price, changePercent, direction, lastUpdated: now });
-        found = true;
-        break;
-      }
-
-      // If pattern matching didn't work, try a simpler approach
-      if (!found) {
-        // Look for the symbol text directly
-        const symIdx = html.indexOf(`>${sym}<`);
-        if (symIdx !== -1) {
-          // Extract surrounding context (~300 chars)
-          const chunk = html.slice(symIdx, symIdx + 300);
-          const nums: number[] = [];
-          const numRe = /[\d,]+\.?\d*/g;
-          let nm: RegExpExecArray | null;
-          while ((nm = numRe.exec(chunk)) !== null) {
-            const n = parseFloat(nm[0].replace(',', ''));
-            if (!isNaN(n) && n > 10) nums.push(n);
-          }
-          const changeRe = /([+-]?\d+\.?\d*)%/g;
-          let cm: RegExpExecArray | null;
-          let changePercent: number | null = null;
-          while ((cm = changeRe.exec(chunk)) !== null) {
-            changePercent = parseFloat(cm[1]);
-          }
-          const price = nums.length > 0 ? nums[0] : null;
-          let direction: 'up' | 'down' | 'flat' | null = null;
-          if (changePercent !== null) {
-            if (changePercent > 0.05) direction = 'up';
-            else if (changePercent < -0.05) direction = 'down';
-            else direction = 'flat';
-          }
-          futures.push({ symbol: sym, name, price, changePercent, direction, lastUpdated: now });
-        }
-      }
+    const resp = await fetch('https://finviz.com/futures.ashx', {
+      headers,
+      cache: 'no-store',
+    });
+    if (!resp.ok) {
+      return {
+        data: [],
+        sourceError: `Finviz futures HTTP ${resp.status}`,
+        lastUpdated: new Date().toISOString(),
+      };
     }
-
-    const result: FinvizResult<FinvizFuture> = {
-      data: futures,
-      lastUpdated: now,
-    };
-    setCached(cacheKey, result);
-    return result;
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
+    html = await resp.text();
+  } catch (err) {
     return {
       data: [],
-      sourceError: `Finviz futures fetch failed: ${msg}`,
-      lastUpdated: now,
+      sourceError: `Finviz futures fetch failed: ${String(err)}`,
+      lastUpdated: new Date().toISOString(),
     };
   }
+
+  const now = new Date().toISOString();
+  const rows = extractTableCells(html);
+  const data: FinvizFuture[] = [];
+
+  for (const row of rows) {
+    for (const sym of FUTURES_SYMBOLS) {
+      if (data.find((d) => d.symbol === sym)) continue;
+      const symCell = row.find(
+        (c) =>
+          c.toUpperCase() === sym ||
+          c.toUpperCase().startsWith(sym + ' ') ||
+          c.toUpperCase() === sym + '=F'
+      );
+      if (!symCell) continue;
+
+      let price: number | null = null;
+      let changePercent: number | null = null;
+
+      for (const cell of row) {
+        const t = cell.trim().replace(/,/g, '');
+        if (price === null) {
+          const n = parseFloat(t);
+          if (!isNaN(n) && n > 50) {
+            price = n;
+            continue;
+          }
+        }
+        if (changePercent === null && t.endsWith('%')) {
+          const n = parseFloat(t.replace('%', ''));
+          if (!isNaN(n)) changePercent = n;
+        }
+      }
+
+      data.push({
+        symbol: sym,
+        name: FUTURES_NAMES[sym],
+        price,
+        changePercent,
+        direction:
+          changePercent === null
+            ? null
+            : changePercent > 0.05
+            ? 'up'
+            : changePercent < -0.05
+            ? 'down'
+            : 'flat',
+        lastUpdated: now,
+      });
+      break;
+    }
+  }
+
+  const result: FinvizResult<FinvizFuture> = { data, lastUpdated: now };
+  setCache(cacheKey, result);
+  return result;
 }
