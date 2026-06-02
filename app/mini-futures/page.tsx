@@ -7,18 +7,23 @@ import type { FinvizFuture, FinvizResult } from '@/lib/finviz';
 function FutureCard({ f }: { f: FinvizFuture }) {
   const isUp = f.direction === 'up';
   const isDown = f.direction === 'down';
+  // VIX: rising = bearish (red), falling = bullish (green)
+  const isVix = f.symbol === 'VIX';
   const borderColor = isUp
-    ? 'border-emerald-500/30 hover:border-emerald-500/60'
+    ? (isVix ? 'border-red-500/30 hover:border-red-500/60' : 'border-emerald-500/30 hover:border-emerald-500/60')
     : isDown
-    ? 'border-red-500/30 hover:border-red-500/60'
+    ? (isVix ? 'border-emerald-500/30 hover:border-emerald-500/60' : 'border-red-500/30 hover:border-red-500/60')
     : 'border-[#2a2a2a] hover:border-[#3a3a3a]';
-  const chgColor = isUp ? 'text-emerald-400' : isDown ? 'text-red-400' : 'text-gray-500';
+  const chgColor = isVix
+    ? (isUp ? 'text-red-400' : isDown ? 'text-emerald-400' : 'text-gray-500')
+    : (isUp ? 'text-emerald-400' : isDown ? 'text-red-400' : 'text-gray-500');
   const arrow = isUp ? '▲' : isDown ? '▼' : '=';
+  const displaySymbol = f.symbol === 'GC' ? 'Gold' : f.symbol;
 
   return (
     <div className={`bg-[#111111] border rounded-2xl p-5 flex flex-col gap-3 transition-all hover:bg-[#161616] ${borderColor}`}>
       <div className="flex items-center justify-between">
-        <span className="text-white font-bold font-mono text-2xl">{f.symbol}</span>
+        <span className="text-white font-bold font-mono text-2xl">{displaySymbol}</span>
         <span className={`text-2xl font-bold ${chgColor}`}>{arrow}</span>
       </div>
       <div className="text-xs text-gray-600 truncate">{f.name}</div>
@@ -62,7 +67,7 @@ export default function MiniFuturesPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-white">Mini Futures</h1>
-        <p className="text-sm text-gray-500 mt-1">Is the futures complex risk-on or risk-off?</p>
+        <p className="text-sm text-gray-500 mt-1">ES · NQ · YM · RTY · VIX · Gold — risk-on or risk-off?</p>
       </div>
 
       <div className="flex items-center gap-4">
@@ -83,7 +88,7 @@ export default function MiniFuturesPage() {
 
       {loading && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {[0,1,2,3,4].map((i) => (
+          {[0,1,2,3,4,5].map((i) => (
             <div key={i} className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-5 animate-pulse">
               <div className="h-8 w-16 bg-[#222] rounded mb-3" />
               <div className="h-3 w-24 bg-[#1a1a1a] rounded mb-3" />
