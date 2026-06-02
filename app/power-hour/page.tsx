@@ -3,20 +3,109 @@ import { useEffect, useState } from 'react';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
-import { useTradeviStore } from '@/store/tradeviStore';
+import { useTradeviStore, MARKET_TICKERS } from '@/store/tradeviStore';
 import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
+import type { TradierContract, TradierOptionsResult } from '@/lib/tradier';
 
-function UnusualVolumeCard({ q, powerThreshold }: { q: FinvizQuote; powerThreshold: number }) {
+// ─── Options panel (same as Intraday) ────────────────────────────────────────
+
+function ContractRow({ c }: { c: TradierContract }) {
+  const mid = c.bid !== null && c.ask !== null ? ((c.bid + c.ask) / 2).toFixed(2) : '--';
+  const typeColor = c.type === 'call' ? 'text-emerald-400' : 'text-red-400';
   return (
-    <div className="bg-[#111111] border border-amber-500/30 rounded-2xl p-4 flex flex-col gap-2 hover:bg-[#161616] hover:border-amber-500/50 transition-all">
-      <div className="flex items-center justify-between">
-        <span className="text-white font-bold font-mono text-xl">{q.symbol}</span>
-        <div className="flex gap-1.5 flex-wrap justify-end">
-          {(q.rvol ?? 0) >= powerThreshold && (
-            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              RVOL {q.rvol!.toFixed(2)}
+    <div className="flex items-center justify-between py-1.5 border-b border-[#1e1e1e] last:border-0 text-xs font-mono">
+      <div className="flex items-center gap-2">
+        <span className={`font-semibold uppercase ${typeColor}`}>{c.type}</span>
+        <span className="text-gray-300">${c.strike}</span>
+        <span className="text-gray-600">{c.expiration}</span>
+      </div>
+      <div className="flex items-center gap-3">
+        {c.delta !== null && <span className={typeColor}>Δ{c.delta.toFixed(2)}</span>}
+        {c.iv !== null && <span className="text-gray-500">IV {(c.iv * 100).toFixed(0)}%</span>}
+        <span className="text-white font-semibold">${mid}</span>
+        {c.openInterest !== null && <span className="text-gray-600">OI {c.openInterest.toLocaleString()}</span>}
+      </div>
+    </div>
+  );
+}
+
+function OptionsPanel({ symbol }: { symbol: string }) {
+  const [result, setResult] = useState<TradierOptionsResult | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/tradier/options?symbol=${symbol}`)
+      .then((r) => r.json())
+      .then((json) => { if (!cancelled) { setResult(json); setLoading(false); } })
+      .catch(() => { if (!cancelled) { setResult({ contracts: [], sourceError: 'Fetch failed', source: 'Tradier', lastUpdated: new Date().toISOString() }); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [symbol]);
+
+  if (loading) return <div className="mt-3 pt-3 border-t border-[#1e1e1e] text-xs text-gray-600 animate-pulse">Loading contracts...</div>;
+  if (result?.sourceError) return <div className="mt-3 pt-3 border-t border-[#1e1e1e] text-xs text-red-500/70">{result.sourceError}</div>;
+
+  const calls = (result?.contracts ?? []).filter((c) => c.type === 'call').slice(0, 4);
+  const puts = (result?.contracts ?? []).filter((c) => c.type === 'put').slice(0, 4);
+
+  if (calls.length === 0 && puts.length === 0) {
+    return <div className="mt-3 pt-3 border-t border-[#1e1e1e] text-xs text-gray-600">No qualifying contracts</div>;
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-[#1e1e1e] space-y-3">
+      {calls.length > 0 && (
+        <div>
+          <p className="text-xs text-emerald-400 font-semibold uppercase tracking-wider mb-1">Calls</p>
+          {calls.map((c) => <ContractRow key={c.symbol} c={c} />)}
+        </div>
+      )}
+      {puts.length > 0 && (
+        <div>
+          <p className="text-xs text-red-400 font-semibold uppercase tracking-wider mb-1">Puts</p>
+          {puts.map((c) => <ContractRow key={c.symbol} c={c} />)}
+        </div>
+      )}
+      <p className="text-xs text-gray-700">{result?.source} · Δ 0.20–0.70</p>
+    </div>
+  );
+}
+
+// ─── Candidate card ───────────────────────────────────────────────────────────
+
+function CandidateCard({ q, powerThreshold }: { q: FinvizQuote; powerThreshold: number }) {
+  const [showOptions, setShowOptions] = useState(false);
+  const isUnusual = (q.rvol ?? 0) >= 2;
+  const chgColor = (q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const borderClass = isUnusual
+    ? 'border-amber-500/40 hover:border-amber-500/70'
+    : 'border-[#1e1e1e] hover:border-[#2a2a2a]';
+
+  return (
+    <div className={`bg-[#111111] border ${borderClass} rounded-2xl p-4 flex flex-col gap-3 transition-all`}>
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <span className="text-white font-bold font-mono text-2xl">{q.symbol}</span>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-white font-mono font-semibold">
+              {q.price !== null ? `$${q.price.toFixed(2)}` : '--'}
             </span>
-          )}
+            <span className={`font-mono font-semibold ${chgColor}`}>
+              {q.changePercent !== null ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%` : '--'}
+            </span>
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          {isUnusual ? (
+            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              🔥 RVOL {q.rvol!.toFixed(2)}
+            </span>
+          ) : q.rvol !== null ? (
+            <span className={`text-xs font-mono ${(q.rvol ?? 0) >= powerThreshold ? 'text-amber-400' : 'text-gray-500'}`}>
+              RVOL {q.rvol.toFixed(2)}
+            </span>
+          ) : null}
           {q.newHighDay && (
             <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
               NEW HIGH
@@ -24,157 +113,178 @@ function UnusualVolumeCard({ q, powerThreshold }: { q: FinvizQuote; powerThresho
           )}
         </div>
       </div>
-      <div className="flex items-center gap-3 text-sm">
-        <span className="text-white font-mono font-semibold">
-          {q.price !== null ? `$${q.price.toFixed(2)}` : '--'}
-        </span>
-        <span className={`font-mono font-semibold ${(q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-          {q.changePercent !== null ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%` : '--'}
-        </span>
+
+      {/* SMA + sector */}
+      <div className="flex items-center justify-between text-xs font-mono">
+        <div className="flex gap-2">
+          <span className="text-gray-600">
+            SMA50 <span className={q.sma50rel === 'above' ? 'text-emerald-400' : 'text-red-400'}>
+              {q.sma50rel === 'above' ? '▲' : q.sma50rel === 'below' ? '▼' : '?'}
+            </span>
+          </span>
+          <span className="text-gray-600">
+            200 <span className={q.sma200rel === 'above' ? 'text-emerald-400' : 'text-red-400'}>
+              {q.sma200rel === 'above' ? '▲' : q.sma200rel === 'below' ? '▼' : '?'}
+            </span>
+          </span>
+        </div>
+        {q.groupStrength && (
+          <span className={`text-xs font-semibold ${q.groupStrength === 'strong' ? 'text-emerald-400' : q.groupStrength === 'weak' ? 'text-red-400' : 'text-gray-600'}`}>
+            {q.groupStrength} sector
+          </span>
+        )}
       </div>
-      <div className="flex items-center justify-between mt-1">
-        <span className="text-xs text-gray-600">VWAP: confirm on TradingView</span>
+
+      {/* Gap */}
+      {q.gap !== null && Math.abs(q.gap) > 0.5 && (
+        <span className={`text-xs font-mono self-start ${q.gap > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+          Gap {q.gap > 0 ? '+' : ''}{q.gap.toFixed(2)}%
+        </span>
+      )}
+
+      {/* Action row */}
+      <div className="flex items-center gap-2 pt-1 border-t border-[#1e1e1e]">
+        <button
+          onClick={() => setShowOptions((p) => !p)}
+          className={`flex-1 text-xs font-semibold py-1.5 px-3 rounded-lg transition-all border ${
+            showOptions
+              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+              : 'text-gray-500 hover:text-gray-300 border-[#2a2a2a] hover:border-[#3a3a3a]'
+          }`}
+        >
+          {showOptions ? '▼ Contracts' : '▶ Contracts'}
+        </button>
         <TradingViewButton symbol={q.symbol} label="Chart" />
       </div>
+
+      {showOptions && <OptionsPanel symbol={q.symbol} />}
     </div>
   );
 }
 
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function PowerHourPage() {
-  const { watchlist, rvolThreshold } = useTradeviStore();
+  const { watchlist, rvolThreshold, scanMode, setScanMode } = useTradeviStore();
   const [data, setData] = useState<FinvizResult<FinvizQuote> | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/finviz/screener?tickers=${watchlist.join(',')}`);
-        const json = await res.json();
-        setData(json);
-      } catch {
-        setData({ data: [], sourceError: 'Fetch failed', lastUpdated: new Date().toISOString() });
-      }
-      setLoading(false);
+  const tickers = scanMode === 'market' ? MARKET_TICKERS : watchlist;
+
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/finviz/screener?tickers=${tickers.join(',')}`);
+      const json = await res.json();
+      setData(json);
+    } catch {
+      setData({ data: [], sourceError: 'Fetch failed', lastUpdated: new Date().toISOString() });
     }
-    load();
-  }, [watchlist]);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, [scanMode, watchlist]); // eslint-disable-line
 
   const powerThreshold = rvolThreshold * 1.2;
+
   const candidates = [...(data?.data ?? [])]
-    .filter(
-      (q) =>
-        q.newHighDay ||
-        (q.rvol ?? 0) > powerThreshold ||
-        (q.changePercent ?? 0) > 2
-    )
+    .filter((q) => q.newHighDay || (q.rvol ?? 0) >= powerThreshold || Math.abs(q.changePercent ?? 0) >= 2)
     .sort((a, b) => (b.rvol ?? 0) - (a.rvol ?? 0));
 
-  const unusualVolumeItems = candidates.filter(
-    (q) => q.unusualVolume === true && (q.rvol ?? 0) >= 2
-  );
+  const unusual = candidates.filter((q) => (q.rvol ?? 0) >= 2);
+  const regular = candidates.filter((q) => (q.rvol ?? 0) < 2);
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      {/* Header */}
+    <div className="space-y-6 max-w-6xl">
       <div>
         <h1 className="text-2xl font-bold text-white">Power Hour</h1>
-        <p className="text-sm text-gray-500 mt-1">What has momentum into the close?</p>
+        <p className="text-sm text-gray-500 mt-1">What has momentum into the close? Tickers + contracts in one view.</p>
       </div>
 
-      <div className="flex items-center gap-4">
-        {data && <SourceTag source={data.source ?? 'Finviz'} lastUpdated={data.lastUpdated} />}
-        {loading && <span className="text-gray-500 text-sm">Loading...</span>}
+      {/* Controls */}
+      <div className="flex flex-wrap items-center gap-3 p-3 bg-[#111111] border border-[#1e1e1e] rounded-2xl">
+        <div className="flex rounded-full overflow-hidden border border-[#2a2a2a] bg-[#0d0d0d]">
+          <button
+            onClick={() => setScanMode('watchlist')}
+            className={`px-4 py-1.5 text-xs font-semibold transition-all rounded-full ${
+              scanMode === 'watchlist'
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                : 'text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            Watchlist ({watchlist.length})
+          </button>
+          <button
+            onClick={() => setScanMode('market')}
+            className={`px-4 py-1.5 text-xs font-semibold transition-all rounded-full ${
+              scanMode === 'market'
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                : 'text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            Market Scan ({MARKET_TICKERS.length})
+          </button>
+        </div>
+
+        <button
+          onClick={load}
+          disabled={loading}
+          className="px-4 py-1.5 text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] rounded-full text-gray-300 hover:border-emerald-500/30 hover:text-white transition-all disabled:opacity-50"
+        >
+          {loading ? 'Scanning...' : '↻ Refresh'}
+        </button>
+
+        <div className="ml-auto">
+          {data && <SourceTag source={data.source ?? ''} lastUpdated={data.lastUpdated} />}
+        </div>
       </div>
 
-      <div className="text-xs text-gray-600 p-3 rounded-2xl bg-[#111111] border border-[#1e1e1e]">
-        Filter: new high of day OR RVOL &gt; {powerThreshold.toFixed(2)} OR change &gt; 2%.
-        VWAP reclaim — confirm on TradingView. No GEX or gamma squeeze analysis.
+      <div className="text-xs text-gray-600 px-1">
+        Showing: new day high · RVOL &gt; {powerThreshold.toFixed(1)} · change &gt; 2% · click ▶ Contracts for live calls &amp; puts
       </div>
 
       {data?.sourceError && <DataUnavailable reason={data.sourceError} />}
 
-      {/* Unusual volume cards */}
-      {unusualVolumeItems.length > 0 && (
+      {/* Unusual Volume */}
+      {unusual.length > 0 && (
         <section>
-          <div className="flex items-center gap-2 mb-3">
-            <h2 className="text-amber-400 font-bold text-sm uppercase tracking-widest">
-              🔥 Unusual Volume
-            </h2>
+          <div className="flex items-center gap-2 mb-4">
+            <h2 className="text-amber-400 font-bold text-sm uppercase tracking-widest">🔥 Unusual Volume</h2>
             <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              {unusualVolumeItems.length}
+              {unusual.length}
+            </span>
+            <span className="text-xs text-gray-600">RVOL 2x+ — strongest conviction into close</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {unusual.map((q) => <CandidateCard key={q.symbol} q={q} powerThreshold={powerThreshold} />)}
+          </div>
+        </section>
+      )}
+
+      {/* All Power Hour candidates */}
+      {regular.length > 0 && (
+        <section>
+          <div className="flex items-center gap-2 mb-4">
+            <h2 className="text-white font-bold text-sm uppercase tracking-widest">All Candidates</h2>
+            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-[#1e1e1e] text-gray-400 border border-[#2a2a2a]">
+              {regular.length}
             </span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {unusualVolumeItems.map((q) => (
-              <UnusualVolumeCard key={q.symbol} q={q} powerThreshold={powerThreshold} />
-            ))}
-          </div>
-          <div className="border-t border-[#1e1e1e] pt-4 mt-4" />
-        </section>
-      )}
-
-      {candidates.length === 0 && !loading && !data?.sourceError && (
-        <div className="text-gray-500 text-sm">No power hour candidates.</div>
-      )}
-
-      {/* Main table */}
-      {candidates.length > 0 && (
-        <section>
-          <h2 className="label mb-3">All Power Hour Candidates ({candidates.length})</h2>
-          <div className="overflow-x-auto rounded-2xl border border-[#1e1e1e]">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="text-left border-b border-[#2a2a2a] bg-[#0f0f0f]">
-                  <th className="py-2.5 px-3 label">Symbol</th>
-                  <th className="py-2.5 px-3 label">Price</th>
-                  <th className="py-2.5 px-3 label">% Chg</th>
-                  <th className="py-2.5 px-3 label">RVOL</th>
-                  <th className="py-2.5 px-3 label">New High</th>
-                  <th className="py-2.5 px-3 label">VWAP</th>
-                  <th className="py-2.5 px-3"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {candidates.map((q, idx) => {
-                  const rowBg = idx % 2 === 0 ? 'bg-[#111111]' : 'bg-[#0d0d0d]';
-                  return (
-                    <tr key={q.symbol} className={`${rowBg} border-b border-[#1a1a1a] hover:bg-[#161616] transition-colors`}>
-                      <td className="py-2.5 px-3 font-mono font-bold text-white">{q.symbol}</td>
-                      <td className="py-2.5 px-3 font-mono text-gray-200">
-                        {q.price !== null ? `$${q.price.toFixed(2)}` : '--'}
-                      </td>
-                      <td className={`py-2.5 px-3 font-mono font-semibold ${
-                        (q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'
-                      }`}>
-                        {q.changePercent !== null
-                          ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%`
-                          : '--'}
-                      </td>
-                      <td className={`py-2.5 px-3 font-mono font-semibold ${
-                        (q.rvol ?? 0) >= powerThreshold ? 'text-amber-400' : 'text-gray-500'
-                      }`}>
-                        {q.rvol !== null ? q.rvol.toFixed(2) : '--'}
-                      </td>
-                      <td className="py-2.5 px-3">
-                        {q.newHighDay ? (
-                          <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">NEW</span>
-                        ) : (
-                          <span className="text-gray-700 text-xs">—</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 text-xs text-gray-600">Confirm on TV</td>
-                      <td className="py-2.5 px-3">
-                        <TradingViewButton symbol={q.symbol} label="Chart" />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {regular.map((q) => <CandidateCard key={q.symbol} q={q} powerThreshold={powerThreshold} />)}
           </div>
         </section>
       )}
+
+      {!loading && candidates.length === 0 && !data?.sourceError && (
+        <div className="text-center py-12 text-gray-600">
+          No power hour candidates yet. Try switching to Market Scan or check back closer to 3 PM ET.
+        </div>
+      )}
+
+      <p className="text-xs text-gray-700">
+        VWAP reclaim and structure confirmed on TradingView. Contracts filtered Δ 0.20–0.70 via Tradier.
+      </p>
     </div>
   );
 }
