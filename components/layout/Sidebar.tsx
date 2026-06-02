@@ -3,43 +3,64 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const NAV = [
-  { href: '/', label: 'Dashboard' },
-  { href: '/trade-discovery', label: 'Trade Discovery' },
-  { href: '/swing', label: 'Swing' },
-  { href: '/intraday', label: 'Intraday' },
-  { href: '/options', label: 'Options' },
-  { href: '/mini-futures', label: 'Mini Futures' },
-  { href: '/power-hour', label: 'Power Hour' },
-  { href: '/futures-bias', label: 'Futures Bias' },
+  { href: '/', label: 'Dashboard', icon: '⬡' },
+  { href: '/trade-discovery', label: 'Trade Discovery', icon: '◎' },
+  { href: '/swing', label: 'Swing', icon: '↗' },
+  { href: '/intraday', label: 'Intraday', icon: '⚡' },
+  { href: '/options', label: 'Options', icon: '◈' },
+  { href: '/mini-futures', label: 'Mini Futures', icon: '▦' },
+  { href: '/power-hour', label: 'Power Hour', icon: '◉' },
+  { href: '/futures-bias', label: 'Futures Bias', icon: '◀' },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-52 min-h-screen bg-[#0a0a0a] border-r border-[#1a1a1a] flex flex-col py-4 px-3">
-      <div className="mb-6 px-2">
-        <span className="text-white font-bold text-lg tracking-tight">Tradevi</span>
-        <span className="text-gray-600 text-xs ml-1">3.0</span>
+    <aside
+      className="w-56 min-h-screen flex flex-col py-5 px-3"
+      style={{
+        background: '#090909',
+        borderRight: '1px solid #1a1a1a',
+        boxShadow: '1px 0 0 0 #0f0f0f',
+      }}
+    >
+      {/* Logo */}
+      <div className="mb-7 px-2 flex items-center gap-2">
+        <span className="text-white font-bold text-lg tracking-tight">TRADEVI</span>
+        <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+          3.0
+        </span>
       </div>
-      <nav className="flex flex-col gap-0.5">
-        {NAV.map(({ href, label }) => {
+
+      {/* Nav */}
+      <nav className="flex flex-col gap-0.5 flex-1">
+        {NAV.map(({ href, label, icon }) => {
           const active = pathname === href;
           return (
             <Link
               key={href}
               href={href}
-              className={`px-3 py-2 rounded text-sm transition-colors ${
+              className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all ${
                 active
-                  ? 'bg-[#1a1a1a] text-white font-medium'
-                  : 'text-gray-400 hover:text-white hover:bg-[#141414]'
+                  ? 'bg-emerald-500/10 text-emerald-400 border-l-2 border-emerald-500'
+                  : 'text-gray-500 hover:text-gray-200 hover:bg-white/5 border-l-2 border-transparent'
               }`}
             >
-              {label}
+              <span className={`text-base leading-none ${active ? 'text-emerald-400' : 'text-gray-600'}`}>
+                {icon}
+              </span>
+              <span>{label}</span>
             </Link>
           );
         })}
       </nav>
+
+      {/* Footer */}
+      <div className="px-3 pt-4 border-t border-[#1a1a1a]">
+        <p className="text-[10px] text-gray-600 leading-relaxed">Real data only</p>
+        <p className="text-[10px] text-gray-700">Finviz · Yahoo Finance</p>
+      </div>
     </aside>
   );
 }

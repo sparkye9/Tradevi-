@@ -10,18 +10,24 @@ interface Future {
 
 const SYMBOLS = ['ES', 'NQ', 'YM', 'RTY', 'NKD'];
 
+const PLACEHOLDERS: Future[] = SYMBOLS.map((symbol) => ({
+  symbol,
+  price: null,
+  changePercent: null,
+  direction: null,
+}));
+
 function getMarketStatus(etDate: Date): 'CLOSED' | 'PRE-MARKET' | 'OPEN' {
-  const day = etDate.getDay(); // 0=Sun, 6=Sat
+  const day = etDate.getDay();
   const h = etDate.getHours();
   const m = etDate.getMinutes();
   const timeMin = h * 60 + m;
 
   if (day === 0 || day === 6) return 'CLOSED';
 
-  const preMarketStart = 4 * 60;       // 4:00 AM
-  const marketOpen = 9 * 60 + 30;      // 9:30 AM
-  const marketClose = 16 * 60;         // 4:00 PM
-  const afterHoursEnd = 20 * 60;       // 8:00 PM
+  const preMarketStart = 4 * 60;
+  const marketOpen = 9 * 60 + 30;
+  const marketClose = 16 * 60;
 
   if (timeMin >= marketOpen && timeMin < marketClose) return 'OPEN';
   if (timeMin >= preMarketStart && timeMin < marketOpen) return 'PRE-MARKET';
@@ -39,35 +45,39 @@ function formatET(d: Date): string {
 }
 
 function getETDate(): Date {
-  // We use the wall-clock date in ET timezone
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
 }
 
 export default function FuturesBar() {
-  const [futures, setFutures] = useState<Future[]>([]);
+  const [futures, setFutures] = useState<Future[]>(PLACEHOLDERS);
   const [etTime, setEtTime] = useState('');
   const [status, setStatus] = useState<'CLOSED' | 'PRE-MARKET' | 'OPEN'>('CLOSED');
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    async function loadFutures() {
+    const timer = setTimeout(async () => {
       try {
         const res = await fetch('/api/finviz/futures');
         const json = await res.json();
         const data: Future[] = (json.data ?? []).filter((f: Future) => SYMBOLS.includes(f.symbol));
-        // Sort in SYMBOLS order
-        data.sort((a, b) => SYMBOLS.indexOf(a.symbol) - SYMBOLS.indexOf(b.symbol));
-        setFutures(data);
+        // Merge with placeholders so we always show all 5 symbols
+        const merged = SYMBOLS.map((sym) => {
+          const found = data.find((f) => f.symbol === sym);
+          return found ?? { symbol: sym, price: null, changePercent: null, direction: null };
+        });
+        setFutures(merged);
       } catch {
-        // silently fail
+        // Keep placeholders
       }
-    }
-    loadFutures();
+      setLoaded(true);
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
     function tick() {
       const et = getETDate();
-      setEtTime(formatET(new Date())); // use real Date for toLocaleTimeString with tz
+      setEtTime(formatET(new Date()));
       setStatus(getMarketStatus(et));
     }
     tick();
@@ -75,46 +85,59 @@ export default function FuturesBar() {
     return () => clearInterval(id);
   }, []);
 
-  const statusColor =
-    status === 'OPEN' ? 'text-green-400' :
-    status === 'PRE-MARKET' ? 'text-yellow-400' :
-    'text-gray-500';
+  const statusStyle =
+    status === 'OPEN'
+      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+      : status === 'PRE-MARKET'
+      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+      : 'bg-gray-800 text-gray-500 border border-gray-700';
 
   return (
     <div
-      className="w-full flex items-center gap-4 px-4 py-1 text-xs border-b border-[#1e1e1e] overflow-x-auto"
-      style={{ background: '#0a0a0a', minHeight: 28 }}
+      className="w-full flex items-center gap-3 px-4 py-2 border-b border-[#1a1a1a] overflow-x-auto"
+      style={{ background: '#090909', minHeight: 40 }}
     >
-      {/* Market status */}
-      <span className={`font-bold tracking-wide whitespace-nowrap ${statusColor}`}>{status}</span>
+      {/* Market status pill */}
+      <span className={`font-bold tracking-wide whitespace-nowrap text-xs px-2.5 py-0.5 rounded-full ${statusStyle}`}>
+        {status}
+      </span>
 
       {/* ET time */}
-      <span className="text-gray-500 font-mono whitespace-nowrap">{etTime} ET</span>
+      <span className="text-gray-600 font-mono text-xs whitespace-nowrap">{etTime} ET</span>
 
-      {/* Separator */}
-      <span className="text-[#2a2a2a]">|</span>
+      <span className="text-[#222] text-xs">|</span>
 
-      {/* Futures */}
-      {futures.length === 0 && (
-        <span className="text-gray-600">Loading futures...</span>
-      )}
+      {/* Futures chips */}
       {futures.map((f) => {
         const isUp = f.direction === 'up';
         const isDown = f.direction === 'down';
-        const color = isUp ? 'text-green-400' : isDown ? 'text-red-400' : 'text-gray-400';
+        const chgColor = isUp ? 'text-emerald-400' : isDown ? 'text-red-400' : 'text-gray-500';
         const arrow = isUp ? '▲' : isDown ? '▼' : '';
+        const isPlaceholder = !loaded || f.price === null;
         return (
-          <div key={f.symbol} className="flex items-center gap-1 whitespace-nowrap">
-            <span className="text-gray-400 font-mono">{f.symbol}</span>
-            {f.price !== null && (
-              <span className="text-gray-300 font-mono">{f.price.toLocaleString()}</span>
+          <div
+            key={f.symbol}
+            className="flex items-center gap-2 whitespace-nowrap bg-[#1a1a1a] rounded px-3 py-1"
+          >
+            <span className="text-gray-400 font-mono text-xs">{f.symbol}</span>
+            {!isPlaceholder ? (
+              <>
+                <span className="text-white font-mono text-xs">{f.price!.toLocaleString()}</span>
+                <span className={`font-mono text-xs ${chgColor}`}>
+                  {arrow}{f.changePercent !== null ? `${f.changePercent >= 0 ? '+' : ''}${f.changePercent.toFixed(2)}%` : '--'}
+                </span>
+              </>
+            ) : (
+              <span className="text-gray-600 font-mono text-xs">--</span>
             )}
-            <span className={`font-mono ${color}`}>
-              {arrow}{f.changePercent !== null ? ` ${f.changePercent >= 0 ? '+' : ''}${f.changePercent.toFixed(2)}%` : '--'}
-            </span>
           </div>
         );
       })}
+
+      {/* Right side branding */}
+      <div className="ml-auto flex items-center">
+        <span className="text-[10px] text-gray-700 font-bold tracking-widest">TRADEVI</span>
+      </div>
     </div>
   );
 }
