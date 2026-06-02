@@ -126,6 +126,17 @@ export default function TradeDiscoveryPage() {
     .filter((q) => q.unusualVolume === true && (q.rvol ?? 0) >= 2)
     .sort((a, b) => (b.rvol ?? 0) - (a.rvol ?? 0));
 
+  // Hidden Gems: RVOL >= 3, not in the obvious mega-caps, strong momentum
+  const MEGA_CAPS = ['AAPL','MSFT','NVDA','GOOGL','META','AMZN','TSLA','SPY','QQQ','IWM','DIA'];
+  const hiddenGems = [...(data?.data ?? [])]
+    .filter((q) =>
+      (q.rvol ?? 0) >= 3 &&
+      !MEGA_CAPS.includes(q.symbol) &&
+      Math.abs(q.changePercent ?? 0) >= 1.5
+    )
+    .sort((a, b) => (b.rvol ?? 0) - (a.rvol ?? 0))
+    .slice(0, 12);
+
   const sorted = [...(data?.data ?? [])].sort((a, b) => {
     const scoreDiff = autoScore(b, rvolThreshold) - autoScore(a, rvolThreshold);
     if (scoreDiff !== 0) return scoreDiff;
@@ -225,6 +236,52 @@ export default function TradeDiscoveryPage() {
           <span className="label">Unusual Volume</span>
           <span className="text-gray-700">— No unusual volume detected</span>
         </div>
+      )}
+
+      {/* Hidden Gems */}
+      {hiddenGems.length > 0 && (
+        <section>
+          <div className="flex items-center gap-2 mb-4">
+            <h2 className="text-purple-400 font-bold text-sm uppercase tracking-widest">💎 Hidden Gems</h2>
+            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+              {hiddenGems.length}
+            </span>
+            <span className="text-xs text-gray-600">RVOL 3x+ — strong momentum, not the obvious names</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+            {hiddenGems.map((q) => (
+              <div key={q.symbol} className="bg-[#111111] border border-purple-500/30 rounded-2xl p-4 flex flex-col gap-2 hover:bg-[#161616] hover:border-purple-500/50 transition-all">
+                <div className="flex items-start justify-between">
+                  <span className="text-white font-bold font-mono text-xl">{q.symbol}</span>
+                  <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                    RVOL {q.rvol!.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-white font-mono font-semibold">
+                    {q.price !== null ? `$${q.price.toFixed(2)}` : '--'}
+                  </span>
+                  <span className={`font-mono font-semibold ${(q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {q.changePercent !== null ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%` : '--'}
+                  </span>
+                  {q.newHighDay && (
+                    <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">HIGH</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 text-xs font-mono">
+                  {q.sma50rel === 'above' ? <span className="text-emerald-400">50▲</span> : <span className="text-red-400">50▼</span>}
+                  {q.sma200rel === 'above' ? <span className="text-emerald-400">200▲</span> : <span className="text-red-400">200▼</span>}
+                  {q.sector && <span className="text-gray-600 ml-1">{q.sector}</span>}
+                </div>
+                <div className="flex justify-between items-center pt-1 border-t border-[#1e1e1e]">
+                  <span className="text-xs text-gray-700">Verify structure on chart</span>
+                  <TradingViewButton symbol={q.symbol} label="Chart" />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-[#1e1e1e] pt-4 mt-4" />
+        </section>
       )}
 
       {/* Main candidates table */}
