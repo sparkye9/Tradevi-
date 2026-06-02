@@ -12,31 +12,63 @@ const FUTURES_MAP: { yahoo: string; symbol: string; name: string }[] = [
   { yahoo: 'NKD=F', symbol: 'NKD', name: 'Nikkei 225 Futures' },
 ];
 
+const YF_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
+let crumbCache: { crumb: string; cookie: string; ts: number } | null = null;
+const CRUMB_TTL = 55 * 60 * 1000;
+
+async function getCrumb(): Promise<{ crumb: string; cookie: string } | null> {
+  if (crumbCache && Date.now() - crumbCache.ts < CRUMB_TTL) {
+    return { crumb: crumbCache.crumb, cookie: crumbCache.cookie };
+  }
+  try {
+    const homeResp = await fetch('https://finance.yahoo.com', {
+      headers: { ...YF_HEADERS, Accept: 'text/html' },
+      redirect: 'follow',
+    });
+    const rawCookies = homeResp.headers.get('set-cookie') ?? '';
+    const cookieParts: string[] = [];
+    const cookieRegex = /([A-Z0-9_]+=[^;]+)/g;
+    let cookieMatch: RegExpExecArray | null;
+    while ((cookieMatch = cookieRegex.exec(rawCookies)) !== null) {
+      if (['A1', 'A3', 'A1S', 'A1i', 'GUC', 'GUCS'].includes(cookieMatch[1].split('=')[0])) {
+        cookieParts.push(cookieMatch[1]);
+      }
+    }
+    const cookie = cookieParts.join('; ');
+    const crumbResp = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
+      headers: { ...YF_HEADERS, Accept: 'text/plain', Cookie: cookie },
+    });
+    if (!crumbResp.ok) return null;
+    const crumb = (await crumbResp.text()).trim();
+    if (!crumb || crumb.length < 3) return null;
+    crumbCache = { crumb, cookie, ts: Date.now() };
+    return { crumb, cookie };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchYahooFuturesFallback(): Promise<FinvizResult<FinvizFuture>> {
   const now = new Date().toISOString();
   const symbols = FUTURES_MAP.map((f) => f.yahoo).join(',');
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}&fields=regularMarketPrice,regularMarketChangePercent`;
 
   try {
-    const resp = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; Tradevi/3.0)',
-        Accept: 'application/json',
-      },
-      cache: 'no-store',
-    });
+    const auth = await getCrumb();
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}&fields=regularMarketPrice,regularMarketChangePercent${auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : ''}`;
+    const headers: Record<string, string> = { ...YF_HEADERS, Accept: 'application/json' };
+    if (auth?.cookie) headers['Cookie'] = auth.cookie;
+
+    const resp = await fetch(url, { headers, cache: 'no-store' });
     if (!resp.ok) {
-      return {
-        data: [],
-        source: 'Yahoo Finance (futures fallback)',
-        sourceError: `Yahoo Finance futures HTTP ${resp.status}`,
-        lastUpdated: now,
-      };
+      return { data: [], source: 'Yahoo Finance', sourceError: `Yahoo Finance futures HTTP ${resp.status}`, lastUpdated: now };
     }
     const json = await resp.json();
     const quotes: { symbol: string; regularMarketPrice?: number; regularMarketChangePercent?: number }[] =
       json?.quoteResponse?.result ?? [];
-
     const quoteMap: Record<string, typeof quotes[0]> = {};
     for (const q of quotes) quoteMap[q.symbol] = q;
 
@@ -45,30 +77,15 @@ async function fetchYahooFuturesFallback(): Promise<FinvizResult<FinvizFuture>> 
       const price = q?.regularMarketPrice ?? null;
       const changePercent = q?.regularMarketChangePercent ?? null;
       return {
-        symbol: f.symbol,
-        name: f.name,
-        price,
-        changePercent,
-        direction:
-          changePercent === null
-            ? null
-            : changePercent > 0.05
-            ? 'up'
-            : changePercent < -0.05
-            ? 'down'
-            : 'flat',
+        symbol: f.symbol, name: f.name, price, changePercent,
+        direction: changePercent === null ? null : changePercent > 0.05 ? 'up' : changePercent < -0.05 ? 'down' : 'flat',
         lastUpdated: now,
       };
     });
 
-    return { data, source: 'Yahoo Finance (futures fallback)', lastUpdated: now };
+    return { data, source: 'Yahoo Finance', lastUpdated: now };
   } catch (err) {
-    return {
-      data: [],
-      source: 'Yahoo Finance (futures fallback)',
-      sourceError: `Yahoo Finance futures fetch failed: ${String(err)}`,
-      lastUpdated: now,
-    };
+    return { data: [], source: 'Yahoo Finance', sourceError: `Yahoo Finance futures failed: ${String(err)}`, lastUpdated: now };
   }
 }
 
