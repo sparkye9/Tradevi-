@@ -7,7 +7,7 @@ import TradingViewButton from '@/components/ui/TradingViewButton';
 import type { FinvizQuote, FinvizFuture, FinvizResult } from '@/lib/finviz';
 import { useTradeviStore } from '@/store/tradeviStore';
 
-const INDEX_TICKERS = ['SPY', 'QQQ', 'IWM', 'DIA'];
+const INDEX_TICKERS = ['SPY', 'QQQ', 'IWM', 'GLD'];
 
 interface ScreenerResult extends FinvizResult<FinvizQuote> {}
 interface FuturesResult extends FinvizResult<FinvizFuture> {}
@@ -142,6 +142,7 @@ export default function DashboardPage() {
   const spy = indexQuotes.find((q) => q.symbol === 'SPY');
   const qqq = indexQuotes.find((q) => q.symbol === 'QQQ');
   const iwm = indexQuotes.find((q) => q.symbol === 'IWM');
+  const gld = indexQuotes.find((q) => q.symbol === 'GLD');
 
   const posture = indexQuotes.length > 0 ? deriveMarketPosture(indexQuotes) : null;
 
@@ -174,8 +175,8 @@ export default function DashboardPage() {
       </div>
 
       {loading && (
-        <div className="grid grid-cols-3 gap-3">
-          {[0,1,2].map((i) => (
+        <div className="grid grid-cols-4 gap-3">
+          {[0,1,2,3].map((i) => (
             <div key={i} className="card animate-pulse">
               <div className="h-3 w-12 bg-[#222] rounded mb-3" />
               <div className="h-7 w-24 bg-[#222] rounded mb-2" />
@@ -187,10 +188,11 @@ export default function DashboardPage() {
 
       {/* Index stat grid */}
       {!loading && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           <IndexStatCard q={spy} sym="SPY" />
           <IndexStatCard q={qqq} sym="QQQ" />
           <IndexStatCard q={iwm} sym="IWM" />
+          <IndexStatCard q={gld} sym="GLD" />
         </div>
       )}
 

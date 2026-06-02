@@ -588,25 +588,27 @@ export default function OpportunityFinderPage() {
 
   // Score and filter — exclude index ETFs from opportunity list
   const INDEX_ETFS = ['SPY', 'QQQ', 'IWM', 'DIA', 'XLK', 'XLF', 'XLV', 'XLE', 'XLY', 'GLD'];
-  const scored = allQuotes
-    .filter(q => !INDEX_ETFS.includes(q.symbol))
+  const candidates = allQuotes.filter(q => !INDEX_ETFS.includes(q.symbol));
+  const scored = candidates
     .map(q => ({ q, score: computeScore(q, rvolThreshold) }))
-    .filter(({ score }) => score >= 55)
     .sort((a, b) => b.score - a.score);
 
-  // Intraday: high RVOL + momentum, top 10
-  const intraday = scored
-    .filter(({ q }) => (q.rvol ?? 0) >= rvolThreshold || q.newHighDay || q.unusualVolume)
+  // Intraday: prefer RVOL/unusual volume hits; fallback to top movers by % change
+  const intradayScored = scored.filter(({ q }) => (q.rvol ?? 0) >= rvolThreshold || q.newHighDay || q.unusualVolume);
+  const intradayFallback = [...candidates]
+    .sort((a, b) => Math.abs(b.changePercent ?? 0) - Math.abs(a.changePercent ?? 0));
+  const intraday = (intradayScored.length >= 3 ? intradayScored : scored)
     .slice(0, 10)
     .map(({ q }) => q);
+  // If still empty use raw fallback
+  const intradayFinal = intraday.length > 0 ? intraday : intradayFallback.slice(0, 10);
 
-  // Swing: above both SMAs + strong sector + positive momentum, top 5
-  const swing = scored
-    .filter(({ q }) =>
-      q.sma50rel === 'above' &&
-      q.sma200rel === 'above' &&
-      (q.groupStrength === 'strong' || (q.rvol ?? 0) >= 1.5)
-    )
+  // Swing: above both SMAs + positive momentum; fallback to any above SMA50
+  const swingScored = scored.filter(({ q }) =>
+    q.sma50rel === 'above' && q.sma200rel === 'above'
+  );
+  const swingFallback = scored.filter(({ q }) => q.sma50rel === 'above');
+  const swing = (swingScored.length >= 2 ? swingScored : swingFallback)
     .slice(0, 5)
     .map(({ q }) => q);
 
@@ -689,15 +691,15 @@ export default function OpportunityFinderPage() {
           </div>
         )}
 
-        {!loading && intraday.length === 0 && (
+        {!loading && intradayFinal.length === 0 && (
           <div className="text-center py-10 text-gray-600">
-            No intraday setups scoring 55+ right now. Market may be quiet — check back after open.
+            No data returned. Check data source status above.
           </div>
         )}
 
-        {!loading && intraday.length > 0 && (
+        {!loading && intradayFinal.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {intraday.map(q => (
+            {intradayFinal.map(q => (
               <IntradayCard key={q.symbol} q={q} capital={capitalAmount} rvolThreshold={rvolThreshold} />
             ))}
           </div>

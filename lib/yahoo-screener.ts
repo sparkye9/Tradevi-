@@ -124,7 +124,7 @@ const YAHOO_FIELDS = [
   'shortName',
 ].join(',');
 
-async function fetchYahooQuotes(symbols: string[]): Promise<YahooQuoteRaw[]> {
+export async function fetchYahooQuotes(symbols: string[]): Promise<YahooQuoteRaw[]> {
   const auth = await getYahooCrumb();
 
   const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols.join(','))}&fields=${YAHOO_FIELDS}${auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : ''}`;
