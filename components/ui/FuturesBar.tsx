@@ -85,27 +85,25 @@ export default function FuturesBar() {
     return () => clearInterval(id);
   }, []);
 
-  const statusStyle =
+  const dotColor =
     status === 'OPEN'
-      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+      ? 'bg-emerald-400'
       : status === 'PRE-MARKET'
-      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-      : 'bg-gray-800 text-gray-500 border border-gray-700';
+      ? 'bg-amber-400'
+      : 'bg-red-400/60';
 
   return (
     <div
       className="w-full flex items-center gap-3 px-4 py-2 border-b border-[#1a1a1a] overflow-x-auto"
       style={{ background: '#090909', minHeight: 40 }}
     >
-      {/* Market status pill */}
-      <span className={`font-bold tracking-wide whitespace-nowrap text-xs px-2.5 py-0.5 rounded-full ${statusStyle}`}>
-        {status}
-      </span>
+      {/* Status dot + ET time */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
+        <span className="text-gray-600 font-mono text-xs whitespace-nowrap">{etTime} ET</span>
+      </div>
 
-      {/* ET time */}
-      <span className="text-gray-600 font-mono text-xs whitespace-nowrap">{etTime} ET</span>
-
-      <span className="text-[#222] text-xs">|</span>
+      <span className="text-[#222] text-xs shrink-0">|</span>
 
       {/* Futures chips */}
       {futures.map((f) => {
@@ -115,20 +113,20 @@ export default function FuturesBar() {
         const chgColor = f.symbol === 'VIX'
           ? (isUp ? 'text-red-400' : isDown ? 'text-emerald-400' : 'text-gray-500')
           : (isUp ? 'text-emerald-400' : isDown ? 'text-red-400' : 'text-gray-500');
-        const arrow = isUp ? '▲' : isDown ? '▼' : '';
+        const chgArrow = isUp ? '▲' : isDown ? '▼' : '';
         const isPlaceholder = !loaded || f.price === null;
         const label = f.symbol === 'GC' ? 'Gold' : f.symbol;
         return (
           <div
             key={f.symbol}
-            className="flex items-center gap-2 whitespace-nowrap bg-[#1a1a1a] rounded px-3 py-1"
+            className="flex items-center gap-1.5 whitespace-nowrap shrink-0"
           >
-            <span className="text-gray-400 font-mono text-xs">{label}</span>
+            <span className="text-gray-500 font-mono text-xs">{label}</span>
             {!isPlaceholder ? (
               <>
                 <span className="text-white font-mono text-xs">{f.price!.toLocaleString()}</span>
                 <span className={`font-mono text-xs ${chgColor}`}>
-                  {arrow}{f.changePercent !== null ? `${f.changePercent >= 0 ? '+' : ''}${f.changePercent.toFixed(2)}%` : '--'}
+                  {chgArrow}{f.changePercent !== null ? `${f.changePercent >= 0 ? '+' : ''}${f.changePercent.toFixed(2)}%` : '--'}
                 </span>
               </>
             ) : (
@@ -139,7 +137,7 @@ export default function FuturesBar() {
       })}
 
       {/* Right side branding */}
-      <div className="ml-auto flex items-center">
+      <div className="ml-auto flex items-center shrink-0">
         <span className="text-[10px] text-gray-700 font-bold tracking-widest">TRADEVI</span>
       </div>
     </div>
