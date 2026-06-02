@@ -619,7 +619,7 @@ export default function OpportunityFinderPage() {
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">Opportunity Finder</h1>
+          <h1 className="text-2xl font-bold text-white">Small Account Edge</h1>
           <p className="text-sm text-gray-500 mt-1">
             Highest-probability setups for small accounts · scores based on real signals
           </p>

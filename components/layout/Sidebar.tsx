@@ -7,7 +7,7 @@ const NAV = [
   { href: '/trade-discovery', label: 'Trade Discovery', icon: '◎' },
   { href: '/swing', label: 'Swing', icon: '↗' },
   { href: '/intraday', label: 'Intraday', icon: '⚡' },
-  { href: '/opportunity-finder', label: 'Opportunity Finder', icon: '🎯' },
+  { href: '/opportunity-finder', label: 'Small Account Edge', icon: '🎯' },
   { href: '/options', label: 'Options', icon: '◈' },
   { href: '/mini-futures', label: 'Mini Futures', icon: '▦' },
   { href: '/power-hour', label: 'Power Hour', icon: '◉' },
