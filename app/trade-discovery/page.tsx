@@ -52,6 +52,10 @@ export default function TradeDiscoveryPage() {
     load();
   }, [watchlist]);
 
+  const unusualVolumeItems = [...(data?.data ?? [])]
+    .filter((q) => q.unusualVolume === true && (q.rvol ?? 0) >= 2)
+    .sort((a, b) => (b.rvol ?? 0) - (a.rvol ?? 0));
+
   const sorted = [...(data?.data ?? [])].sort((a, b) => {
     const scoreDiff = autoScore(b, rvolThreshold) - autoScore(a, rvolThreshold);
     if (scoreDiff !== 0) return scoreDiff;

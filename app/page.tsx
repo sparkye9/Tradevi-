@@ -2,7 +2,6 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import SourceTag from '@/components/ui/SourceTag';
-import ConsistencyGuardrail from '@/components/guardrail/ConsistencyGuardrail';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import type { FinvizQuote, FinvizFuture, FinvizResult } from '@/lib/finviz';
 import { useTradeviStore } from '@/store/tradeviStore';
@@ -209,8 +208,6 @@ export default function DashboardPage() {
         </section>
       </div>
 
-      {/* Consistency guardrail */}
-      <ConsistencyGuardrail />
     </div>
   );
 }
