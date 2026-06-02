@@ -17,11 +17,12 @@ const YF_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
 };
 
+// In-memory caches (warm across requests in same Vercel instance)
 let crumbCache: { crumb: string; cookie: string; ts: number } | null = null;
 const CRUMB_TTL = 55 * 60 * 1000;
-
-// Stale-data safety net — last successful Yahoo result kept in memory
 let lastGoodResult: FinvizResult<FinvizFuture> | null = null;
+
+// ── Crumb auth ────────────────────────────────────────────────────────────────
 
 async function getCrumb(): Promise<{ crumb: string; cookie: string } | null> {
   if (crumbCache && Date.now() - crumbCache.ts < CRUMB_TTL) {
@@ -55,78 +56,127 @@ async function getCrumb(): Promise<{ crumb: string; cookie: string } | null> {
   }
 }
 
-async function doYahooFetch(auth: { crumb: string; cookie: string } | null, now: string): Promise<FinvizResult<FinvizFuture> | null> {
-  const symbols = FUTURES_MAP.map((f) => f.yahoo).join(',');
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}&fields=regularMarketPrice,regularMarketChangePercent${auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : ''}`;
-  const headers: Record<string, string> = { ...YF_HEADERS, Accept: 'application/json' };
-  if (auth?.cookie) headers['Cookie'] = auth.cookie;
+// ── Method 1: Yahoo v7 batch quote (crumb auth) ────────────────────────────
 
-  const resp = await fetch(url, { headers, cache: 'no-store' });
-  if (!resp.ok) return null;
+async function tryYahooQuoteApi(auth: { crumb: string; cookie: string } | null, now: string): Promise<FinvizResult<FinvizFuture> | null> {
+  try {
+    const symbols = FUTURES_MAP.map((f) => f.yahoo).join(',');
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}&fields=regularMarketPrice,regularMarketChangePercent${auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : ''}`;
+    const headers: Record<string, string> = { ...YF_HEADERS, Accept: 'application/json' };
+    if (auth?.cookie) headers['Cookie'] = auth.cookie;
 
-  const json = await resp.json();
-  const quotes: { symbol: string; regularMarketPrice?: number; regularMarketChangePercent?: number }[] =
-    json?.quoteResponse?.result ?? [];
-  if (quotes.length === 0) return null;
+    const resp = await fetch(url, { headers, cache: 'no-store' });
+    if (!resp.ok) return null;
 
-  const quoteMap: Record<string, typeof quotes[0]> = {};
-  for (const q of quotes) quoteMap[q.symbol] = q;
+    const json = await resp.json();
+    const quotes: { symbol: string; regularMarketPrice?: number; regularMarketChangePercent?: number }[] =
+      json?.quoteResponse?.result ?? [];
+    if (quotes.length === 0) return null;
 
-  const data: FinvizFuture[] = FUTURES_MAP.map((f) => {
-    const q = quoteMap[f.yahoo];
-    const price = q?.regularMarketPrice ?? null;
-    const changePercent = q?.regularMarketChangePercent ?? null;
-    return {
-      symbol: f.symbol, name: f.name, price, changePercent,
-      direction: changePercent === null ? null : changePercent > 0.05 ? 'up' : changePercent < -0.05 ? 'down' : 'flat',
-      lastUpdated: now,
-    };
-  });
+    const quoteMap: Record<string, typeof quotes[0]> = {};
+    for (const q of quotes) quoteMap[q.symbol] = q;
 
-  return { data, source: 'Yahoo Finance', lastUpdated: now };
+    const data: FinvizFuture[] = FUTURES_MAP.map((f) => {
+      const q = quoteMap[f.yahoo];
+      const price = q?.regularMarketPrice ?? null;
+      const changePercent = q?.regularMarketChangePercent ?? null;
+      return {
+        symbol: f.symbol, name: f.name, price, changePercent,
+        direction: changePercent === null ? null : changePercent > 0.05 ? 'up' : changePercent < -0.05 ? 'down' : 'flat',
+        lastUpdated: now,
+      };
+    });
+
+    return { data, source: 'Yahoo Finance', lastUpdated: now };
+  } catch {
+    return null;
+  }
 }
+
+// ── Method 2: Yahoo v8 chart API (no crumb needed) ────────────────────────
+
+async function fetchChartQuote(yahooSymbol: string): Promise<{ price: number | null; changePercent: number | null }> {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=1d`;
+    const resp = await fetch(url, { headers: { ...YF_HEADERS, Accept: 'application/json' }, cache: 'no-store' });
+    if (!resp.ok) return { price: null, changePercent: null };
+    const json = await resp.json();
+    const meta = json?.chart?.result?.[0]?.meta;
+    if (!meta) return { price: null, changePercent: null };
+    const price: number | null = meta.regularMarketPrice ?? null;
+    const prevClose: number | null = meta.chartPreviousClose ?? meta.previousClose ?? null;
+    const changePercent = price !== null && prevClose !== null && prevClose > 0
+      ? ((price - prevClose) / prevClose) * 100
+      : null;
+    return { price, changePercent };
+  } catch {
+    return { price: null, changePercent: null };
+  }
+}
+
+async function tryYahooChartApi(now: string): Promise<FinvizResult<FinvizFuture> | null> {
+  try {
+    const results = await Promise.all(FUTURES_MAP.map((f) => fetchChartQuote(f.yahoo)));
+    const data: FinvizFuture[] = FUTURES_MAP.map((f, i) => {
+      const { price, changePercent } = results[i];
+      return {
+        symbol: f.symbol, name: f.name, price, changePercent,
+        direction: changePercent === null ? null : changePercent > 0.05 ? 'up' : changePercent < -0.05 ? 'down' : 'flat',
+        lastUpdated: now,
+      };
+    });
+
+    // Only succeed if at least one symbol came back with a price
+    if (data.every((d) => d.price === null)) return null;
+    return { data, source: 'Yahoo Finance', lastUpdated: now };
+  } catch {
+    return null;
+  }
+}
+
+// ── Main Yahoo orchestrator ───────────────────────────────────────────────────
 
 async function fetchYahooFutures(): Promise<FinvizResult<FinvizFuture>> {
   const now = new Date().toISOString();
-  try {
-    // First attempt with cached crumb
-    const auth = await getCrumb();
-    const result = await doYahooFetch(auth, now);
-    if (result) {
-      lastGoodResult = result;
-      return result;
-    }
 
-    // Auth may be stale — refresh crumb and retry once
-    crumbCache = null;
-    const freshAuth = await getCrumb();
-    const retry = await doYahooFetch(freshAuth, now);
-    if (retry) {
-      lastGoodResult = retry;
-      return retry;
-    }
+  // 1. Try v7 quote API with cached crumb
+  const auth = await getCrumb();
+  const attempt1 = await tryYahooQuoteApi(auth, now);
+  if (attempt1) { lastGoodResult = attempt1; return attempt1; }
 
-    // Both attempts failed — serve last known good data if available
-    if (lastGoodResult) {
-      return { ...lastGoodResult, sourceError: 'Using cached data — Yahoo Finance temporarily unavailable' };
-    }
+  // 2. Refresh crumb and retry v7
+  crumbCache = null;
+  const freshAuth = await getCrumb();
+  const attempt2 = await tryYahooQuoteApi(freshAuth, now);
+  if (attempt2) { lastGoodResult = attempt2; return attempt2; }
 
-    return { data: FUTURES_MAP.map(f => ({ symbol: f.symbol, name: f.name, price: null, changePercent: null, direction: null, lastUpdated: now })), source: 'Yahoo Finance', sourceError: 'Yahoo Finance unavailable', lastUpdated: now };
-  } catch (err) {
-    if (lastGoodResult) {
-      return { ...lastGoodResult, sourceError: 'Using cached data — fetch error' };
-    }
-    return { data: [], source: 'Yahoo Finance', sourceError: `Futures fetch failed: ${String(err)}`, lastUpdated: now };
+  // 3. Chart API — no crumb needed, works from cloud IPs
+  const attempt3 = await tryYahooChartApi(now);
+  if (attempt3) { lastGoodResult = attempt3; return attempt3; }
+
+  // 4. Serve last known good data (stale but better than nothing)
+  if (lastGoodResult) {
+    return { ...lastGoodResult, sourceError: 'Stale data — all Yahoo endpoints failed' };
   }
+
+  // 5. Absolute last resort — return all symbols with null prices so bar renders
+  return {
+    data: FUTURES_MAP.map((f) => ({
+      symbol: f.symbol, name: f.name, price: null, changePercent: null, direction: null, lastUpdated: now,
+    })),
+    source: 'Yahoo Finance',
+    sourceError: 'Futures data unavailable',
+    lastUpdated: now,
+  };
 }
 
+// ── Route handler ─────────────────────────────────────────────────────────────
+
 export async function GET() {
-  const result = await fetchFinvizFutures();
-  if (!result.sourceError) {
-    // Finviz worked — also cache it as a good result for the stale fallback
-    lastGoodResult = result;
-    return NextResponse.json(result);
+  const finviz = await fetchFinvizFutures();
+  if (!finviz.sourceError) {
+    lastGoodResult = finviz;
+    return NextResponse.json(finviz);
   }
-  // Finviz failed — always use Yahoo (with retry + stale cache safety net)
   return NextResponse.json(await fetchYahooFutures());
 }
