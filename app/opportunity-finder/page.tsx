@@ -121,13 +121,12 @@ function PositionSizing({ price, capital, contracts }: { price: number | null; c
   const shares = Math.floor(capital / price);
   const stockCost = +(shares * price).toFixed(2);
 
-  // Option sizing (cheapest qualifying call contract)
-  const cheapestCall = contracts?.filter(c => c.type === 'call' && c.bid !== null && c.ask !== null)
-    .sort((a, b) => {
-      const midA = (a.bid! + a.ask!) / 2;
-      const midB = (b.bid! + b.ask!) / 2;
-      return midA - midB;
-    })[0] ?? null;
+  // Option sizing — prefer cheap contracts ($10–$50), fall back to cheapest available
+  const cheapContracts = contracts?.filter(c => c.bid !== null && c.ask !== null && (c.bid + c.ask) / 2 <= 0.50 && (c.bid + c.ask) / 2 >= 0.10 && Math.abs(c.delta ?? 0) >= 0.29) ?? [];
+  const callPool = cheapContracts.filter(c => c.type === 'call').length > 0
+    ? cheapContracts.filter(c => c.type === 'call')
+    : (contracts?.filter(c => c.type === 'call' && c.bid !== null && c.ask !== null) ?? []);
+  const cheapestCall = callPool.sort((a, b) => (a.bid! + a.ask!) / 2 - (b.bid! + b.ask!) / 2)[0] ?? null;
 
   const optionContracts = cheapestCall && cheapestCall.bid !== null && cheapestCall.ask !== null
     ? Math.floor(capital / (((cheapestCall.bid + cheapestCall.ask) / 2) * 100))
@@ -296,7 +295,7 @@ function IntradayCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: 
     setLoadingContracts(true);
     setShowSizing(true);
     try {
-      const res = await fetch(`/api/tradier/options?symbol=${q.symbol}`);
+      const res = await fetch(`/api/tradier/options?symbol=${q.symbol}&cheap=true`);
       const json: TradierOptionsResult = await res.json();
       setContracts(json.contracts ?? []);
     } catch {
@@ -593,24 +592,49 @@ export default function OpportunityFinderPage() {
     .map(q => ({ q, score: computeScore(q, rvolThreshold) }))
     .sort((a, b) => b.score - a.score);
 
-  // Intraday: prefer RVOL/unusual volume hits; fallback to top movers by % change
-  const intradayScored = scored.filter(({ q }) => (q.rvol ?? 0) >= rvolThreshold || q.newHighDay || q.unusualVolume);
-  const intradayFallback = [...candidates]
-    .sort((a, b) => Math.abs(b.changePercent ?? 0) - Math.abs(a.changePercent ?? 0));
-  const intraday = (intradayScored.length >= 3 ? intradayScored : scored)
-    .slice(0, 10)
-    .map(({ q }) => q);
-  // If still empty use raw fallback
-  const intradayFinal = intraday.length > 0 ? intraday : intradayFallback.slice(0, 10);
+  // Intraday BULLISH: RVOL, new highs, positive momentum
+  const intradayBullish = scored
+    .filter(({ q }) => (q.rvol ?? 0) >= rvolThreshold || q.newHighDay || q.unusualVolume)
+    .filter(({ q }) => (q.changePercent ?? 0) >= -1) // not crashing hard
+    .slice(0, 15).map(({ q }) => q);
 
-  // Swing: above both SMAs + positive momentum; fallback to any above SMA50
-  const swingScored = scored.filter(({ q }) =>
-    q.sma50rel === 'above' && q.sma200rel === 'above'
-  );
-  const swingFallback = scored.filter(({ q }) => q.sma50rel === 'above');
-  const swing = (swingScored.length >= 2 ? swingScored : swingFallback)
-    .slice(0, 5)
-    .map(({ q }) => q);
+  // Intraday BEARISH: dropping with volume — put plays
+  const intradayBearish = [...candidates]
+    .filter(q => (q.changePercent ?? 0) <= -1.5)
+    .sort((a, b) => {
+      // prioritize: RVOL desc, then % change (most negative first)
+      const rvolScore = ((b.rvol ?? 0) - (a.rvol ?? 0)) * 10;
+      const chgScore = (a.changePercent ?? 0) - (b.changePercent ?? 0);
+      return rvolScore + chgScore;
+    })
+    .slice(0, 10);
+
+  // Fallback: if both empty use top movers by absolute % change
+  const intradayFallback = [...candidates]
+    .sort((a, b) => Math.abs(b.changePercent ?? 0) - Math.abs(a.changePercent ?? 0))
+    .slice(0, 15);
+  const intradayFinal = (intradayBullish.length + intradayBearish.length >= 3)
+    ? intradayBullish
+    : intradayFallback;
+
+  // Swing LONG: above SMA50+200, sector strength
+  const swingLong = scored
+    .filter(({ q }) => q.sma50rel === 'above' && q.sma200rel === 'above')
+    .slice(0, 8).map(({ q }) => q);
+  const swingLongFallback = scored
+    .filter(({ q }) => q.sma50rel === 'above')
+    .slice(0, 8).map(({ q }) => q);
+  const swing = swingLong.length >= 2 ? swingLong : swingLongFallback;
+
+  // Swing SHORT: below SMA50+200, sector weak — put plays
+  const swingShort = candidates
+    .filter(q => q.sma50rel === 'below' && q.sma200rel === 'below')
+    .sort((a, b) => {
+      const aScore = ((a.rvol ?? 0) >= rvolThreshold ? 10 : 0) + (a.groupStrength === 'weak' ? 8 : 0) + Math.abs(a.changePercent ?? 0);
+      const bScore = ((b.rvol ?? 0) >= rvolThreshold ? 10 : 0) + (b.groupStrength === 'weak' ? 8 : 0) + Math.abs(b.changePercent ?? 0);
+      return bScore - aScore;
+    })
+    .slice(0, 8);
 
   const cond = marketCondition(ctx);
 
@@ -666,12 +690,12 @@ export default function OpportunityFinderPage() {
 
       {data?.sourceError && <DataUnavailable reason={data.sourceError} />}
 
-      {/* ── INTRADAY OPPORTUNITIES ── */}
+      {/* ── INTRADAY CALL PLAYS ── */}
       <section className="space-y-4">
         <div className="flex items-center gap-3 pb-1 border-b border-[#1e1e1e]">
           <div>
-            <h2 className="text-white font-bold text-base">⚡ Intraday Opportunities</h2>
-            <p className="text-xs text-gray-600 mt-0.5">High RVOL · unusual volume · momentum — moves happening today</p>
+            <h2 className="text-white font-bold text-base">⚡ Intraday — Call Plays</h2>
+            <p className="text-xs text-gray-600 mt-0.5">High RVOL · unusual volume · upside momentum · options $10–$50</p>
           </div>
           <div className={`ml-auto flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold ${
             cond.light === 'green' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
@@ -685,16 +709,14 @@ export default function OpportunityFinderPage() {
 
         {loading && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {[1,2,3].map(i => (
+            {[1,2,3,4,5,6].map(i => (
               <div key={i} className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-4 h-48 animate-pulse" />
             ))}
           </div>
         )}
 
         {!loading && intradayFinal.length === 0 && (
-          <div className="text-center py-10 text-gray-600">
-            No data returned. Check data source status above.
-          </div>
+          <div className="text-center py-10 text-gray-600">No data returned. Check data source status above.</div>
         )}
 
         {!loading && intradayFinal.length > 0 && (
@@ -706,25 +728,38 @@ export default function OpportunityFinderPage() {
         )}
       </section>
 
-      {/* ── SWING OPPORTUNITIES ── */}
+      {/* ── INTRADAY PUT PLAYS ── */}
+      {!loading && intradayBearish.length > 0 && (
+        <section className="space-y-4">
+          <div className="pb-1 border-b border-red-500/20">
+            <h2 className="text-red-400 font-bold text-base">🔻 Intraday — Put Plays</h2>
+            <p className="text-xs text-gray-600 mt-0.5">Dropping with volume · bearish structure · put options $10–$50</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {intradayBearish.map(q => (
+              <IntradayCard key={q.symbol} q={q} capital={capitalAmount} rvolThreshold={rvolThreshold} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── SWING LONG PLAYS ── */}
       <section className="space-y-4">
         <div className="pb-1 border-b border-[#1e1e1e]">
-          <h2 className="text-white font-bold text-base">📈 Swing Opportunities</h2>
-          <p className="text-xs text-gray-600 mt-0.5">Trend-aligned · above SMA 50 & 200 · sector strength — holds 2–14 days</p>
+          <h2 className="text-white font-bold text-base">📈 Swing — Call Plays</h2>
+          <p className="text-xs text-gray-600 mt-0.5">Above SMA 50 &amp; 200 · sector strength · hold 2–14 days</p>
         </div>
 
         {loading && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {[1,2].map(i => (
+            {[1,2,3].map(i => (
               <div key={i} className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-4 h-48 animate-pulse" />
             ))}
           </div>
         )}
 
         {!loading && swing.length === 0 && (
-          <div className="text-center py-10 text-gray-600">
-            No swing setups with full trend alignment right now.
-          </div>
+          <div className="text-center py-10 text-gray-600">No swing call setups with trend alignment right now.</div>
         )}
 
         {!loading && swing.length > 0 && (
@@ -736,9 +771,24 @@ export default function OpportunityFinderPage() {
         )}
       </section>
 
+      {/* ── SWING SHORT / PUT PLAYS ── */}
+      {!loading && swingShort.length > 0 && (
+        <section className="space-y-4">
+          <div className="pb-1 border-b border-red-500/20">
+            <h2 className="text-red-400 font-bold text-base">📉 Swing — Put Plays</h2>
+            <p className="text-xs text-gray-600 mt-0.5">Below SMA 50 &amp; 200 · sector weakness · hold 3–14 days</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {swingShort.map(q => (
+              <SwingCard key={q.symbol} q={q} capital={capitalAmount} rvolThreshold={rvolThreshold} />
+            ))}
+          </div>
+        </section>
+      )}
+
       <p className="text-xs text-gray-700 pb-4">
-        Scores computed from: RVOL, unusual volume, new highs, SMA alignment, sector strength, gap.
-        Entry / stop / target levels are <span className="text-amber-400/70">estimated</span> — always verify structure on TradingView before entering.
+        Options filtered: Δ ≥ 0.29 · contract cost $10–$50 · Δ 0.70–0.85 max.
+        Entry / stop / target levels are <span className="text-amber-400/70">estimated</span> — verify structure on TradingView before entering.
       </p>
     </div>
   );

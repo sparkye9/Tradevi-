@@ -50,7 +50,14 @@ async function tradierGet<T>(path: string, token: string): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
-export async function fetchTradierOptions(symbol: string): Promise<TradierOptionsResult> {
+export interface TradierOptionsFilter {
+  minDelta?: number;   // abs delta lower bound (default 0.20)
+  maxDelta?: number;   // abs delta upper bound (default 0.70)
+  minMid?: number;     // min mid price per share (default none)
+  maxMid?: number;     // max mid price per share (default none)
+}
+
+export async function fetchTradierOptions(symbol: string, filter?: TradierOptionsFilter): Promise<TradierOptionsResult> {
   const token = getToken();
   if (!token) {
     return {
@@ -135,12 +142,23 @@ export async function fetchTradierOptions(symbol: string): Promise<TradierOption
     const volume = opt.volume ?? null;
     const oi = opt.open_interest ?? null;
 
-    // Filter: delta 0.20-0.70 (absolute), volume > 50, OI > 100
+    const minDelta = filter?.minDelta ?? 0.20;
+    const maxDelta = filter?.maxDelta ?? 0.70;
+
+    // Filter: delta range (absolute), volume > 50, OI > 100
     if (delta === null) continue;
     const absDelta = Math.abs(delta);
-    if (absDelta < 0.2 || absDelta > 0.7) continue;
+    if (absDelta < minDelta || absDelta > maxDelta) continue;
     if (volume !== null && volume <= 50) continue;
     if (oi !== null && oi <= 100) continue;
+
+    // Optional mid-price filter ($10–$50 per contract = $0.10–$0.50 per share)
+    if (filter?.minMid !== undefined || filter?.maxMid !== undefined) {
+      const mid = opt.bid !== null && opt.ask !== null ? (opt.bid + opt.ask) / 2 : null;
+      if (mid === null) continue;
+      if (filter.minMid !== undefined && mid < filter.minMid) continue;
+      if (filter.maxMid !== undefined && mid > filter.maxMid) continue;
+    }
 
     contracts.push({
       symbol: opt.symbol,
