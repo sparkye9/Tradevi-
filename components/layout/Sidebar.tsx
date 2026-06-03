@@ -9,9 +9,8 @@ const NAV = [
   { href: '/intraday', label: 'Intraday', icon: '⚡' },
   { href: '/opportunity-finder', label: 'Small Account Edge', icon: '🎯' },
   { href: '/options', label: 'Options', icon: '◈' },
-  { href: '/mini-futures', label: 'Mini Futures', icon: '▦' },
+  { href: '/mini-futures', label: 'Futures Guide', icon: '▦' },
   { href: '/power-hour', label: 'Power Hour', icon: '◉' },
-  { href: '/futures-bias', label: 'Futures Bias', icon: '◀' },
 ];
 
 export default function Sidebar() {

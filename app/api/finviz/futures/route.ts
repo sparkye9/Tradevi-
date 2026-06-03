@@ -5,12 +5,15 @@ import type { FinvizFuture, FinvizResult } from '@/lib/finviz';
 export const runtime = 'nodejs';
 
 const FUTURES_MAP: { yahoo: string; symbol: string; name: string }[] = [
-  { yahoo: 'ES=F',  symbol: 'ES',  name: 'S&P 500 Futures' },
-  { yahoo: 'NQ=F',  symbol: 'NQ',  name: 'Nasdaq 100 Futures' },
-  { yahoo: 'YM=F',  symbol: 'YM',  name: 'Dow Jones Futures' },
-  { yahoo: 'RTY=F', symbol: 'RTY', name: 'Russell 2000 Futures' },
-  { yahoo: '^VIX',  symbol: 'VIX', name: 'CBOE Volatility Index' },
-  { yahoo: 'GC=F',  symbol: 'GC',  name: 'Gold Futures' },
+  { yahoo: 'ES=F',      symbol: 'ES',  name: 'S&P 500 Futures' },
+  { yahoo: 'NQ=F',      symbol: 'NQ',  name: 'Nasdaq 100 Futures' },
+  { yahoo: 'YM=F',      symbol: 'YM',  name: 'Dow Jones Futures' },
+  { yahoo: 'RTY=F',     symbol: 'RTY', name: 'Russell 2000 Futures' },
+  { yahoo: '^VIX',      symbol: 'VIX', name: 'CBOE Volatility Index' },
+  { yahoo: 'GC=F',      symbol: 'GC',  name: 'Gold Futures' },
+  { yahoo: 'CL=F',      symbol: 'OIL', name: 'Crude Oil Futures' },
+  { yahoo: '^TNX',      symbol: 'TNX', name: '10-Year Treasury Yield' },
+  { yahoo: 'DX=F',      symbol: 'DXY', name: 'US Dollar Index' },
 ];
 
 // Last successful result — serves stale data if all live fetches fail
