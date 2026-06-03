@@ -175,7 +175,7 @@ export default function DashboardPage() {
       </div>
 
       {loading && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[0,1,2,3].map((i) => (
             <div key={i} className="card animate-pulse">
               <div className="h-3 w-12 bg-[#222] rounded mb-3" />
@@ -188,7 +188,7 @@ export default function DashboardPage() {
 
       {/* Index stat grid */}
       {!loading && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <IndexStatCard q={spy} sym="SPY" />
           <IndexStatCard q={qqq} sym="QQQ" />
           <IndexStatCard q={iwm} sym="IWM" />
@@ -197,7 +197,7 @@ export default function DashboardPage() {
       )}
 
       {/* Market posture + Futures row */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Market posture */}
         <div className={`card border ${postureBorder}`}>
           <div className="flex items-center justify-between mb-3">
@@ -258,7 +258,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Candidate columns */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <div className="flex items-center justify-between mb-3">
             <span className="label">Top Swing Candidates</span>

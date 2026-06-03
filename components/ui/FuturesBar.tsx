@@ -94,8 +94,8 @@ export default function FuturesBar() {
 
   return (
     <div
-      className="w-full flex items-center gap-3 px-4 py-2 border-b border-[#1a1a1a] overflow-x-auto"
-      style={{ background: '#090909', minHeight: 40 }}
+      className="w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 border-b border-[#1a1a1a] overflow-x-auto scrollbar-none"
+      style={{ background: '#090909', minHeight: 38 }}
     >
       {/* Status dot + ET time */}
       <div className="flex items-center gap-1.5 shrink-0">

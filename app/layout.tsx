@@ -13,12 +13,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="bg-[#0f0f0f] text-white min-h-screen flex">
-        <Sidebar />
-        <div className="flex-1 flex flex-col overflow-auto">
-          <FuturesBar />
-          <main className="flex-1 p-6">{children}</main>
-          <BibleVerse />
+        {/* Sidebar — hidden on mobile, shown on md+ */}
+        <div className="hidden md:block">
+          <Sidebar />
         </div>
+        <div className="flex-1 flex flex-col overflow-auto min-w-0">
+          <FuturesBar />
+          {/* pb-20 on mobile leaves room for bottom nav */}
+          <main className="flex-1 p-4 md:p-6 pb-24 md:pb-6">{children}</main>
+          <div className="hidden md:block">
+            <BibleVerse />
+          </div>
+        </div>
+        {/* Bottom nav — shown on mobile only */}
+        <Sidebar mobile />
       </body>
     </html>
   );
