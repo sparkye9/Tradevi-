@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { fetchYahooQuotes } from '@/lib/yahoo-screener';
 
 export const runtime = 'nodejs';
 
@@ -6,7 +7,7 @@ let cache: { price: number; changePercent: number; ts: number } | null = null;
 const TTL = 45_000;
 
 async function fetchFromStooq(): Promise<{ price: number; changePercent: number }> {
-  // f=sd2t2ohlcvp: cols[6]=close, cols[8]=prevClose (p = prev close price, not %)
+  // f=sd2t2ohlcvp: cols[6]=close, cols[8]=prevClose (p = prev close price, NOT %)
   const url = 'https://stooq.com/q/l/?s=%5Evix&f=sd2t2ohlcvp&h&e=csv';
   const resp = await fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'text/csv' },
@@ -28,25 +29,12 @@ async function fetchFromStooq(): Promise<{ price: number; changePercent: number 
 }
 
 async function fetchFromYahoo(): Promise<{ price: number; changePercent: number }> {
-  for (const host of ['query1', 'query2']) {
-    try {
-      const url = `https://${host}.finance.yahoo.com/v7/finance/quote?symbols=%5EVIX&fields=regularMarketPrice,regularMarketChangePercent`;
-      const resp = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
-        cache: 'no-store',
-        signal: AbortSignal.timeout(6000),
-      });
-      if (!resp.ok) continue;
-      const json = await resp.json();
-      const q = json?.quoteResponse?.result?.[0];
-      if (q?.regularMarketPrice != null) {
-        return { price: q.regularMarketPrice, changePercent: q.regularMarketChangePercent ?? 0 };
-      }
-    } catch {
-      continue;
-    }
+  const quotes = await fetchYahooQuotes(['^VIX']);
+  const q = quotes.find((r) => r.symbol === '^VIX' || r.symbol === 'VIX');
+  if (q?.regularMarketPrice != null) {
+    return { price: q.regularMarketPrice, changePercent: q.regularMarketChangePercent ?? 0 };
   }
-  throw new Error('Yahoo Finance unavailable');
+  throw new Error('VIX not in Yahoo response');
 }
 
 export async function GET() {
