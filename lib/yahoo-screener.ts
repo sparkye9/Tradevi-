@@ -48,40 +48,35 @@ async function getYahooCrumb(): Promise<{ crumb: string; cookie: string } | null
   }
 
   try {
-    // Step 1: hit Yahoo Finance to get session cookies
-    const homeResp = await fetch('https://finance.yahoo.com', {
-      headers: YF_HEADERS,
+    const homeResp = await fetch('https://finance.yahoo.com/', {
+      headers: { 'User-Agent': YF_HEADERS['User-Agent'], Accept: 'text/html' },
       redirect: 'follow',
     });
 
     const rawCookies = homeResp.headers.get('set-cookie') ?? '';
-    // Extract A1 and A3 cookies (Yahoo session cookies)
     const cookieParts: string[] = [];
-    const cookieRegex = /([A-Z0-9_]+=[^;]+)/g;
-    let cookieMatch: RegExpExecArray | null;
-    while ((cookieMatch = cookieRegex.exec(rawCookies)) !== null) {
-      const name = cookieMatch[1].split('=')[0];
-      if (['A1', 'A3', 'A1S', 'A1i', 'GUC', 'GUCS'].includes(name)) {
-        cookieParts.push(cookieMatch[1]);
-      }
+    for (const segment of rawCookies.split(',')) {
+      const kv = segment.trim().split(';')[0];
+      if (/^(A1|A3|A1S|A1i|GUC|GUCS)=/i.test(kv)) cookieParts.push(kv);
     }
     const cookie = cookieParts.join('; ');
 
-    // Step 2: get crumb using those cookies
-    const crumbResp = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
-      headers: {
-        ...YF_HEADERS,
-        Accept: 'text/plain, */*',
-        Cookie: cookie,
-      },
-    });
-
-    if (!crumbResp.ok) return null;
-    const crumb = (await crumbResp.text()).trim();
-    if (!crumb || crumb.length < 3) return null;
-
-    crumbCache = { crumb, cookie, ts: Date.now() };
-    return { crumb, cookie };
+    // Try query2 first, then query1
+    for (const host of ['query2', 'query1']) {
+      try {
+        const crumbResp = await fetch(`https://${host}.finance.yahoo.com/v1/test/getcrumb`, {
+          headers: { ...YF_HEADERS, Accept: 'text/plain, */*', Cookie: cookie },
+        });
+        if (!crumbResp.ok) continue;
+        const crumb = (await crumbResp.text()).trim();
+        if (!crumb || crumb.length < 3) continue;
+        crumbCache = { crumb, cookie, ts: Date.now() };
+        return { crumb, cookie };
+      } catch {
+        continue;
+      }
+    }
+    return null;
   } catch {
     return null;
   }
@@ -125,37 +120,34 @@ const YAHOO_FIELDS = [
 ].join(',');
 
 export async function fetchYahooQuotes(symbols: string[]): Promise<YahooQuoteRaw[]> {
-  const auth = await getYahooCrumb();
+  const symStr = encodeURIComponent(symbols.join(','));
+  const hosts = ['query1', 'query2'];
 
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols.join(','))}&fields=${YAHOO_FIELDS}${auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : ''}`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const auth = await getYahooCrumb();
+    const headers: Record<string, string> = { ...YF_HEADERS, Accept: 'application/json' };
+    if (auth?.cookie) headers['Cookie'] = auth.cookie;
+    const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : '';
 
-  const headers: Record<string, string> = {
-    ...YF_HEADERS,
-    Accept: 'application/json',
-  };
-  if (auth?.cookie) headers['Cookie'] = auth.cookie;
-
-  const resp = await fetch(url, { headers, cache: 'no-store' });
-
-  if (resp.status === 401 || resp.status === 403) {
-    // Crumb may be stale — clear and retry once
-    crumbCache = null;
-    const auth2 = await getYahooCrumb();
-    if (!auth2) throw new Error(`Yahoo Finance auth failed (HTTP ${resp.status})`);
-
-    const url2 = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols.join(','))}&fields=${YAHOO_FIELDS}&crumb=${encodeURIComponent(auth2.crumb)}`;
-    const resp2 = await fetch(url2, {
-      headers: { ...headers, Cookie: auth2.cookie },
-      cache: 'no-store',
-    });
-    if (!resp2.ok) throw new Error(`Yahoo Finance returned HTTP ${resp2.status}`);
-    const json2 = await resp2.json();
-    return (json2?.quoteResponse?.result ?? []) as YahooQuoteRaw[];
+    for (const host of hosts) {
+      const url = `https://${host}.finance.yahoo.com/v7/finance/quote?symbols=${symStr}&fields=${YAHOO_FIELDS}${crumbParam}`;
+      try {
+        const resp = await fetch(url, { headers, cache: 'no-store' });
+        if (resp.status === 401 || resp.status === 403) {
+          crumbCache = null;
+          break;
+        }
+        if (!resp.ok) continue;
+        const json = await resp.json();
+        const results = (json?.quoteResponse?.result ?? []) as YahooQuoteRaw[];
+        if (results.length > 0) return results;
+      } catch {
+        continue;
+      }
+    }
   }
 
-  if (!resp.ok) throw new Error(`Yahoo Finance returned HTTP ${resp.status}`);
-  const json = await resp.json();
-  return (json?.quoteResponse?.result ?? []) as YahooQuoteRaw[];
+  throw new Error('Yahoo Finance unavailable after retries');
 }
 
 export async function fetchYahooScreener(
