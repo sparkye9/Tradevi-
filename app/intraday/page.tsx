@@ -234,15 +234,19 @@ export default function IntradayPage() {
   const { watchlist, rvolThreshold, setRvolThreshold, scanMode, setScanMode } = useTradeviStore();
   const [data, setData] = useState<FinvizResult<FinvizQuote> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [session, setSession] = useState('');
+  const [now, setNow] = useState<Date | null>(null);
   const [checklist, setChecklist] = useState<boolean[]>([false, false, false]);
   const [checklistOpen, setChecklistOpen] = useState(true);
 
   useEffect(() => {
-    setSession(getETSession());
+    setNow(new Date());
+    const iv = setInterval(() => setNow(new Date()), 60000);
     const saved = sessionStorage.getItem('intraday-checklist');
     if (saved) setChecklist(JSON.parse(saved));
+    return () => clearInterval(iv);
   }, []);
+
+  const session = now ? getETSession() : null;
 
   function toggleCheck(i: number) {
     const updated = checklist.map((v, idx) => idx === i ? !v : v);
@@ -277,19 +281,24 @@ export default function IntradayPage() {
   const unusual = intraday.filter((q) => (q.rvol ?? 0) >= 2);
   const regular = intraday.filter((q) => (q.rvol ?? 0) < 2);
 
+  const sessionColor =
+    session === 'New York' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
+    session === 'London'   ? 'bg-purple-500/10 border-purple-500/30 text-purple-400' :
+    session === 'Asia'     ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' :
+                             'bg-gray-500/10 border-gray-500/30 text-gray-400';
+
   return (
     <div className="space-y-6 max-w-6xl">
-      <div className="flex items-center gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Intraday</h1>
-          <p className="text-sm text-gray-500 mt-1">Fast tactical execution. High contrast, high density.</p>
-        </div>
-        {session && (
-          <div className="ml-auto flex items-center gap-2 bg-[#111111] border border-[#1e1e1e] rounded-xl px-4 py-2">
-            <span className="text-white font-semibold text-sm">{session}</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">Active</span>
-          </div>
-        )}
+      <div>
+        <h1 className="text-2xl font-bold text-white">Intraday</h1>
+        <p className="text-sm text-gray-500 mt-1">Fast tactical execution. High contrast, high density.</p>
+      </div>
+
+      <div className={`flex items-center gap-3 px-5 py-3 rounded-2xl border ${session ? sessionColor : 'bg-[#111111] border-[#1e1e1e]'}`}>
+        <div className="w-2 h-2 rounded-full bg-current animate-pulse shrink-0" />
+        <span className="font-mono font-bold text-base">{session ?? 'Detecting session...'}</span>
+        {session && <span className="text-xs font-semibold opacity-70">Session Active</span>}
+        {session === 'After Hours' && <span className="text-xs opacity-50">Market closed</span>}
       </div>
 
       <div className="bg-[#111111] border border-[#1e1e1e] rounded-2xl overflow-hidden">

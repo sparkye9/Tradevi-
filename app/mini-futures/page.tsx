@@ -344,22 +344,22 @@ export default function MiniFuturesPage() {
         <div className="sticky top-0 z-10 bg-[#0f0f0f] border-b border-[#1e1e1e] py-3 -mx-4 px-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className={`text-xs font-mono font-semibold px-3 py-1 rounded-full border ${sessionBadgeClass(session)}`}>
+              <span className={`text-sm font-mono font-bold px-3 py-1.5 rounded-lg border ${sessionBadgeClass(session)}`}>
                 {session} Session
               </span>
-              <span className={`text-xs font-mono px-2 py-0.5 rounded border ${windowInfo.badgeColor}`}>
+              <span className={`text-xs font-mono font-semibold px-2.5 py-1 rounded-lg border ${windowInfo.badgeColor}`}>
                 {windowInfo.badge}
               </span>
-              <span className="text-xs text-gray-600 font-mono hidden sm:inline">
-                Next: <span className="text-gray-400">{nextLabel}</span> in{' '}
-                <span className="text-white font-semibold">{fmtCountdown(secsRemaining)}</span>
-              </span>
-              <span className={`text-xs font-mono px-2 py-0.5 rounded border ${rangeStateBadgeClass(rangeState)}`}>
+              <span className={`text-xs font-mono px-2 py-1 rounded border ${rangeStateBadgeClass(rangeState)}`}>
                 {rangeState}
+              </span>
+              <span className="text-xs text-gray-500 font-mono">
+                Next: <span className="text-gray-300 font-semibold">{nextLabel}</span>{' '}in{' '}
+                <span className="text-white font-bold">{fmtCountdown(secsRemaining)}</span>
               </span>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-xs font-mono text-gray-500">{etTimeStr} ET</span>
+              <span className="text-sm font-mono font-bold text-white">{etTimeStr} ET</span>
               <button
                 onClick={(e) => { e.stopPropagation(); setFocusMode((v) => !v); }}
                 className={`text-xs px-3 py-1.5 rounded-lg border font-mono transition-all ${focusMode ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400' : 'bg-[#1a1a1a] border-[#2a2a2a] text-gray-400 hover:text-white'}`}
