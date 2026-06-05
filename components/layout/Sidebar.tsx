@@ -14,7 +14,7 @@ const MAIN_NAV = [
 const UTILITY_NAV = [
   { href: '/journal', label: 'Journal', icon: '◈' },
   { href: '/trade-discovery', label: 'Trade Discovery', icon: '◎' },
-  { href: '/opportunity-finder', label: 'Opportunities', icon: '🎯' },
+  { href: '/opportunity-finder', label: 'Small Account Edge', icon: '🎯' },
   { href: '/options', label: 'Options', icon: '≋' },
 ];
 
