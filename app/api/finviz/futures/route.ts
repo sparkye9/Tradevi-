@@ -20,6 +20,8 @@ async function fetchOneStooq(stooqSym: string): Promise<{ price: number; changeP
   try {
     // Encode ^ but NOT the dot — Stooq requires literal dots in symbol names
     const encoded = stooqSym.replace('^', '%5E');
+    // f=sd2t2ohlcvp: Symbol,Date,Time,Open,High,Low,Close,Volume,PrevClose
+    // 'p' = previous close price (NOT % change) — compute % ourselves
     const url = `https://stooq.com/q/l/?s=${encoded}&f=sd2t2ohlcvp&h&e=csv`;
     const resp = await fetch(url, {
       headers: { 'User-Agent': UA, Accept: 'text/csv,text/plain,*/*' },
@@ -29,15 +31,16 @@ async function fetchOneStooq(stooqSym: string): Promise<{ price: number; changeP
     if (!resp.ok) return null;
     const text = await resp.text();
     const lines = text.trim().split('\n');
-    // Header row + at least one data row
     if (lines.length < 2) return null;
     const cols = lines[1].split(',');
-    // Format: Symbol,Date,Time,Open,High,Low,Close,Volume,%Chg
     if (cols.length < 9) return null;
     const price = parseFloat(cols[6]);
-    const chg = parseFloat(cols[8].replace('%', ''));
+    const prevClose = parseFloat(cols[8]);
     if (isNaN(price) || price <= 0) return null;
-    return { price, changePercent: isNaN(chg) ? 0 : chg };
+    const changePercent = (!isNaN(prevClose) && prevClose > 0)
+      ? ((price - prevClose) / prevClose) * 100
+      : 0;
+    return { price, changePercent };
   } catch {
     return null;
   }

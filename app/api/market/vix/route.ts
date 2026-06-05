@@ -6,6 +6,7 @@ let cache: { price: number; changePercent: number; ts: number } | null = null;
 const TTL = 45_000;
 
 async function fetchFromStooq(): Promise<{ price: number; changePercent: number }> {
+  // f=sd2t2ohlcvp: cols[6]=close, cols[8]=prevClose (p = prev close price, not %)
   const url = 'https://stooq.com/q/l/?s=%5Evix&f=sd2t2ohlcvp&h&e=csv';
   const resp = await fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'text/csv' },
@@ -18,9 +19,12 @@ async function fetchFromStooq(): Promise<{ price: number; changePercent: number 
   if (lines.length < 2) throw new Error('Empty response');
   const cols = lines[1].split(',');
   const price = parseFloat(cols[6]);
-  const chg = parseFloat(cols[8]);
+  const prevClose = parseFloat(cols[8]);
   if (isNaN(price) || price <= 0) throw new Error('Invalid price');
-  return { price, changePercent: isNaN(chg) ? 0 : chg };
+  const changePercent = (!isNaN(prevClose) && prevClose > 0)
+    ? ((price - prevClose) / prevClose) * 100
+    : 0;
+  return { price, changePercent };
 }
 
 async function fetchFromYahoo(): Promise<{ price: number; changePercent: number }> {

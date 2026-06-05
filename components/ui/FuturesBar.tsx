@@ -17,6 +17,7 @@ const BAR_SYMBOLS: { symbol: string; label: string }[] = [
   { symbol: 'RTY', label: 'Russell 2000' },
   { symbol: 'VIX', label: 'VIX' },
   { symbol: 'GC',  label: 'Gold' },
+  { symbol: 'NKD', label: 'Nikkei 225' },
 ];
 
 function getMarketStatus(etDate: Date): 'CLOSED' | 'PRE-MARKET' | 'OPEN' {
@@ -117,6 +118,8 @@ export default function FuturesBar() {
                 <span className="text-white font-mono text-xs font-semibold leading-none">
                   {item.symbol === 'VIX'
                     ? item.price!.toFixed(2)
+                    : item.symbol === 'NKD'
+                    ? item.price!.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
                     : item.price!.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               ) : (
