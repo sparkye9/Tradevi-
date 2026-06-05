@@ -221,10 +221,6 @@ export default function SwingPage() {
         <p className="text-sm text-gray-500 mt-1">Slow, strategic, higher timeframe analysis. 2–10 day holds.</p>
       </div>
 
-      <div className="bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl px-4 py-2.5 text-xs text-gray-500 italic">
-        Visual tone: No urgency. Wider spacing. Higher timeframe focus.
-      </div>
-
       <div className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-5 space-y-4">
         <h2 className="text-xs uppercase tracking-wider text-gray-500 font-semibold mb-3">Structure Notes</h2>
         <textarea

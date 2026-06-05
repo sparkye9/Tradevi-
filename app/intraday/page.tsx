@@ -240,7 +240,7 @@ export default function IntradayPage() {
 
   useEffect(() => {
     setNow(new Date());
-    const iv = setInterval(() => setNow(new Date()), 60000);
+    const iv = setInterval(() => setNow(new Date()), 5000);
     const saved = sessionStorage.getItem('intraday-checklist');
     if (saved) setChecklist(JSON.parse(saved));
     return () => clearInterval(iv);

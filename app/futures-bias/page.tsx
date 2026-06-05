@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import SourceTag from '@/components/ui/SourceTag';
-import { useWatchlistStore } from '@/store/watchlistStore';
+import { useTradeviStore } from '@/store/tradeviStore';
 import { useAlertsStore } from '@/store/alertsStore';
 import type { FinvizFuture, FinvizResult } from '@/lib/finviz';
 import type { AlertState } from '@/lib/types';
@@ -127,7 +127,7 @@ function VixPanel() {
     <div className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-5 space-y-4">
       <div className="flex items-center justify-between">
         <span className="text-xs uppercase tracking-wider text-gray-500 font-semibold">VIX</span>
-        {vix && <SourceTag source="Yahoo Finance" lastUpdated={vix.lastUpdated} />}
+        {vix && <SourceTag source="Stooq / Yahoo Finance" lastUpdated={vix.lastUpdated} />}
       </div>
 
       {loading ? (
@@ -267,17 +267,16 @@ function EconPanel() {
 // ─── Watchlist Panel ──────────────────────────────────────────────────────────
 
 function WatchlistPanel() {
-  const items = useWatchlistStore((s) => s.items);
+  const watchlist = useTradeviStore((s) => s.watchlist);
   const [quotes, setQuotes] = useState<QuoteRow[]>([]);
   const [quotesSource, setQuotesSource] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
   const loadQuotes = useCallback(async () => {
-    if (items.length === 0) return;
+    if (watchlist.length === 0) return;
     setLoading(true);
     try {
-      const syms = items.map((i) => i.symbol).join(',');
-      const res = await fetch(`/api/market/quotes?symbols=${syms}`);
+      const res = await fetch(`/api/market/quotes?symbols=${watchlist.join(',')}`);
       const json = await res.json();
       setQuotes(json.quotes ?? []);
       setQuotesSource(json.source ?? '');
@@ -285,7 +284,7 @@ function WatchlistPanel() {
       // leave stale
     }
     setLoading(false);
-  }, [items]);
+  }, [watchlist]);
 
   useEffect(() => { loadQuotes(); }, [loadQuotes]);
 
@@ -296,23 +295,23 @@ function WatchlistPanel() {
         {quotesSource && <span className="text-xs text-gray-600 capitalize">{quotesSource}</span>}
       </div>
 
-      {items.length === 0 ? (
-        <p className="text-gray-500 text-sm">Add tickers to your watchlist to see live prices.</p>
+      {watchlist.length === 0 ? (
+        <p className="text-gray-500 text-sm">Add tickers via the Swing or Intraday pages to see live prices here.</p>
       ) : loading ? (
         <div className="space-y-2">
-          {items.map((_, i) => (
+          {watchlist.map((_, i) => (
             <div key={i} className="h-10 bg-[#1a1a1a] rounded-xl animate-pulse" />
           ))}
         </div>
       ) : (
         <div className="space-y-2">
-          {items.map((item) => {
-            const q = quotes.find((r) => r.symbol === item.symbol);
+          {watchlist.map((symbol) => {
+            const q = quotes.find((r) => r.symbol === symbol);
             const up = (q?.changePercent ?? 0) >= 0;
             const chgColor = q?.changePercent != null ? (up ? 'text-emerald-400' : 'text-red-400') : 'text-gray-500';
             return (
-              <div key={item.symbol} className="flex items-center justify-between bg-[#0f0f0f] border border-[#1e1e1e] rounded-xl px-3 py-2">
-                <span className="text-white font-mono font-semibold">{item.symbol}</span>
+              <div key={symbol} className="flex items-center justify-between bg-[#0f0f0f] border border-[#1e1e1e] rounded-xl px-3 py-2">
+                <span className="text-white font-mono font-semibold">{symbol}</span>
                 <div className="text-right">
                   <div className="text-white font-mono text-sm">
                     {q?.price != null ? `$${q.price.toFixed(2)}` : '--'}

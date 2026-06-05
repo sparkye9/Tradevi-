@@ -266,7 +266,7 @@ export default function MiniFuturesPage() {
   const [clickCount, setClickCount] = useState(0);
   const [dismissedVix, setDismissedVix] = useState(false);
   const [dismissedClicks, setDismissedClicks] = useState(false);
-  const [lastCheckTime] = useState<Date>(new Date());
+  const lastCheckTime = now;
 
   useEffect(() => {
     async function load() {
