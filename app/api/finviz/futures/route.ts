@@ -3,92 +3,99 @@ import type { FinvizFuture, FinvizResult } from '@/lib/finviz';
 
 export const runtime = 'nodejs';
 
-const FUTURES_MAP = [
-  { yahoo: 'ES=F',  symbol: 'ES',  name: 'S&P 500 Futures' },
-  { yahoo: 'NQ=F',  symbol: 'NQ',  name: 'Nasdaq 100 Futures' },
-  { yahoo: 'YM=F',  symbol: 'YM',  name: 'Dow Jones Futures' },
-  { yahoo: 'RTY=F', symbol: 'RTY', name: 'Russell 2000 Futures' },
-  { yahoo: 'GC=F',  symbol: 'GC',  name: 'Gold Futures' },
-  { yahoo: '^VIX',  symbol: 'VIX', name: 'CBOE Volatility Index' },
-  { yahoo: 'NKD=F', symbol: 'NKD', name: 'Nikkei 225 Futures' },
+// Stooq: free, no auth, reliable from cloud servers
+// https://stooq.com/q/l/?s=es.f,nq.f&f=sd2t2ohlcvp&h&e=csv
+const SYMBOLS = [
+  { stooq: 'es.f',  symbol: 'ES',  name: 'S&P 500 Futures' },
+  { stooq: 'nq.f',  symbol: 'NQ',  name: 'Nasdaq 100 Futures' },
+  { stooq: 'ym.f',  symbol: 'YM',  name: 'Dow Jones Futures' },
+  { stooq: 'rty.f', symbol: 'RTY', name: 'Russell 2000 Futures' },
+  { stooq: 'gc.f',  symbol: 'GC',  name: 'Gold Futures' },
+  { stooq: '^vix',  symbol: 'VIX', name: 'CBOE Volatility Index' },
+  { stooq: 'nkd.f', symbol: 'NKD', name: 'Nikkei 225 Futures' },
 ];
 
-const YF_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept': 'application/json',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'Accept-Encoding': 'gzip, deflate, br',
-  'Origin': 'https://finance.yahoo.com',
-  'Referer': 'https://finance.yahoo.com/',
+const STOOQ_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  'Accept': 'text/csv,text/plain,*/*',
 };
 
-let crumbCache: { crumb: string; cookie: string; ts: number } | null = null;
-const CRUMB_TTL = 50 * 60 * 1000;
-
-async function getCrumb(): Promise<{ crumb: string; cookie: string } | null> {
-  if (crumbCache && Date.now() - crumbCache.ts < CRUMB_TTL) return crumbCache;
-  try {
-    const homeResp = await fetch('https://finance.yahoo.com/', {
-      headers: {
-        'User-Agent': YF_HEADERS['User-Agent'],
-        'Accept': 'text/html',
-      },
-    });
-    const setCookie = homeResp.headers.get('set-cookie') ?? '';
-    const cookies: string[] = [];
-    for (const part of setCookie.split(',')) {
-      const kv = part.trim().split(';')[0];
-      if (/^(A1|A3|A1S|GUC|GUCS)=/i.test(kv)) cookies.push(kv);
+function parseStooqCsv(csv: string): Map<string, { price: number; changePercent: number }> {
+  const result = new Map<string, { price: number; changePercent: number }>();
+  const lines = csv.trim().split('\n').slice(1); // skip header
+  for (const line of lines) {
+    const cols = line.split(',');
+    // Format: Symbol,Date,Time,Open,High,Low,Close,Volume,%Chg
+    if (cols.length < 9) continue;
+    const sym = cols[0].trim().toLowerCase();
+    const close = parseFloat(cols[6]);
+    const chg = parseFloat(cols[8].replace('%', ''));
+    if (!isNaN(close) && close > 0 && !isNaN(chg)) {
+      result.set(sym, { price: close, changePercent: chg });
     }
-    const cookie = cookies.join('; ');
-
-    const crumbResp = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
-      headers: { ...YF_HEADERS, Cookie: cookie },
-    });
-    if (!crumbResp.ok) return null;
-    const crumb = (await crumbResp.text()).trim();
-    if (!crumb || crumb.length < 3) return null;
-    crumbCache = { crumb, cookie, ts: Date.now() };
-    return crumbCache;
-  } catch {
-    return null;
   }
+  return result;
 }
 
-async function fetchWithCrumb(symbols: string[]): Promise<Record<string, { price: number; changePercent: number }>> {
-  const auth = await getCrumb();
-  const symStr = symbols.join(',');
-  const fields = 'regularMarketPrice,regularMarketChangePercent';
+async function fetchStooq(): Promise<Map<string, { price: number; changePercent: number }>> {
+  const batch = SYMBOLS.map((s) => s.stooq).join(',');
+  const url = `https://stooq.com/q/l/?s=${encodeURIComponent(batch)}&f=sd2t2ohlcvp&h&e=csv`;
 
-  const tryFetch = async (baseUrl: string, extra: Record<string, string> = {}) => {
-    const url = `${baseUrl}?symbols=${encodeURIComponent(symStr)}&fields=${fields}${auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : ''}`;
-    const headers: Record<string, string> = { ...YF_HEADERS, ...extra };
-    if (auth?.cookie) headers['Cookie'] = auth.cookie;
-    const r = await fetch(url, { headers, cache: 'no-store' });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const j = await r.json();
-    return (j?.quoteResponse?.result ?? []) as { symbol: string; regularMarketPrice?: number; regularMarketChangePercent?: number }[];
-  };
+  const resp = await fetch(url, {
+    headers: STOOQ_HEADERS,
+    cache: 'no-store',
+    signal: AbortSignal.timeout(8000),
+  });
 
-  let results;
-  try {
-    results = await tryFetch('https://query1.finance.yahoo.com/v7/finance/quote');
-  } catch {
+  if (!resp.ok) throw new Error(`Stooq HTTP ${resp.status}`);
+  const csv = await resp.text();
+  const parsed = parseStooqCsv(csv);
+  if (parsed.size === 0) throw new Error('Stooq returned empty data');
+  return parsed;
+}
+
+// Yahoo Finance fallback — no crumb needed for v8 spark endpoint
+async function fetchYahooFallback(): Promise<Map<string, { price: number; changePercent: number }>> {
+  const yahooMap = [
+    { yahoo: 'ES=F',  stooq: 'es.f' },
+    { yahoo: 'NQ=F',  stooq: 'nq.f' },
+    { yahoo: 'YM=F',  stooq: 'ym.f' },
+    { yahoo: 'RTY=F', stooq: 'rty.f' },
+    { yahoo: 'GC=F',  stooq: 'gc.f' },
+    { yahoo: '^VIX',  stooq: '^vix' },
+    { yahoo: 'NKD=F', stooq: 'nkd.f' },
+  ];
+
+  const symbols = yahooMap.map((m) => m.yahoo).join(',');
+  const result = new Map<string, { price: number; changePercent: number }>();
+
+  for (const host of ['query1', 'query2']) {
     try {
-      results = await tryFetch('https://query2.finance.yahoo.com/v7/finance/quote');
+      const url = `https://${host}.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}&fields=regularMarketPrice,regularMarketChangePercent`;
+      const resp = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          Accept: 'application/json',
+        },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!resp.ok) continue;
+      const json = await resp.json();
+      const quotes = json?.quoteResponse?.result ?? [];
+      if (quotes.length === 0) continue;
+      for (const q of quotes) {
+        const entry = yahooMap.find((m) => m.yahoo === q.symbol);
+        if (entry && q.regularMarketPrice != null && q.regularMarketChangePercent != null) {
+          result.set(entry.stooq, { price: q.regularMarketPrice, changePercent: q.regularMarketChangePercent });
+        }
+      }
+      if (result.size > 0) break;
     } catch {
-      crumbCache = null;
-      return {};
+      continue;
     }
   }
-
-  const out: Record<string, { price: number; changePercent: number }> = {};
-  for (const q of results) {
-    if (q.regularMarketPrice != null && q.regularMarketChangePercent != null) {
-      out[q.symbol] = { price: q.regularMarketPrice, changePercent: q.regularMarketChangePercent };
-    }
-  }
-  return out;
+  return result;
 }
 
 let lastGood: FinvizResult<FinvizFuture> | null = null;
@@ -102,16 +109,28 @@ export async function GET() {
     return NextResponse.json(lastGood);
   }
 
-  const yahooSymbols = FUTURES_MAP.map((f) => f.yahoo);
-  const quotes = await fetchWithCrumb(yahooSymbols);
+  let quotes = new Map<string, { price: number; changePercent: number }>();
+  let source = 'Stooq';
+  let sourceError: string | undefined;
 
-  const data: FinvizFuture[] = FUTURES_MAP.map((f) => {
-    const q = quotes[f.yahoo];
+  try {
+    quotes = await fetchStooq();
+  } catch (stooqErr) {
+    source = 'Yahoo Finance';
+    try {
+      quotes = await fetchYahooFallback();
+    } catch (yahooErr) {
+      sourceError = `Stooq: ${String(stooqErr)} | Yahoo: ${String(yahooErr)}`;
+    }
+  }
+
+  const data: FinvizFuture[] = SYMBOLS.map((s) => {
+    const q = quotes.get(s.stooq);
     const price = q?.price ?? null;
     const changePercent = q?.changePercent ?? null;
     return {
-      symbol: f.symbol,
-      name: f.name,
+      symbol: s.symbol,
+      name: s.name,
       price,
       changePercent,
       direction: changePercent === null ? null
@@ -125,19 +144,19 @@ export async function GET() {
   const hasData = data.some((d) => d.price !== null);
 
   if (hasData) {
-    lastGood = { data, source: 'Yahoo Finance', lastUpdated: now };
+    lastGood = { data, source, lastUpdated: now };
     lastFetchTs = Date.now();
     return NextResponse.json(lastGood);
   }
 
   if (lastGood) {
-    return NextResponse.json({ ...lastGood, sourceError: 'Using cached data — live fetch returned no prices' });
+    return NextResponse.json({ ...lastGood, sourceError: 'Serving cached data — live fetch failed' });
   }
 
   return NextResponse.json({
-    data: FUTURES_MAP.map((f) => ({ symbol: f.symbol, name: f.name, price: null, changePercent: null, direction: null, lastUpdated: now })),
-    source: 'Yahoo Finance',
-    sourceError: 'No data — Yahoo Finance may be temporarily unavailable',
+    data,
+    source,
+    sourceError: sourceError ?? 'No data available',
     lastUpdated: now,
   });
 }
