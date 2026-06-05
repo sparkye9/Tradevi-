@@ -171,6 +171,19 @@ export default function SwingPage() {
   const [data, setData] = useState<FinvizResult<FinvizQuote> | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [structureNotes, setStructureNotes] = useState('');
+  const [bosConfirmed, setBosConfirmed] = useState(false);
+  const [chochConfirmed, setChochConfirmed] = useState(false);
+  const [keltnerState, setKeltnerState] = useState<'Inside' | 'Expanding' | 'Contracting'>('Inside');
+
+  useEffect(() => {
+    setStructureNotes(localStorage.getItem('swing-structure-notes') ?? '');
+    setBosConfirmed(localStorage.getItem('swing-bos') === 'true');
+    setChochConfirmed(localStorage.getItem('swing-choch') === 'true');
+    const ks = localStorage.getItem('swing-keltner');
+    if (ks === 'Expanding' || ks === 'Contracting') setKeltnerState(ks as 'Expanding' | 'Contracting');
+  }, []);
+
   const tickers = scanMode === 'market' ? MARKET_TICKERS : watchlist;
 
   useEffect(() => {
@@ -203,10 +216,67 @@ export default function SwingPage() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Swing</h1>
-        <p className="text-sm text-gray-500 mt-1">What can I hold for multiple days?</p>
+        <h1 className="text-2xl font-bold text-white">Swing Trades</h1>
+        <p className="text-sm text-gray-500 mt-1">Slow, strategic, higher timeframe analysis. 2–10 day holds.</p>
+      </div>
+
+      <div className="bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl px-4 py-2.5 text-xs text-gray-500 italic">
+        Visual tone: No urgency. Wider spacing. Higher timeframe focus.
+      </div>
+
+      <div className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-5 space-y-4">
+        <h2 className="text-xs uppercase tracking-wider text-gray-500 font-semibold mb-3">Structure Notes</h2>
+        <textarea
+          value={structureNotes}
+          onChange={(e) => {
+            setStructureNotes(e.target.value);
+            localStorage.setItem('swing-structure-notes', e.target.value);
+          }}
+          rows={3}
+          placeholder="Daily/Weekly notes — key levels, market structure, bias..."
+          className="w-full bg-[#0d0d0d] border border-[#2a2a2a] rounded-xl px-3 py-2 text-gray-300 text-sm focus:outline-none focus:border-emerald-500/50 resize-none"
+        />
+
+        <div className="flex flex-wrap items-center gap-4 pt-1">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { const v = !bosConfirmed; setBosConfirmed(v); localStorage.setItem('swing-bos', String(v)); }}
+              className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
+                bosConfirmed ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'text-gray-600 border-[#2a2a2a] hover:border-[#3a3a3a]'
+              }`}
+            >
+              BOS {bosConfirmed ? 'Confirmed' : 'Not Confirmed'}
+            </button>
+            <button
+              onClick={() => { const v = !chochConfirmed; setChochConfirmed(v); localStorage.setItem('swing-choch', String(v)); }}
+              className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
+                chochConfirmed ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' : 'text-gray-600 border-[#2a2a2a] hover:border-[#3a3a3a]'
+              }`}
+            >
+              CHoCH {chochConfirmed ? 'Confirmed' : 'Not Confirmed'}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-600 mr-1">Keltner:</span>
+            {(['Inside', 'Expanding', 'Contracting'] as const).map((state) => (
+              <button
+                key={state}
+                onClick={() => { setKeltnerState(state); localStorage.setItem('swing-keltner', state); }}
+                className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
+                  keltnerState === state
+                    ? state === 'Inside' ? 'bg-blue-500/20 text-blue-400 border-blue-500/40'
+                      : state === 'Expanding' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                      : 'bg-red-500/20 text-red-400 border-red-500/40'
+                    : 'text-gray-600 border-[#2a2a2a] hover:border-[#3a3a3a]'
+                }`}
+              >
+                {state}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Controls bar */}

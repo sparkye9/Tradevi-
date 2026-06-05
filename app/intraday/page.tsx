@@ -215,10 +215,42 @@ function CandidateCard({ q, rvolThreshold }: { q: FinvizQuote; rvolThreshold: nu
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
+function getETSession(): string {
+  const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const h = et.getHours();
+  if (h >= 20 || h < 2) return 'Asia';
+  if (h >= 2 && h < 9) return 'London';
+  if (h >= 9 && h < 16) return 'New York';
+  return 'After Hours';
+}
+
+const CHECKLIST_ITEMS = [
+  'Regime confirmed — not in compression',
+  'Quality grade B or higher',
+  'Not in revenge trade pattern',
+];
+
 export default function IntradayPage() {
   const { watchlist, rvolThreshold, setRvolThreshold, scanMode, setScanMode } = useTradeviStore();
   const [data, setData] = useState<FinvizResult<FinvizQuote> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState('');
+  const [checklist, setChecklist] = useState<boolean[]>([false, false, false]);
+  const [checklistOpen, setChecklistOpen] = useState(true);
+
+  useEffect(() => {
+    setSession(getETSession());
+    const saved = sessionStorage.getItem('intraday-checklist');
+    if (saved) setChecklist(JSON.parse(saved));
+  }, []);
+
+  function toggleCheck(i: number) {
+    const updated = checklist.map((v, idx) => idx === i ? !v : v);
+    setChecklist(updated);
+    sessionStorage.setItem('intraday-checklist', JSON.stringify(updated));
+  }
+
+  const checksPassed = checklist.filter(Boolean).length;
 
   const tickers = scanMode === 'market' ? MARKET_TICKERS : watchlist;
 
@@ -247,11 +279,47 @@ export default function IntradayPage() {
 
   return (
     <div className="space-y-6 max-w-6xl">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Intraday</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Market scan · unusual volume · option contracts — all in one place
-        </p>
+      <div className="flex items-center gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Intraday</h1>
+          <p className="text-sm text-gray-500 mt-1">Fast tactical execution. High contrast, high density.</p>
+        </div>
+        {session && (
+          <div className="ml-auto flex items-center gap-2 bg-[#111111] border border-[#1e1e1e] rounded-xl px-4 py-2">
+            <span className="text-white font-semibold text-sm">{session}</span>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">Active</span>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-[#111111] border border-[#1e1e1e] rounded-2xl overflow-hidden">
+        <button
+          onClick={() => setChecklistOpen((p) => !p)}
+          className="w-full flex items-center justify-between px-5 py-3 hover:bg-white/[0.02] transition-all"
+        >
+          <span className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Pre-trade Checklist</span>
+          <span className="text-gray-600 text-xs">{checklistOpen ? '▲' : '▼'}</span>
+        </button>
+        {checklistOpen && (
+          <div className="px-5 pb-4 space-y-3 border-t border-[#1e1e1e] pt-3">
+            {CHECKLIST_ITEMS.map((item, i) => (
+              <label key={i} className="flex items-center gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={checklist[i]}
+                  onChange={() => toggleCheck(i)}
+                  className="accent-emerald-500 w-4 h-4"
+                />
+                <span className={`text-sm transition-colors ${checklist[i] ? 'text-emerald-400 line-through' : 'text-gray-300 group-hover:text-white'}`}>
+                  {item}
+                </span>
+              </label>
+            ))}
+            <div className={`mt-3 text-sm font-semibold ${checksPassed === 3 ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {checksPassed === 3 ? '3/3 checks passed ✓' : `${checksPassed}/3 — review before trading`}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Controls */}

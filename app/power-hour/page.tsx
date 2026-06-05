@@ -164,10 +164,67 @@ function CandidateCard({ q, powerThreshold }: { q: FinvizQuote; powerThreshold: 
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+const POWER_HOUR_CHECKLIST = [
+  'Session trend confirmed',
+  'Volume expanding into close',
+  'Key level identified',
+  'Stop placement clear',
+  'Risk/reward minimum 1:2',
+];
+
+function usePowerHourStatus() {
+  const [isPowerHour, setIsPowerHour] = useState(false);
+  const [countdown, setCountdown] = useState('');
+
+  useEffect(() => {
+    function update() {
+      const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const h = et.getHours();
+      const m = et.getMinutes();
+      const s = et.getSeconds();
+      const totalMinutes = h * 60 + m;
+      const isActive = totalMinutes >= 900 && totalMinutes < 960;
+      setIsPowerHour(isActive);
+      if (!isActive) {
+        let minutesUntil = 0;
+        if (totalMinutes < 900) {
+          minutesUntil = 900 - totalMinutes;
+        } else {
+          minutesUntil = 1440 - totalMinutes + 900;
+        }
+        const hrs = Math.floor(minutesUntil / 60);
+        const mins = minutesUntil % 60;
+        const secs = 59 - s;
+        setCountdown(hrs > 0 ? `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}` : `${mins}:${String(secs).padStart(2, '0')}`);
+      }
+    }
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return { isPowerHour, countdown };
+}
+
 export default function PowerHourPage() {
   const { watchlist, rvolThreshold, scanMode, setScanMode } = useTradeviStore();
   const [data, setData] = useState<FinvizResult<FinvizQuote> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [phChecklist, setPhChecklist] = useState<boolean[]>([false, false, false, false, false]);
+  const { isPowerHour, countdown } = usePowerHourStatus();
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem('ph-checklist');
+    if (saved) setPhChecklist(JSON.parse(saved));
+  }, []);
+
+  function togglePhCheck(i: number) {
+    const updated = phChecklist.map((v, idx) => idx === i ? !v : v);
+    setPhChecklist(updated);
+    sessionStorage.setItem('ph-checklist', JSON.stringify(updated));
+  }
+
+  const allChecked = phChecklist.every(Boolean);
 
   const tickers = scanMode === 'market' ? MARKET_TICKERS : watchlist;
 
@@ -196,9 +253,46 @@ export default function PowerHourPage() {
 
   return (
     <div className="space-y-6 max-w-6xl">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Power Hour</h1>
-        <p className="text-sm text-gray-500 mt-1">What has momentum into the close? Tickers + contracts in one view.</p>
+      <div className="flex items-center gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Power Hour</h1>
+          <p className="text-sm text-gray-500 mt-1">3:00–4:00 PM ET. End-of-day execution.</p>
+        </div>
+        <div className="ml-auto">
+          {isPowerHour ? (
+            <div className="bg-red-500/20 border border-red-500/50 text-red-400 font-bold text-lg px-4 py-2 rounded-xl animate-pulse">
+              POWER HOUR ACTIVE
+            </div>
+          ) : (
+            <div className="bg-[#111111] border border-[#1e1e1e] rounded-xl px-4 py-2 text-sm text-gray-400">
+              POWER HOUR: Opens in <span className="font-mono text-white font-semibold">{countdown}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-5 space-y-3">
+        <h2 className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Pre-Entry Execution Checklist</h2>
+        <div className="space-y-2">
+          {POWER_HOUR_CHECKLIST.map((item, i) => (
+            <label key={i} className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={phChecklist[i]}
+                onChange={() => togglePhCheck(i)}
+                className="accent-emerald-500 w-4 h-4"
+              />
+              <span className={`text-sm transition-colors ${phChecklist[i] ? 'text-emerald-400 line-through' : 'text-gray-300 group-hover:text-white'}`}>
+                {item}
+              </span>
+            </label>
+          ))}
+        </div>
+        {allChecked && (
+          <div className="mt-2 text-emerald-400 font-semibold text-sm">
+            CHECKLIST COMPLETE — You may proceed
+          </div>
+        )}
       </div>
 
       {/* Controls */}
