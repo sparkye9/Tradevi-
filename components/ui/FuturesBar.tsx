@@ -1,82 +1,77 @@
 'use client';
 import { useEffect, useState } from 'react';
 
-interface Future {
+interface BarItem {
   symbol: string;
+  label: string;
   price: number | null;
+  changeAmt: number | null;
   changePercent: number | null;
   direction: 'up' | 'down' | 'flat' | null;
 }
 
-const SYMBOLS = ['ES', 'NQ', 'YM', 'RTY', 'NKD'];
-
-const PLACEHOLDERS: Future[] = SYMBOLS.map((symbol) => ({
-  symbol,
-  price: null,
-  changePercent: null,
-  direction: null,
-}));
+const BAR_SYMBOLS: { symbol: string; label: string }[] = [
+  { symbol: 'ES',  label: 'S&P Futures' },
+  { symbol: 'YM',  label: 'Dow Futures' },
+  { symbol: 'NQ',  label: 'Nasdaq Futures' },
+  { symbol: 'RTY', label: 'Russell 2000' },
+  { symbol: 'VIX', label: 'VIX' },
+  { symbol: 'GC',  label: 'Gold' },
+];
 
 function getMarketStatus(etDate: Date): 'CLOSED' | 'PRE-MARKET' | 'OPEN' {
   const day = etDate.getDay();
-  const h = etDate.getHours();
-  const m = etDate.getMinutes();
-  const timeMin = h * 60 + m;
-
+  const t = etDate.getHours() * 60 + etDate.getMinutes();
   if (day === 0 || day === 6) return 'CLOSED';
-
-  const preMarketStart = 4 * 60;
-  const marketOpen = 9 * 60 + 30;
-  const marketClose = 16 * 60;
-
-  if (timeMin >= marketOpen && timeMin < marketClose) return 'OPEN';
-  if (timeMin >= preMarketStart && timeMin < marketOpen) return 'PRE-MARKET';
+  if (t >= 9 * 60 + 30 && t < 16 * 60) return 'OPEN';
+  if (t >= 4 * 60 && t < 9 * 60 + 30) return 'PRE-MARKET';
   return 'CLOSED';
 }
 
 function formatET(d: Date): string {
   return d.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-    timeZone: 'America/New_York',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false, timeZone: 'America/New_York',
   });
 }
 
-function getETDate(): Date {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-}
-
 export default function FuturesBar() {
-  const [futures, setFutures] = useState<Future[]>(PLACEHOLDERS);
+  const [items, setItems] = useState<BarItem[]>(
+    BAR_SYMBOLS.map(({ symbol, label }) => ({ symbol, label, price: null, changeAmt: null, changePercent: null, direction: null }))
+  );
   const [etTime, setEtTime] = useState('');
   const [status, setStatus] = useState<'CLOSED' | 'PRE-MARKET' | 'OPEN'>('CLOSED');
-  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(async () => {
+    async function load() {
       try {
         const res = await fetch('/api/finviz/futures');
         const json = await res.json();
-        const data: Future[] = (json.data ?? []).filter((f: Future) => SYMBOLS.includes(f.symbol));
-        // Merge with placeholders so we always show all 5 symbols
-        const merged = SYMBOLS.map((sym) => {
-          const found = data.find((f) => f.symbol === sym);
-          return found ?? { symbol: sym, price: null, changePercent: null, direction: null };
-        });
-        setFutures(merged);
+        const raw: { symbol: string; price: number | null; changePercent: number | null; direction: 'up' | 'down' | 'flat' | null }[] = json.data ?? [];
+        const map = new Map(raw.map((r) => [r.symbol, r]));
+        setItems(
+          BAR_SYMBOLS.map(({ symbol, label }) => {
+            const r = map.get(symbol);
+            const price = r?.price ?? null;
+            const changePercent = r?.changePercent ?? null;
+            const changeAmt = price !== null && changePercent !== null
+              ? (price / (1 + changePercent / 100)) * (changePercent / 100)
+              : null;
+            return { symbol, label, price, changeAmt, changePercent, direction: r?.direction ?? null };
+          })
+        );
       } catch {
-        // Keep placeholders
+        // keep placeholders
       }
-      setLoaded(true);
-    }, 0);
-    return () => clearTimeout(timer);
+    }
+    load();
+    const iv = setInterval(load, 30000);
+    return () => clearInterval(iv);
   }, []);
 
   useEffect(() => {
     function tick() {
-      const et = getETDate();
+      const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
       setEtTime(formatET(new Date()));
       setStatus(getMarketStatus(et));
     }
@@ -86,56 +81,65 @@ export default function FuturesBar() {
   }, []);
 
   const statusStyle =
-    status === 'OPEN'
-      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-      : status === 'PRE-MARKET'
-      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-      : 'bg-gray-800 text-gray-500 border border-gray-700';
+    status === 'OPEN'       ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+    status === 'PRE-MARKET' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
+                              'bg-gray-800 text-gray-500 border-gray-700';
 
   return (
     <div
-      className="w-full flex items-center gap-3 px-4 py-2 border-b border-[#1a1a1a] overflow-x-auto"
-      style={{ background: '#090909', minHeight: 40 }}
+      className="w-full flex items-center gap-0 border-b border-[#1a1a1a] overflow-x-auto"
+      style={{ background: '#090909', minHeight: 42 }}
     >
-      {/* Market status pill */}
-      <span className={`font-bold tracking-wide whitespace-nowrap text-xs px-2.5 py-0.5 rounded-full ${statusStyle}`}>
-        {status}
-      </span>
+      {/* Status + time */}
+      <div className="flex items-center gap-2 px-4 shrink-0 border-r border-[#1e1e1e] h-full py-2">
+        <span className={`text-[10px] font-bold tracking-widest px-2 py-0.5 rounded-full border ${statusStyle}`}>
+          {status}
+        </span>
+        <span className="text-gray-600 font-mono text-xs">{etTime} ET</span>
+      </div>
 
-      {/* ET time */}
-      <span className="text-gray-600 font-mono text-xs whitespace-nowrap">{etTime} ET</span>
+      {/* Instrument chips */}
+      {items.map((item, i) => {
+        const up = item.direction === 'up';
+        const down = item.direction === 'down';
+        const chgColor = up ? 'text-emerald-400' : down ? 'text-red-400' : 'text-gray-500';
+        const hasData = item.price !== null;
+        const isLast = i === items.length - 1;
 
-      <span className="text-[#222] text-xs">|</span>
-
-      {/* Futures chips */}
-      {futures.map((f) => {
-        const isUp = f.direction === 'up';
-        const isDown = f.direction === 'down';
-        const chgColor = isUp ? 'text-emerald-400' : isDown ? 'text-red-400' : 'text-gray-500';
-        const arrow = isUp ? '▲' : isDown ? '▼' : '';
-        const isPlaceholder = !loaded || f.price === null;
         return (
           <div
-            key={f.symbol}
-            className="flex items-center gap-2 whitespace-nowrap bg-[#1a1a1a] rounded px-3 py-1"
+            key={item.symbol}
+            className={`flex items-center gap-2.5 px-4 py-2 shrink-0 ${!isLast ? 'border-r border-[#1e1e1e]' : ''} hover:bg-white/[0.02] transition-colors`}
           >
-            <span className="text-gray-400 font-mono text-xs">{f.symbol}</span>
-            {!isPlaceholder ? (
-              <>
-                <span className="text-white font-mono text-xs">{f.price!.toLocaleString()}</span>
-                <span className={`font-mono text-xs ${chgColor}`}>
-                  {arrow}{f.changePercent !== null ? `${f.changePercent >= 0 ? '+' : ''}${f.changePercent.toFixed(2)}%` : '--'}
+            <div className="flex flex-col">
+              <span className="text-[10px] text-gray-500 font-medium leading-none mb-0.5">{item.label}</span>
+              {hasData ? (
+                <span className="text-white font-mono text-xs font-semibold leading-none">
+                  {item.symbol === 'VIX'
+                    ? item.price!.toFixed(2)
+                    : item.price!.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
-              </>
-            ) : (
-              <span className="text-gray-600 font-mono text-xs">--</span>
+              ) : (
+                <span className="text-gray-700 font-mono text-xs">--</span>
+              )}
+            </div>
+            {hasData && item.changePercent !== null && (
+              <div className={`flex flex-col items-end ${chgColor}`}>
+                <span className="font-mono text-[10px] leading-none mb-0.5">
+                  {item.changeAmt !== null
+                    ? `${item.changeAmt >= 0 ? '+' : ''}${item.changeAmt.toFixed(2)}`
+                    : ''}
+                </span>
+                <span className="font-mono text-[10px] leading-none">
+                  {item.changePercent >= 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
+                </span>
+              </div>
             )}
           </div>
         );
       })}
 
-      {/* Right side branding */}
-      <div className="ml-auto flex items-center">
+      <div className="ml-auto px-4 shrink-0">
         <span className="text-[10px] text-gray-700 font-bold tracking-widest">TRADEVI</span>
       </div>
     </div>
