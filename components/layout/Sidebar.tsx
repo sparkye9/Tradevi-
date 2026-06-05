@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 const MAIN_NAV = [
   { href: '/', label: 'Dashboard', icon: '⬡' },
   { href: '/futures-bias', label: 'Futures', icon: '◀' },
+  { href: '/command-center', label: 'Command Center', icon: '⊕' },
   { href: '/mini-futures', label: 'Decision Engine', icon: '▦' },
   { href: '/swing', label: 'Swing Trades', icon: '↗' },
   { href: '/intraday', label: 'Intraday', icon: '⚡' },
@@ -68,7 +69,7 @@ export default function Sidebar() {
 
       <div className="px-3 pt-4 border-t border-[#1a1a1a]">
         <p className="text-[10px] text-gray-600 leading-relaxed">Real data only</p>
-        <p className="text-[10px] text-gray-700">Finviz · Yahoo Finance</p>
+        <p className="text-[10px] text-gray-700">Stooq · Yahoo Finance</p>
       </div>
     </aside>
   );
