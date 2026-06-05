@@ -26,25 +26,19 @@ interface QuoteRow {
 
 const STRIP_SYMBOLS = ['ES', 'NQ', 'RTY'];
 
-function FuturesStrip() {
-  const [result, setResult] = useState<FinvizResult<FinvizFuture> | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch('/api/finviz/futures')
-      .then((r) => r.json())
-      .then((j) => { setResult(j); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-
+function FuturesStrip({ result, loading }: { result: FinvizResult<FinvizFuture> | null; loading: boolean }) {
   const futures = (result?.data ?? []).filter((f) => STRIP_SYMBOLS.includes(f.symbol));
 
   return (
     <div className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-5 space-y-4">
       <div className="flex items-center justify-between">
         <span className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Futures Strip</span>
-        {result && <SourceTag source="Alpaca live, Yahoo fallback" lastUpdated={result.lastUpdated} />}
+        {result && <SourceTag source={result.source ?? 'Yahoo Finance'} lastUpdated={result.lastUpdated} />}
       </div>
+
+      {result?.sourceError && (
+        <p className="text-xs text-red-400/70">Source error: {result.sourceError}</p>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-3 gap-3">
@@ -55,7 +49,9 @@ function FuturesStrip() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {futures.length === 0 ? (
-            <p className="text-gray-500 text-sm col-span-3">Futures data unavailable.</p>
+            <p className="text-gray-500 text-sm col-span-3">
+              {result ? 'ES, NQ, RTY not found in response.' : 'Fetch failed — check server logs.'}
+            </p>
           ) : (
             futures.map((f) => {
               const up = f.direction === 'up';
@@ -360,10 +356,18 @@ function AlertsPanel() {
 export default function FuturesPage() {
   const [vix, setVix] = useState<VixData | null>(null);
   const [futuresResult, setFuturesResult] = useState<FinvizResult<FinvizFuture> | null>(null);
+  const [futuresLoading, setFuturesLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/market/vix').then((r) => r.json()).then(setVix).catch(() => null);
-    fetch('/api/finviz/futures').then((r) => r.json()).then(setFuturesResult).catch(() => null);
+    fetch('/api/market/vix')
+      .then((r) => r.json())
+      .then(setVix)
+      .catch(() => null);
+
+    fetch('/api/finviz/futures')
+      .then((r) => r.json())
+      .then((j) => { setFuturesResult(j); setFuturesLoading(false); })
+      .catch(() => setFuturesLoading(false));
   }, []);
 
   const esDirection = (futuresResult?.data ?? []).find((f) => f.symbol === 'ES')?.direction ?? null;
@@ -375,7 +379,7 @@ export default function FuturesPage() {
         <p className="text-sm text-gray-500 mt-1">Live market overview and session context.</p>
       </div>
 
-      <FuturesStrip />
+      <FuturesStrip result={futuresResult} loading={futuresLoading} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <VixPanel />
