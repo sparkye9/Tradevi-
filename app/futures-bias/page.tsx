@@ -202,38 +202,64 @@ function SentimentPanel({ vixPrice, esDirection }: { vixPrice: number | null; es
 
 // ─── Economic Events ──────────────────────────────────────────────────────────
 
-const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-const MOCK_EVENTS = [
-  { time: '8:30 AM ET', impact: 'HIGH', name: 'Initial Jobless Claims' },
-  { time: '10:00 AM ET', impact: 'MEDIUM', name: 'ISM Services PMI' },
-  { time: '2:00 PM ET', impact: 'HIGH', name: 'FOMC Meeting Minutes' },
-];
+interface EconEvent {
+  time: string;
+  impact: 'HIGH' | 'MEDIUM' | 'LOW';
+  name: string;
+}
 
 function EconPanel() {
+  const [events, setEvents] = useState<EconEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/market/economic-events')
+      .then((r) => r.json())
+      .then((j) => {
+        setEvents(j.events ?? []);
+        setLastUpdated(j.lastUpdated ?? null);
+        if (j.error) setError(j.error);
+        setLoading(false);
+      })
+      .catch(() => { setError('Fetch failed'); setLoading(false); });
+  }, []);
+
   const impactColor = (impact: string) =>
-    impact === 'HIGH' ? 'text-red-400 bg-red-500/10' : impact === 'MEDIUM' ? 'text-amber-400 bg-amber-500/10' : 'text-gray-400 bg-[#1a1a1a]';
+    impact === 'HIGH' ? 'text-red-400 bg-red-500/10 border border-red-500/20'
+    : impact === 'MEDIUM' ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+    : 'text-gray-400 bg-[#1a1a1a] border border-[#2a2a2a]';
 
   return (
     <div className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-5 space-y-4">
       <div className="flex items-center justify-between">
         <span className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Economic Events</span>
-        <span className="text-xs text-gray-600">Source: Finviz Elite</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-600">Finviz Elite</span>
+          {lastUpdated && <SourceTag source="" lastUpdated={lastUpdated} />}
+        </div>
       </div>
 
-      <p className="text-xs text-gray-600 italic">
-        Economic calendar data requires Finviz Elite subscription. Sample events shown for {today}.
-      </p>
-
-      <div className="space-y-2">
-        {MOCK_EVENTS.map((ev, i) => (
-          <div key={i} className="flex items-center gap-3 bg-[#0f0f0f] border border-[#1e1e1e] rounded-xl px-3 py-2">
-            <span className="text-xs text-gray-500 font-mono w-20 shrink-0">{ev.time}</span>
-            <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${impactColor(ev.impact)}`}>{ev.impact}</span>
-            <span className="text-sm text-gray-300">{ev.name}</span>
-          </div>
-        ))}
-      </div>
+      {loading ? (
+        <div className="space-y-2">
+          {[0,1,2].map((i) => <div key={i} className="h-10 bg-[#1a1a1a] rounded-xl animate-pulse" />)}
+        </div>
+      ) : error ? (
+        <p className="text-xs text-red-400/70">{error}</p>
+      ) : events.length === 0 ? (
+        <p className="text-gray-500 text-sm">No events found for today.</p>
+      ) : (
+        <div className="space-y-2">
+          {events.slice(0, 3).map((ev, i) => (
+            <div key={i} className="flex items-center gap-3 bg-[#0f0f0f] border border-[#1e1e1e] rounded-xl px-3 py-2">
+              <span className="text-xs text-gray-500 font-mono w-20 shrink-0">{ev.time}</span>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded font-mono shrink-0 ${impactColor(ev.impact)}`}>{ev.impact}</span>
+              <span className="text-sm text-gray-300 truncate">{ev.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

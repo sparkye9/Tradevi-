@@ -21,8 +21,17 @@ const DEFAULT_RULES = [
 ];
 
 const DEFAULT_SCRIPTURES = [
-  "'Be still and know.' — Ps 46:10",
-  "'The patient man is better than the warrior.' — Prov 16:32",
+  '"Wealth gained hastily will dwindle, but whoever gathers little by little will increase it." — Proverbs 13:11',
+  '"Invest in seven ventures, yes, in eight; you do not know what disaster may come upon the land." — Ecclesiastes 11:2',
+  '"Where there is no guidance, a people falls, but in an abundance of counselors there is safety." — Proverbs 11:14',
+  '"So, whether you eat or drink, or whatever you do, do all to the glory of God." — 1 Corinthians 10:31',
+  '"To everyone who has will more be given, and he will have abundance. From the one who has not, even what he has will be taken away." — Matthew 25:29 (Parable of the Talents)',
+  '"For the love of money is a root of all kinds of evil." — 1 Timothy 6:10',
+  '"Better is a little with righteousness than great revenues with injustice." — Proverbs 16:8',
+  '"Trust in the LORD with all your heart, and do not lean on your own understanding. In all your ways acknowledge him, and he will make straight your paths." — Proverbs 3:5-6',
+  '"For which of you, desiring to build a tower, does not first sit down and count the cost, whether he has enough to complete it?" — Luke 14:28-30',
+  '"Be still and know that I am God." — Psalm 46:10',
+  '"The patient man is better than the warrior." — Proverbs 16:32',
 ];
 
 type AnyEntry = ReturnType<typeof useJournalStore.getState>['entries'][0] & {
