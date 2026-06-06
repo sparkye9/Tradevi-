@@ -16,6 +16,7 @@ const UTILITY_NAV = [
   { href: '/journal', label: 'Journal', icon: '◈' },
   { href: '/trade-discovery', label: 'Trade Discovery', icon: '◎' },
   { href: '/opportunity-finder', label: 'Small Account Edge', icon: '🎯' },
+  { href: '/edge', label: 'Edge Scanner', icon: '⊞' },
 ];
 
 function NavLink({ href, label, icon, active }: { href: string; label: string; icon: string; active: boolean }) {
