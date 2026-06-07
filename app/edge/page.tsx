@@ -1,485 +1,505 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import type { ScoredOpportunity } from '@/app/api/edge/score/route';
 
-interface ScoreBreakdown {
-  priceConflict: number;
-  forgottenMarket: number;
-  infoGap: number;
-  glitch: number;
-  overreaction: number;
-  eventArbitrage: number;
-  crowdEmotion: number;
-  total: number;
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface DebugSourceStat {
+  fetched: number;
+  scored: number;
+  rejected: number;
+  error: string | null;
+  active: boolean;
 }
 
-interface Opportunity {
-  id: string;
-  source: 'kalshi' | 'polymarket' | 'cross';
-  title: string;
-  category: string;
-  currentPricePct: number;
-  fairValuePct: number;
-  edgePct: number;
-  direction: 'YES' | 'NO';
-  tier: 1 | 2 | 3;
-  riskLevel: 'Low' | 'Medium' | 'High';
-  catalyst: string;
-  reasonCrowdIsWrong: string;
-  suggestedEntry: string;
-  suggestedExit: string;
-  volume: number;
-  closesAt: string;
-  scores: ScoreBreakdown;
-  heroType?: 'mispriced' | 'forgotten' | 'breaking' | 'wrong_crowd';
+interface DebugInfo {
+  sources: {
+    kalshi: DebugSourceStat;
+    polymarket: DebugSourceStat;
+    manifold: DebugSourceStat;
+    predictit: DebugSourceStat;
+  };
+  thresholdMode: 'normal' | 'adaptive';
+  scoreFloor: number;
+  tier1Min: number;
+  tier2Min: number;
+  totalFetched: number;
+  totalScored: number;
+  totalRejected: number;
+  cacheAge: number;
 }
 
-const HERO_CONFIG = {
-  mispriced: {
-    icon: '🎯',
-    label: 'Mispriced Probability',
-    desc: 'Biggest gap between market odds and estimated fair value',
-    accent: 'emerald' as const,
-  },
-  forgotten: {
-    icon: '👀',
-    label: "Nobody's Watching",
-    desc: 'Lowest attention + highest upcoming catalyst',
-    accent: 'blue' as const,
-  },
-  breaking: {
-    icon: '⚡',
-    label: 'Breaking Before News',
-    desc: 'Unusual price divergence before mainstream coverage',
-    accent: 'yellow' as const,
-  },
-  wrong_crowd: {
-    icon: '🔥',
-    label: 'Crowd Is Wrong',
-    desc: 'Emotional overreaction — smart money disagrees',
-    accent: 'red' as const,
-  },
-};
-
-const ACCENT = {
-  emerald: {
-    border: 'border-emerald-500/40',
-    iconBg: 'bg-emerald-500/15',
-    text: 'text-emerald-400',
-    badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-  },
-  blue: {
-    border: 'border-blue-500/40',
-    iconBg: 'bg-blue-500/15',
-    text: 'text-blue-400',
-    badge: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  },
-  yellow: {
-    border: 'border-yellow-500/40',
-    iconBg: 'bg-yellow-500/15',
-    text: 'text-yellow-400',
-    badge: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
-  },
-  red: {
-    border: 'border-red-500/40',
-    iconBg: 'bg-red-500/15',
-    text: 'text-red-400',
-    badge: 'bg-red-500/20 text-red-300 border-red-500/30',
-  },
-};
-
-function formatVolume(v: number): string {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}K`;
-  return `$${v}`;
+interface EdgeResponse {
+  opportunities: ScoredOpportunity[];
+  debug: DebugInfo;
+  fetchFailed?: boolean;
+  fromCache?: boolean;
+  cacheAge?: number;
 }
 
-function daysUntil(dateStr: string): string {
+// ─── Snapshot (localStorage price comparison) ─────────────────────────────────
+
+const SNAPSHOT_KEY = 'tradevi-edge-snapshot';
+
+interface Snapshot {
+  ts: number;
+  prices: Record<string, number>;
+}
+
+function readSnapshot(): Snapshot | null {
   try {
-    const ms = new Date(dateStr).getTime() - Date.now();
-    const d = Math.floor(ms / 86400000);
-    if (d < 0) return 'Expired';
-    if (d === 0) return 'Today';
-    if (d === 1) return '1 day';
-    return `${d} days`;
+    const raw = localStorage.getItem(SNAPSHOT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as Snapshot;
   } catch {
-    return '?';
+    return null;
   }
 }
 
-function ScoreBar({ value, max, color }: { value: number; max: number; color: string }) {
-  const pct = Math.min(100, (value / max) * 100);
+function saveSnapshot(opportunities: ScoredOpportunity[]) {
+  const prices: Record<string, number> = {};
+  for (const o of opportunities) prices[o.id] = o.pricePct;
+  const snap: Snapshot = { ts: Date.now(), prices };
+  try {
+    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snap));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function annotateWithPriceChange(
+  opportunities: ScoredOpportunity[],
+  snapshot: Snapshot | null,
+): ScoredOpportunity[] {
+  if (!snapshot) return opportunities;
+  return opportunities.map(o => ({
+    ...o,
+    priceChange: snapshot.prices[o.id] != null
+      ? o.pricePct - snapshot.prices[o.id]
+      : null,
+  }));
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const TIER_COLORS = {
+  1: { border: 'border-emerald-500/40', bg: 'bg-emerald-500/5', badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' },
+  2: { border: 'border-amber-500/30', bg: 'bg-amber-500/5', badge: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
+  3: { border: 'border-[#1e1e1e]', bg: '', badge: 'bg-[#1a1a1a] text-gray-400 border-[#2a2a2a]' },
+} as const;
+
+const SOURCE_COLORS: Record<string, string> = {
+  kalshi: 'text-sky-400 border-sky-500/30 bg-sky-500/10',
+  polymarket: 'text-purple-400 border-purple-500/30 bg-purple-500/10',
+  manifold: 'text-pink-400 border-pink-500/30 bg-pink-500/10',
+  predictit: 'text-orange-400 border-orange-500/30 bg-orange-500/10',
+};
+
+// ─── Score bar ────────────────────────────────────────────────────────────────
+
+function ScoreBar({ score }: { score: number }) {
+  const color = score >= 30 ? 'bg-emerald-500' : score >= 15 ? 'bg-amber-400' : 'bg-gray-600';
   return (
     <div className="flex items-center gap-2">
-      <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      <div className="flex-1 h-1 bg-[#1e1e1e] rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${Math.min(score, 100)}%` }} />
       </div>
-      <span className="text-[10px] text-gray-500 w-4 text-right">{value}</span>
+      <span className={`text-xs font-mono font-bold ${score >= 30 ? 'text-emerald-400' : score >= 15 ? 'text-amber-400' : 'text-gray-500'}`}>
+        {score}
+      </span>
     </div>
   );
 }
 
-function HeroCard({ opp }: { opp: Opportunity }) {
-  const heroType = opp.heroType as keyof typeof HERO_CONFIG;
-  const cfg = HERO_CONFIG[heroType];
-  const ac = ACCENT[cfg.accent];
+// ─── Price change indicator ───────────────────────────────────────────────────
+
+function PriceChangeIndicator({ priceChange, snapshotTs }: { priceChange: number | null; snapshotTs: number | null }) {
+  if (priceChange === null) return null;
+
+  const ageMin = snapshotTs ? Math.round((Date.now() - snapshotTs) / 60_000) : null;
+
+  const indicator = priceChange > 1
+    ? { icon: '▲', text: `+${priceChange.toFixed(1)}`, color: 'text-emerald-400' }
+    : priceChange < -1
+    ? { icon: '▼', text: priceChange.toFixed(1), color: 'text-red-400' }
+    : { icon: '→', text: null, color: 'text-gray-500' };
 
   return (
-    <div className={`rounded-xl border ${ac.border} p-4 flex flex-col gap-3`}
-      style={{ background: 'rgba(255,255,255,0.02)' }}>
-      <div className="flex items-start gap-3">
-        <div className={`w-9 h-9 rounded-lg ${ac.iconBg} flex items-center justify-center text-lg flex-shrink-0`}>
-          {cfg.icon}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className={`text-xs font-semibold ${ac.text} mb-0.5`}>{cfg.label}</div>
-          <div className="text-[10px] text-gray-500">{cfg.desc}</div>
-        </div>
-        <div className={`text-xs font-bold px-2 py-0.5 rounded-full border ${ac.badge} whitespace-nowrap`}>
-          {opp.direction} +{opp.edgePct.toFixed(1)}%
-        </div>
-      </div>
-
-      <div className="text-sm text-gray-200 font-medium leading-tight line-clamp-2">{opp.title}</div>
-
-      <div className="grid grid-cols-3 gap-2">
-        <div className="bg-white/3 rounded-lg p-2 text-center">
-          <div className="text-[10px] text-gray-600 mb-0.5">Market Says</div>
-          <div className="text-base font-bold text-white">{opp.currentPricePct.toFixed(0)}¢</div>
-        </div>
-        <div className="bg-white/3 rounded-lg p-2 text-center">
-          <div className="text-[10px] text-gray-600 mb-0.5">Fair Value</div>
-          <div className={`text-base font-bold ${ac.text}`}>{opp.fairValuePct.toFixed(0)}¢</div>
-        </div>
-        <div className="bg-white/3 rounded-lg p-2 text-center">
-          <div className="text-[10px] text-gray-600 mb-0.5">Edge Score</div>
-          <div className="text-base font-bold text-white">{opp.scores.total}</div>
-        </div>
-      </div>
-
-      <div className="text-[11px] text-gray-400 leading-relaxed">{opp.catalyst}</div>
-    </div>
-  );
-}
-
-function OpportunityCard({ opp, rank }: { opp: Opportunity; rank: number }) {
-  const [expanded, setExpanded] = useState(false);
-
-  const tierColor = opp.tier === 1
-    ? 'text-emerald-400 border-emerald-500/40'
-    : opp.tier === 2
-    ? 'text-blue-400 border-blue-500/40'
-    : 'text-gray-400 border-gray-600/40';
-
-  const riskColor = opp.riskLevel === 'Low'
-    ? 'text-emerald-400 bg-emerald-500/10'
-    : opp.riskLevel === 'Medium'
-    ? 'text-yellow-400 bg-yellow-500/10'
-    : 'text-red-400 bg-red-500/10';
-
-  const dirColor = opp.direction === 'YES' ? 'text-emerald-400' : 'text-red-400';
-
-  return (
-    <div
-      className="rounded-xl border border-white/5 overflow-hidden cursor-pointer hover:border-white/10 transition-all"
-      style={{ background: '#111111' }}
-      onClick={() => setExpanded(!expanded)}
-    >
-      <div className="px-4 py-3 flex items-center gap-3">
-        <div className="text-xs text-gray-700 w-5 flex-shrink-0 text-right">{rank}</div>
-
-        <div className="flex-1 min-w-0">
-          <div className="text-sm text-gray-200 font-medium leading-tight truncate">{opp.title}</div>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-[10px] text-gray-600">{opp.category}</span>
-            <span className="text-[10px] text-gray-700">·</span>
-            <span className="text-[10px] text-gray-600">{formatVolume(opp.volume)} vol</span>
-            <span className="text-[10px] text-gray-700">·</span>
-            <span className="text-[10px] text-gray-600">{daysUntil(opp.closesAt)}</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="text-right">
-            <div className="text-xs">
-              <span className="text-gray-300 font-medium">{opp.currentPricePct.toFixed(0)}¢</span>
-              <span className="text-gray-700 mx-1">→</span>
-              <span className={`font-semibold ${dirColor}`}>{opp.fairValuePct.toFixed(0)}¢</span>
-            </div>
-            <div className={`text-[10px] font-bold ${dirColor}`}>
-              {opp.direction} +{opp.edgePct.toFixed(1)}%
-            </div>
-          </div>
-
-          <div className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${tierColor}`}>
-            T{opp.tier}
-          </div>
-
-          <div className="text-gray-600 text-[10px]">{expanded ? '▲' : '▼'}</div>
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="px-4 pb-4 border-t border-white/5 pt-3 grid grid-cols-1 gap-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white/3 rounded-lg p-3">
-              <div className="text-[10px] text-gray-600 mb-1 uppercase tracking-wide">Catalyst</div>
-              <div className="text-xs text-gray-300">{opp.catalyst}</div>
-            </div>
-            <div className="bg-white/3 rounded-lg p-3">
-              <div className="text-[10px] text-gray-600 mb-1 uppercase tracking-wide">Why Crowd Is Wrong</div>
-              <div className="text-xs text-gray-300">{opp.reasonCrowdIsWrong}</div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-lg p-3">
-              <div className="text-[10px] text-emerald-700 mb-1 uppercase tracking-wide">Suggested Entry</div>
-              <div className="text-xs text-emerald-300">{opp.suggestedEntry}</div>
-            </div>
-            <div className="bg-blue-500/5 border border-blue-500/15 rounded-lg p-3">
-              <div className="text-[10px] text-blue-700 mb-1 uppercase tracking-wide">Suggested Exit</div>
-              <div className="text-xs text-blue-300">{opp.suggestedExit}</div>
-            </div>
-          </div>
-
-          <div className="bg-white/3 rounded-lg p-3">
-            <div className="text-[10px] text-gray-600 mb-2 uppercase tracking-wide">Score Breakdown</div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-              <div>
-                <div className="text-[10px] text-gray-500 mb-0.5">Price Conflict</div>
-                <ScoreBar value={opp.scores.priceConflict} max={25} color="bg-emerald-500" />
-              </div>
-              <div>
-                <div className="text-[10px] text-gray-500 mb-0.5">Forgotten Market</div>
-                <ScoreBar value={opp.scores.forgottenMarket} max={20} color="bg-blue-500" />
-              </div>
-              <div>
-                <div className="text-[10px] text-gray-500 mb-0.5">Info Gap</div>
-                <ScoreBar value={opp.scores.infoGap} max={20} color="bg-purple-500" />
-              </div>
-              <div>
-                <div className="text-[10px] text-gray-500 mb-0.5">Glitch Detection</div>
-                <ScoreBar value={opp.scores.glitch} max={15} color="bg-red-500" />
-              </div>
-              <div>
-                <div className="text-[10px] text-gray-500 mb-0.5">Overreaction</div>
-                <ScoreBar value={opp.scores.overreaction} max={10} color="bg-orange-500" />
-              </div>
-              <div>
-                <div className="text-[10px] text-gray-500 mb-0.5">Cross-Market Arb</div>
-                <ScoreBar value={opp.scores.eventArbitrage} max={5} color="bg-yellow-500" />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className={`text-[10px] px-2 py-0.5 rounded ${riskColor}`}>{opp.riskLevel} Risk</span>
-            <span className="text-[10px] text-gray-600">Kalshi</span>
-            <span className="text-[10px] text-gray-600">Closes {daysUntil(opp.closesAt)}</span>
-          </div>
-        </div>
+    <div className="flex items-center gap-1.5">
+      <span className={`text-xs font-mono font-semibold ${indicator.color}`}>
+        {indicator.icon}{indicator.text ? ` ${indicator.text}` : ''}
+      </span>
+      {ageMin !== null && (
+        <span className="text-[10px] text-gray-600">vs {ageMin}m ago</span>
       )}
     </div>
   );
 }
 
+// ─── Opportunity card ─────────────────────────────────────────────────────────
+
+function OpportunityCard({ opp, snapshotTs }: { opp: ScoredOpportunity; snapshotTs: number | null }) {
+  const tc = TIER_COLORS[opp.tier];
+  const sc = SOURCE_COLORS[opp.source] ?? 'text-gray-400 border-gray-500/30 bg-gray-500/10';
+
+  const daysLeft = (new Date(opp.closesAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+  const closesLabel = daysLeft < 1
+    ? `< 1 day`
+    : daysLeft < 7
+    ? `${Math.ceil(daysLeft)}d`
+    : daysLeft < 60
+    ? `${Math.ceil(daysLeft / 7)}w`
+    : `${Math.ceil(daysLeft / 30)}mo`;
+
+  return (
+    <div className={`${tc.bg} border ${tc.border} rounded-2xl p-4 flex flex-col gap-3 transition-all hover:brightness-110`}>
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-white text-sm font-semibold leading-snug line-clamp-2">{opp.title}</p>
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${sc}`}>
+              {opp.sourceLabel}
+            </span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${tc.badge}`}>
+              T{opp.tier}
+            </span>
+            {opp.arbitrageGap !== null && opp.arbitrageGap >= 5 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold border bg-rose-500/20 text-rose-300 border-rose-500/40">
+                Arb {opp.arbitrageGap.toFixed(0)}¢ vs {opp.arbitrageSource}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-xl font-bold font-mono text-white">{opp.pricePct.toFixed(0)}%</div>
+          <div className="text-[10px] text-gray-500 font-mono">YES prob</div>
+        </div>
+      </div>
+
+      {/* Score bar */}
+      <ScoreBar score={opp.score} />
+
+      {/* Price change */}
+      <PriceChangeIndicator priceChange={opp.priceChange} snapshotTs={snapshotTs} />
+
+      {/* Signals */}
+      {opp.signals.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {opp.signals.map((s, i) => (
+            <span key={i} className="text-[10px] text-gray-400 bg-[#1a1a1a] border border-[#2a2a2a] px-1.5 py-0.5 rounded">
+              {s}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Footer stats */}
+      <div className="flex items-center gap-3 text-[10px] font-mono text-gray-600 pt-1 border-t border-[#1e1e1e] flex-wrap">
+        {opp.volume > 0 && (
+          <span>Vol {opp.volume >= 1e6 ? `$${(opp.volume/1e6).toFixed(1)}M` : opp.volume >= 1e3 ? `$${(opp.volume/1e3).toFixed(0)}K` : `$${opp.volume}`}</span>
+        )}
+        <span>Closes {closesLabel}</span>
+        {opp.openInterest > 0 && (
+          <span>OI {opp.openInterest >= 1e6 ? `$${(opp.openInterest/1e6).toFixed(1)}M` : `$${(opp.openInterest/1e3).toFixed(0)}K`}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Debug panel ─────────────────────────────────────────────────────────────
+
+function DebugPanel({ debug }: { debug: DebugInfo }) {
+  const sourceKeys = ['kalshi', 'polymarket', 'manifold', 'predictit'] as const;
+
+  return (
+    <div className="bg-[#0a0a0a] border border-[#2a2a2a] rounded-xl p-4 font-mono text-xs space-y-3">
+      <div className="text-gray-400 font-semibold text-[11px] uppercase tracking-widest mb-2">Data Sources</div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wider text-gray-600">
+              <th className="pr-4 pb-1">Source</th>
+              <th className="pr-4 pb-1">Status</th>
+              <th className="pr-4 pb-1 text-right">Fetched</th>
+              <th className="pr-4 pb-1 text-right">Scored</th>
+              <th className="pr-4 pb-1 text-right">Rejected</th>
+              <th className="pb-1">Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sourceKeys.map(key => {
+              const s = debug.sources[key];
+              return (
+                <tr key={key} className="border-t border-[#1e1e1e]">
+                  <td className="pr-4 py-1 capitalize text-gray-300">{key}</td>
+                  <td className="pr-4 py-1">
+                    {s.active
+                      ? <span className="text-emerald-400">✓ Live</span>
+                      : s.error
+                      ? <span className="text-red-400">✗ Error</span>
+                      : <span className="text-gray-600">— Empty</span>
+                    }
+                  </td>
+                  <td className="pr-4 py-1 text-right text-gray-400">{s.fetched.toLocaleString()}</td>
+                  <td className="pr-4 py-1 text-right text-gray-400">{s.scored.toLocaleString()}</td>
+                  <td className="pr-4 py-1 text-right text-gray-400">{s.rejected.toLocaleString()}</td>
+                  <td className="py-1 text-gray-600 truncate max-w-[200px]">
+                    {s.error ? <span className="text-red-400/70">{s.error.slice(0, 60)}</span> : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="text-gray-500 text-[11px] flex flex-wrap gap-3 pt-1 border-t border-[#1e1e1e]">
+        <span>
+          Threshold: <span className="text-gray-300">{debug.thresholdMode === 'normal' ? 'Normal' : 'Adaptive'}</span>{' '}
+          (floor={debug.scoreFloor}, T1≥{debug.tier1Min}, T2≥{debug.tier2Min})
+        </span>
+        <span>·</span>
+        <span>Total: <span className="text-gray-300">{debug.totalFetched.toLocaleString()}</span> fetched</span>
+        <span>·</span>
+        <span><span className="text-gray-300">{debug.totalScored.toLocaleString()}</span> scored</span>
+        <span>·</span>
+        <span><span className="text-gray-300">{debug.totalRejected.toLocaleString()}</span> rejected</span>
+        {debug.cacheAge > 0 && (
+          <>
+            <span>·</span>
+            <span>Cache: <span className="text-amber-400">{Math.round(debug.cacheAge / 1000)}s old</span></span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+
+function Skeleton() {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {[1, 2, 3, 4, 5, 6].map(i => (
+        <div key={i} className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-4 h-40 animate-pulse" />
+      ))}
+    </div>
+  );
+}
+
+// ─── Hero header ──────────────────────────────────────────────────────────────
+
+const ACCENT = 'text-emerald-400';
+
+function HeroCard({ total, tier1, tier2, sources }: { total: number; tier1: number; tier2: number; sources: number }) {
+  return (
+    <div className="bg-gradient-to-br from-[#111111] to-[#0d1a12] border border-emerald-500/20 rounded-2xl p-5 flex flex-wrap gap-6">
+      <div>
+        <div className={`text-3xl font-bold font-mono ${ACCENT}`}>{total}</div>
+        <div className="text-xs text-gray-500 mt-0.5">Opportunities</div>
+      </div>
+      <div>
+        <div className="text-3xl font-bold font-mono text-white">{tier1}</div>
+        <div className="text-xs text-gray-500 mt-0.5">Tier 1 (high score)</div>
+      </div>
+      <div>
+        <div className="text-3xl font-bold font-mono text-white">{tier2}</div>
+        <div className="text-xs text-gray-500 mt-0.5">Tier 2</div>
+      </div>
+      <div>
+        <div className="text-3xl font-bold font-mono text-white">{sources}</div>
+        <div className="text-xs text-gray-500 mt-0.5">Active sources</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function EdgePage() {
-  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [opportunities, setOpportunities] = useState<ScoredOpportunity[]>([]);
+  const [debug, setDebug] = useState<DebugInfo | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState('');
-  const [meta, setMeta] = useState<{ kalshiFetched: number; polymarketFetched: number; scored: number; returned: number } | null>(null);
-  const [tierFilter, setTierFilter] = useState<0 | 1 | 2 | 3>(0);
-  const [catFilter, setCatFilter] = useState('All');
+  const [fetchFailed, setFetchFailed] = useState(false);
+  const [fromCache, setFromCache] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+  const [snapshotTs, setSnapshotTs] = useState<number | null>(null);
+  const snapshotRef = useRef<Snapshot | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
-      const resp = await fetch('/api/edge/score', { cache: 'no-store' });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const j = await resp.json();
-      setOpportunities(j.opportunities ?? []);
-      setMeta(j.meta ?? null);
-      setLastUpdated(new Date().toLocaleTimeString());
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
+      // Read snapshot BEFORE fetch
+      if (snapshotRef.current === null) {
+        snapshotRef.current = readSnapshot();
+        if (snapshotRef.current) setSnapshotTs(snapshotRef.current.ts);
+      }
+
+      const res = await fetch('/api/edge/score');
+      const json: EdgeResponse = await res.json();
+
+      // Annotate with price change from snapshot
+      const annotated = annotateWithPriceChange(json.opportunities, snapshotRef.current);
+
+      // Save new snapshot for next load
+      saveSnapshot(json.opportunities);
+      // Update ref for subsequent refreshes
+      snapshotRef.current = readSnapshot();
+
+      setOpportunities(annotated);
+      setDebug(json.debug ?? null);
+      setFetchFailed(json.fetchFailed ?? false);
+      setFromCache(json.fromCache ?? false);
+    } catch {
+      setFetchFailed(true);
     }
+    setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const heroes = opportunities.filter((o) => o.heroType);
-  const heroOrder = ['mispriced', 'forgotten', 'breaking', 'wrong_crowd'] as const;
-  const heroCards = heroOrder
-    .map((type) => heroes.find((o) => o.heroType === type))
-    .filter(Boolean) as Opportunity[];
-
-  const categories = ['All', ...Array.from(new Set(opportunities.map((o) => o.category))).sort()];
-
-  const filtered = opportunities.filter((o) => {
-    if (tierFilter !== 0 && o.tier !== tierFilter) return false;
-    if (catFilter !== 'All' && o.category !== catFilter) return false;
-    return true;
-  });
-
-  const tier1 = filtered.filter((o) => o.tier === 1);
-  const tier2 = filtered.filter((o) => o.tier === 2);
-  const tier3 = filtered.filter((o) => o.tier === 3);
+  const tier1 = opportunities.filter(o => o.tier === 1);
+  const tier2 = opportunities.filter(o => o.tier === 2);
+  const tier3 = opportunities.filter(o => o.tier === 3);
+  const activeSources = debug
+    ? Object.values(debug.sources).filter(s => s.active).length
+    : 0;
 
   return (
-    <div className="flex-1 p-6 overflow-y-auto" style={{ background: '#0a0a0a' }}>
+    <div className="space-y-6 max-w-6xl">
       {/* Header */}
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-white mb-1">Edge Scanner</h1>
-          <p className="text-sm text-gray-500">
-            7-module scoring · Kalshi prediction markets · Where the crowd is wrong
+          <h1 className="text-2xl font-bold text-white">Edge Scanner</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Live prediction market opportunities · Kalshi · Polymarket · Manifold · PredictIt
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          {lastUpdated && <span className="text-[10px] text-gray-600">Updated {lastUpdated}</span>}
+        <div className="flex items-center gap-2">
+          {loading && opportunities.length > 0 && (
+            <span className="text-xs text-amber-400/70 animate-pulse">Refreshing…</span>
+          )}
+          <button
+            onClick={() => setShowDebug(p => !p)}
+            className={`px-3 py-1.5 text-xs font-semibold border rounded-full transition-all ${
+              showDebug
+                ? 'bg-[#1a1a1a] border-emerald-500/30 text-emerald-400'
+                : 'bg-[#1a1a1a] border-[#2a2a2a] text-gray-500 hover:text-gray-300 hover:border-[#3a3a3a]'
+            }`}
+          >
+            ⚙ Debug
+          </button>
           <button
             onClick={load}
             disabled={loading}
-            className="text-xs px-3 py-1.5 bg-white/5 hover:bg-white/8 border border-white/10 rounded-lg text-gray-400 disabled:opacity-50 transition-all"
+            className="px-4 py-1.5 text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] rounded-full text-gray-300 hover:border-emerald-500/30 hover:text-white transition-all disabled:opacity-50"
           >
             {loading ? 'Scanning…' : '↻ Refresh'}
           </button>
         </div>
       </div>
 
-      {error && (
-        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400">
-          {error}
+      {/* Cache banner */}
+      {fromCache && !loading && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-2 text-xs text-amber-400">
+          Serving cached data — live sources unavailable
         </div>
       )}
 
-      {loading && opportunities.length === 0 && (
-        <div className="grid grid-cols-2 gap-3 mb-6">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-44 rounded-xl border border-white/5 animate-pulse" style={{ background: '#111' }} />
-          ))}
-        </div>
+      {/* Hero stats */}
+      {(opportunities.length > 0 || !loading) && (
+        <HeroCard
+          total={opportunities.length}
+          tier1={tier1.length}
+          tier2={tier2.length}
+          sources={activeSources}
+        />
       )}
 
-      {/* Hero Cards */}
-      {heroCards.length > 0 && (
-        <div className="mb-6">
-          <div className="text-[10px] text-gray-600 uppercase tracking-widest mb-3">Best Opportunities Right Now</div>
-          <div className="grid grid-cols-2 gap-3">
-            {heroCards.map((opp) => <HeroCard key={opp.id} opp={opp} />)}
-          </div>
-        </div>
-      )}
+      {/* Debug panel */}
+      {showDebug && debug && <DebugPanel debug={debug} />}
 
-      {/* Filters */}
-      {opportunities.length > 0 && (
-        <div className="flex items-center gap-2 mb-4 flex-wrap">
-          <div className="flex items-center gap-0.5 bg-white/3 rounded-lg p-0.5">
-            {([0, 1, 2, 3] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTierFilter(t)}
-                className={`text-[11px] px-2.5 py-1 rounded-md transition-all ${
-                  tierFilter === t ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'
-                }`}
-              >
-                {t === 0 ? 'All' : `Tier ${t}`}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-0.5 bg-white/3 rounded-lg p-0.5 flex-wrap">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setCatFilter(cat)}
-                className={`text-[11px] px-2.5 py-1 rounded-md transition-all ${
-                  catFilter === cat ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          <span className="text-[10px] text-gray-600 ml-auto">{filtered.length} markets</span>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!loading && opportunities.length === 0 && !error && (
-        <div className="text-center py-16">
-          <div className="text-4xl mb-4">🔍</div>
-          <div className="text-gray-400 text-sm mb-1">No opportunities found</div>
-          <div className="text-gray-600 text-xs mb-2">
-            {meta && meta.kalshiFetched === 0
-              ? 'Kalshi API unreachable from the server — check network policy'
-              : meta
-              ? `Fetched ${meta.kalshiFetched} Kalshi markets but none scored — markets may be fully priced`
-              : 'Kalshi may be slow or all markets are fully priced'}
-          </div>
-          {meta && (
-            <div className="text-[10px] text-gray-700 mb-4">
-              Kalshi: {meta.kalshiFetched} · Polymarket: {meta.polymarketFetched} · Scored: {meta.scored}
+      {/* All sources failed, no cache */}
+      {fetchFailed && !fromCache && (
+        <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-5 space-y-3">
+          <p className="text-red-400 font-semibold">All data sources failed</p>
+          {debug && (
+            <div className="space-y-1">
+              {(['kalshi', 'polymarket', 'manifold', 'predictit'] as const).map(key => {
+                const s = debug.sources[key];
+                return s.error ? (
+                  <div key={key} className="text-xs text-red-400/70 font-mono">
+                    {key}: {s.error}
+                  </div>
+                ) : null;
+              })}
             </div>
           )}
-          <button onClick={load} className="text-xs px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400">
-            Try Again
-          </button>
+        </div>
+      )}
+
+      {/* Loading skeleton (only if no data yet) */}
+      {loading && opportunities.length === 0 && <Skeleton />}
+
+      {/* Empty state: fetched OK but nothing passed threshold */}
+      {!loading && !fetchFailed && debug && debug.totalFetched > 0 && opportunities.length === 0 && (
+        <div className="text-center py-16 text-gray-600">
+          <div className="text-4xl mb-3">🔍</div>
+          <div className="text-base font-semibold">No opportunities above threshold</div>
+          <div className="text-xs mt-2">
+            {debug.totalFetched.toLocaleString()} markets scanned · score floor = {debug.scoreFloor}
+          </div>
         </div>
       )}
 
       {/* Tier 1 */}
       {tier1.length > 0 && (
-        <div className="mb-5">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Tier 1 — Strong Edge</span>
-            <span className="text-[10px] text-gray-600">Score 30+</span>
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 pb-1 border-b border-emerald-500/20">
+            <h2 className="text-white font-bold text-base">Tier 1 — High Conviction</h2>
+            <span className="text-xs text-gray-600">(score ≥ {debug?.tier1Min ?? 30})</span>
           </div>
-          <div className="flex flex-col gap-1.5">
-            {tier1.map((opp, i) => <OpportunityCard key={opp.id} opp={opp} rank={i + 1} />)}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {tier1.map(o => <OpportunityCard key={o.id} opp={o} snapshotTs={snapshotTs} />)}
           </div>
-        </div>
+        </section>
       )}
 
       {/* Tier 2 */}
       {tier2.length > 0 && (
-        <div className="mb-5">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Tier 2 — Moderate Edge</span>
-            <span className="text-[10px] text-gray-600">Score 15–29</span>
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 pb-1 border-b border-amber-500/20">
+            <h2 className="text-white font-bold text-base">Tier 2 — Noteworthy</h2>
+            <span className="text-xs text-gray-600">(score {debug?.tier2Min ?? 15}–{(debug?.tier1Min ?? 30) - 1})</span>
           </div>
-          <div className="flex flex-col gap-1.5">
-            {tier2.map((opp, i) => <OpportunityCard key={opp.id} opp={opp} rank={tier1.length + i + 1} />)}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {tier2.map(o => <OpportunityCard key={o.id} opp={o} snapshotTs={snapshotTs} />)}
           </div>
-        </div>
+        </section>
       )}
 
       {/* Tier 3 */}
       {tier3.length > 0 && (
-        <div className="mb-5">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Tier 3 — Watch List</span>
-            <span className="text-[10px] text-gray-600">Score 4–14</span>
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 pb-1 border-b border-[#1e1e1e]">
+            <h2 className="text-white font-bold text-base">Tier 3 — Watchlist</h2>
+            <span className="text-xs text-gray-600">(score {debug?.scoreFloor ?? 4}–{(debug?.tier2Min ?? 15) - 1})</span>
           </div>
-          <div className="flex flex-col gap-1.5">
-            {tier3.map((opp, i) => (
-              <OpportunityCard key={opp.id} opp={opp} rank={tier1.length + tier2.length + i + 1} />
-            ))}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {tier3.map(o => <OpportunityCard key={o.id} opp={o} snapshotTs={snapshotTs} />)}
           </div>
-        </div>
+        </section>
       )}
 
-      <div className="mt-8 pt-4 border-t border-white/5">
-        <p className="text-[10px] text-gray-700">
-          7 scoring modules: Price Conflict · Forgotten Market · Information Gap · Glitch Detection · Overreaction · Event Arbitrage · Crowd Emotion. Not financial advice.
-        </p>
-      </div>
+      <p className="text-xs text-gray-700 pb-4">
+        Scores based on: probability extremes, near-50 uncertainty, volume, bid-ask spread, time decay, open interest, payoff asymmetry.
+        Cross-source arbitrage gaps identified via Jaccard title similarity ≥ 0.35.
+        Not financial advice — verify on source platform before trading.
+      </p>
     </div>
   );
 }
