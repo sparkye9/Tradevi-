@@ -1,318 +1,498 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
-import type { ScoredOpportunity } from '@/app/api/edge/score/route';
+import { useState, useMemo, useRef, useEffect } from 'react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface DebugSourceStat {
-  fetched: number;
-  scored: number;
-  rejected: number;
-  error: string | null;
-  active: boolean;
-}
-
-interface DebugInfo {
-  sources: {
-    kalshi: DebugSourceStat;
-    polymarket: DebugSourceStat;
-    manifold: DebugSourceStat;
-    predictit: DebugSourceStat;
+type Opportunity = {
+  id: string;
+  market: string;
+  contract: string;
+  source: string;
+  category: string;
+  marketSays: number;
+  fairValue: number;
+  edgePct: number;
+  direction: 'YES' | 'NO';
+  tier: 1 | 2 | 3;
+  edgeScore: number;
+  daysLeft: number;
+  volume: number;
+  catalyst: string;
+  whyCrowdIsWrong: string;
+  suggestedEntry: string;
+  suggestedExit: string;
+  heroType?: 'MISPRICED' | 'UNWATCHED' | 'PRE_NEWS' | 'CROWD_WRONG' | null;
+  moduleScores: {
+    mispricing: number;
+    liquidity: number;
+    newsTiming: number;
+    crowdBias: number;
+    catalystProximity: number;
+    spreadQuality: number;
+    payoffAsymmetry: number;
   };
-  thresholdMode: 'normal' | 'adaptive';
-  scoreFloor: number;
-  tier1Min: number;
-  tier2Min: number;
-  totalFetched: number;
-  totalScored: number;
-  totalRejected: number;
-  cacheAge: number;
-}
+};
 
-interface EdgeResponse {
-  opportunities: ScoredOpportunity[];
-  debug: DebugInfo;
-  fetchFailed?: boolean;
-  fromCache?: boolean;
-  cacheAge?: number;
-}
+// ─── Mock data ────────────────────────────────────────────────────────────────
 
-// ─── Snapshot (localStorage price comparison) ─────────────────────────────────
+const MOCK: Opportunity[] = [
+  {
+    id: '1', market: 'Will the Fed cut rates at the July 2026 FOMC meeting?', contract: 'Yes',
+    source: 'Kalshi', category: 'Economics', marketSays: 18, fairValue: 38, edgePct: 20,
+    direction: 'YES', tier: 1, edgeScore: 82, daysLeft: 41, volume: 84200,
+    catalyst: 'Jobs data missed by 3sigma; inflation trending below 2.5% for 3rd straight month',
+    whyCrowdIsWrong: "Market is anchored to the last hawkish statement. Bond futures already pricing 2 cuts by year-end -- equity market hasn't caught up.",
+    suggestedEntry: 'Buy YES below 22c', suggestedExit: 'Target 40c or 72h before meeting',
+    heroType: 'MISPRICED',
+    moduleScores: { mispricing: 91, liquidity: 45, newsTiming: 62, crowdBias: 70, catalystProximity: 88, spreadQuality: 55, payoffAsymmetry: 74 },
+  },
+  {
+    id: '2', market: 'Will Bitcoin close above $120,000 in June 2026?', contract: 'Yes',
+    source: 'Polymarket', category: 'Crypto', marketSays: 72, fairValue: 55, edgePct: -17,
+    direction: 'NO', tier: 1, edgeScore: 76, daysLeft: 23, volume: 312000,
+    catalyst: 'ETF outflows accelerating; Coinbase premium turned negative; whale wallets distributing',
+    whyCrowdIsWrong: 'Retail is chasing momentum from May breakout. On-chain data shows distribution not accumulation. Same pattern as Nov 2021 top.',
+    suggestedEntry: 'Buy NO above 68c', suggestedExit: 'Target 45c or close 5d before month-end',
+    heroType: 'CROWD_WRONG',
+    moduleScores: { mispricing: 68, liquidity: 40, newsTiming: 55, crowdBias: 89, catalystProximity: 72, spreadQuality: 60, payoffAsymmetry: 80 },
+  },
+  {
+    id: '3', market: 'Will the next US jobs report show unemployment above 4.5%?', contract: '4.5% to 5.0%',
+    source: 'Kalshi', category: 'Economics', marketSays: 11, fairValue: 26, edgePct: 15,
+    direction: 'YES', tier: 1, edgeScore: 71, daysLeft: 6, volume: 3400,
+    catalyst: 'BLS releases Friday. Leading indicators (continuing claims +8%, temp staffing -12%) point higher.',
+    whyCrowdIsWrong: "Low volume -- nobody is watching this contract. Continuing claims already signal deterioration that hasn't hit the headline number yet.",
+    suggestedEntry: 'Buy YES below 14c', suggestedExit: 'Close position day before release',
+    heroType: 'UNWATCHED',
+    moduleScores: { mispricing: 72, liquidity: 94, newsTiming: 78, crowdBias: 55, catalystProximity: 91, spreadQuality: 48, payoffAsymmetry: 67 },
+  },
+  {
+    id: '4', market: 'Will Ukraine-Russia ceasefire be announced before August 2026?', contract: 'Yes',
+    source: 'Polymarket', category: 'Geopolitics', marketSays: 34, fairValue: 19, edgePct: -15,
+    direction: 'NO', tier: 1, edgeScore: 68, daysLeft: 54, volume: 145000,
+    catalyst: 'Back-channel talks collapsed last week; new offensive launched on eastern front',
+    whyCrowdIsWrong: 'Ceasefire optimism spiked on a single Reuters headline that was retracted. Market moved 12pts and never retraced. Structural conditions unchanged.',
+    suggestedEntry: 'Buy NO above 62c', suggestedExit: 'Target 78c or scale out in thirds',
+    heroType: 'PRE_NEWS',
+    moduleScores: { mispricing: 55, liquidity: 38, newsTiming: 92, crowdBias: 67, catalystProximity: 60, spreadQuality: 70, payoffAsymmetry: 62 },
+  },
+  {
+    id: '5', market: 'Will the S&P 500 end Q3 2026 above 6,000?', contract: '6000 to 6500',
+    source: 'PredictIt', category: 'Economics', marketSays: 58, fairValue: 44, edgePct: -14,
+    direction: 'NO', tier: 2, edgeScore: 54, daysLeft: 86, volume: 27600,
+    catalyst: 'Earnings season begins; forward guidance likely to disappoint on margin compression',
+    whyCrowdIsWrong: "Consensus is anchored to YTD gains. Operating margins compressing for 3 straight quarters. Multiple expansion cannot continue at current rate levels.",
+    suggestedEntry: 'Buy NO above 55c', suggestedExit: 'Target 38c by mid-Q3',
+    heroType: null,
+    moduleScores: { mispricing: 52, liquidity: 44, newsTiming: 40, crowdBias: 58, catalystProximity: 50, spreadQuality: 62, payoffAsymmetry: 55 },
+  },
+  {
+    id: '6', market: 'Will Shohei Ohtani hit 50+ home runs in the 2026 MLB season?', contract: '50 or more',
+    source: 'Kalshi', category: 'Sports', marketSays: 29, fairValue: 41, edgePct: 12,
+    direction: 'YES', tier: 2, edgeScore: 50, daysLeft: 128, volume: 8900,
+    catalyst: 'Currently on pace for 52 HR with no injury concerns; favorable schedule stretch ahead',
+    whyCrowdIsWrong: 'Market underweights his current pace. Last 30 games: 1.4 HR/week. Crowd is anchoring to career averages rather than current season trajectory.',
+    suggestedEntry: 'Buy YES below 32c', suggestedExit: 'Target 45c or after All-Star break',
+    heroType: null,
+    moduleScores: { mispricing: 45, liquidity: 55, newsTiming: 30, crowdBias: 48, catalystProximity: 55, spreadQuality: 42, payoffAsymmetry: 60 },
+  },
+  {
+    id: '7', market: 'Will the Democratic Party win the 2026 Florida Senate seat?', contract: 'Yes',
+    source: 'PredictIt', category: 'Politics', marketSays: 22, fairValue: 32, edgePct: 10,
+    direction: 'YES', tier: 2, edgeScore: 46, daysLeft: 151, volume: 19400,
+    catalyst: 'Republican incumbent approval at 38%; generic Democrat polling within margin',
+    whyCrowdIsWrong: 'Incumbent fatigue + shifting demographics underweighted. DC crowd anchors to "Florida is red" narrative, ignoring county-level swing data.',
+    suggestedEntry: 'Buy YES below 25c', suggestedExit: 'Target 35c after primary',
+    heroType: null,
+    moduleScores: { mispricing: 40, liquidity: 50, newsTiming: 35, crowdBias: 45, catalystProximity: 42, spreadQuality: 55, payoffAsymmetry: 48 },
+  },
+  {
+    id: '8', market: 'Will Ethereum ETF net inflows exceed $500M in July 2026?', contract: 'Yes',
+    source: 'Polymarket', category: 'Crypto', marketSays: 41, fairValue: 29, edgePct: -12,
+    direction: 'NO', tier: 3, edgeScore: 35, daysLeft: 38, volume: 5200,
+    catalyst: 'ETH ETF has shown consistent outflows last 6 weeks; institutional demand rotating to BTC',
+    whyCrowdIsWrong: 'Crypto twitter hype about ETH 3.0 upgrade not translating to ETF inflows. Product still relatively unknown to TradFi buyers.',
+    suggestedEntry: 'Buy NO above 56c', suggestedExit: 'Target 68c or end of month',
+    heroType: null,
+    moduleScores: { mispricing: 30, liquidity: 38, newsTiming: 28, crowdBias: 40, catalystProximity: 35, spreadQuality: 30, payoffAsymmetry: 38 },
+  },
+  {
+    id: '9', market: 'Will there be a US-China trade deal signed before December 2026?', contract: 'Yes',
+    source: 'Kalshi', category: 'Geopolitics', marketSays: 15, fairValue: 24, edgePct: 9,
+    direction: 'YES', tier: 3, edgeScore: 30, daysLeft: 177, volume: 11300,
+    catalyst: 'APEC summit in November; both sides signaling willingness to reduce tariffs on select goods',
+    whyCrowdIsWrong: 'Media narrative is all doom and gloom on trade war, but behind-the-scenes diplomatic progress is underweighted.',
+    suggestedEntry: 'Buy YES below 18c', suggestedExit: 'Target 28c after APEC',
+    heroType: null,
+    moduleScores: { mispricing: 28, liquidity: 32, newsTiming: 25, crowdBias: 30, catalystProximity: 38, spreadQuality: 28, payoffAsymmetry: 32 },
+  },
+  {
+    id: '10', market: 'Will NBA Finals 2026 go to Game 7?', contract: 'Yes',
+    source: 'PredictIt', category: 'Sports', marketSays: 33, fairValue: 42, edgePct: 9,
+    direction: 'YES', tier: 3, edgeScore: 28, daysLeft: 12, volume: 6700,
+    catalyst: 'Series tied 3-3; both teams healthy; home-court advantage neutralized',
+    whyCrowdIsWrong: 'Historical base rate for Game 7 from 3-3: 100%. Market is somehow pricing it lower than base rate.',
+    suggestedEntry: 'Buy YES below 36c', suggestedExit: 'Sell immediately once Game 7 confirmed',
+    heroType: null,
+    moduleScores: { mispricing: 22, liquidity: 30, newsTiming: 20, crowdBias: 25, catalystProximity: 40, spreadQuality: 35, payoffAsymmetry: 45 },
+  },
+];
 
-const SNAPSHOT_KEY = 'tradevi-edge-snapshot';
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-interface Snapshot {
-  ts: number;
-  prices: Record<string, number>;
-}
+const fmt = (n: unknown, suffix = '') =>
+  n == null || isNaN(Number(n)) ? '--' : `${Number(n).toFixed(0)}${suffix}`;
 
-function readSnapshot(): Snapshot | null {
-  try {
-    const raw = localStorage.getItem(SNAPSHOT_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as Snapshot;
-  } catch {
-    return null;
-  }
-}
-
-function saveSnapshot(opportunities: ScoredOpportunity[]) {
-  const prices: Record<string, number> = {};
-  for (const o of opportunities) prices[o.id] = o.pricePct;
-  const snap: Snapshot = { ts: Date.now(), prices };
-  try {
-    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snap));
-  } catch {
-    // ignore storage errors
-  }
-}
-
-function annotateWithPriceChange(
-  opportunities: ScoredOpportunity[],
-  snapshot: Snapshot | null,
-): ScoredOpportunity[] {
-  if (!snapshot) return opportunities;
-  return opportunities.map(o => ({
-    ...o,
-    priceChange: snapshot.prices[o.id] != null
-      ? o.pricePct - snapshot.prices[o.id]
-      : null,
-  }));
-}
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const TIER_COLORS = {
-  1: { border: 'border-emerald-500/40', bg: 'bg-emerald-500/5', badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' },
-  2: { border: 'border-amber-500/30', bg: 'bg-amber-500/5', badge: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
-  3: { border: 'border-[#1e1e1e]', bg: '', badge: 'bg-[#1a1a1a] text-gray-400 border-[#2a2a2a]' },
-} as const;
+const fmtVol = (v: number) =>
+  v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` :
+  v >= 1_000 ? `${(v / 1_000).toFixed(1)}k` : String(v);
 
 const SOURCE_COLORS: Record<string, string> = {
-  kalshi: 'text-sky-400 border-sky-500/30 bg-sky-500/10',
-  polymarket: 'text-purple-400 border-purple-500/30 bg-purple-500/10',
-  manifold: 'text-pink-400 border-pink-500/30 bg-pink-500/10',
-  predictit: 'text-orange-400 border-orange-500/30 bg-orange-500/10',
+  Kalshi: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+  Polymarket: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+  PredictIt: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
 };
+
+const CAT_COLORS: Record<string, string> = {
+  Politics: 'text-blue-400',
+  Economics: 'text-emerald-400',
+  Crypto: 'text-yellow-400',
+  Sports: 'text-pink-400',
+  Geopolitics: 'text-red-400',
+  Other: 'text-gray-400',
+};
+
+const HERO_META = {
+  MISPRICED:   { emoji: '🎯', label: 'Mispriced Probability', key: 'mispricing' as const },
+  UNWATCHED:   { emoji: '👀', label: "Nobody's Watching",     key: 'liquidity'   as const },
+  PRE_NEWS:    { emoji: '⚡', label: 'Breaking Before News',  key: 'newsTiming'  as const },
+  CROWD_WRONG: { emoji: '🔥', label: 'Crowd Is Wrong',        key: 'crowdBias'   as const },
+} as const;
+
+const MODULE_LABELS: Record<keyof Opportunity['moduleScores'], string> = {
+  mispricing:         'Mispricing',
+  liquidity:          'Low Liquidity',
+  newsTiming:         'News Timing',
+  crowdBias:          'Crowd Bias',
+  catalystProximity:  'Catalyst Prox',
+  spreadQuality:      'Spread Quality',
+  payoffAsymmetry:    'Payoff Asymm.',
+};
+
+function pickHero(opps: Opportunity[], key: keyof Opportunity['moduleScores']): Opportunity | null {
+  return opps.reduce<Opportunity | null>((best, o) =>
+    o.moduleScores[key] > (best?.moduleScores[key] ?? -1) ? o : best, null);
+}
 
 // ─── Score bar ────────────────────────────────────────────────────────────────
 
-function ScoreBar({ score }: { score: number }) {
-  const color = score >= 30 ? 'bg-emerald-500' : score >= 15 ? 'bg-amber-400' : 'bg-gray-600';
+function ModuleBar({ label, value }: { label: string; value: number }) {
+  const v = Math.max(0, Math.min(100, value ?? 0));
+  const color = v >= 70 ? 'bg-emerald-500' : v >= 40 ? 'bg-amber-500' : 'bg-gray-600';
   return (
     <div className="flex items-center gap-2">
-      <div className="flex-1 h-1 bg-[#1e1e1e] rounded-full overflow-hidden">
-        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${Math.min(score, 100)}%` }} />
+      <span className="text-[10px] text-gray-500 w-24 shrink-0 truncate">{label}</span>
+      <div className="flex-1 h-1.5 bg-white/5 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${v}%` }} />
       </div>
-      <span className={`text-xs font-mono font-bold ${score >= 30 ? 'text-emerald-400' : score >= 15 ? 'text-amber-400' : 'text-gray-500'}`}>
-        {score}
-      </span>
+      <span className="text-[10px] font-mono text-gray-400 w-6 text-right">{v}</span>
     </div>
   );
 }
 
-// ─── Price change indicator ───────────────────────────────────────────────────
+// ─── Hero Card ────────────────────────────────────────────────────────────────
 
-function PriceChangeIndicator({ priceChange, snapshotTs }: { priceChange: number | null; snapshotTs: number | null }) {
-  if (priceChange === null) return null;
+function HeroCard({ type, opp }: { type: keyof typeof HERO_META; opp: Opportunity | null }) {
+  const { emoji, label } = HERO_META[type];
+  const borderColor =
+    type === 'MISPRICED'   ? 'border-emerald-500/40' :
+    type === 'UNWATCHED'   ? 'border-blue-500/40' :
+    type === 'PRE_NEWS'    ? 'border-yellow-500/40' : 'border-red-500/40';
+  const textColor =
+    type === 'MISPRICED'   ? 'text-emerald-400' :
+    type === 'UNWATCHED'   ? 'text-blue-400' :
+    type === 'PRE_NEWS'    ? 'text-yellow-400' : 'text-red-400';
 
-  const ageMin = snapshotTs ? Math.round((Date.now() - snapshotTs) / 60_000) : null;
+  if (!opp) {
+    return (
+      <div className={`snap-start shrink-0 w-72 md:w-auto rounded-2xl border ${borderColor} p-4 flex flex-col gap-2 opacity-40`}
+        style={{ background: '#111' }}>
+        <div className="text-xl">{emoji}</div>
+        <div className={`text-xs font-bold ${textColor}`}>{label}</div>
+        <div className="text-xs text-gray-600 mt-auto">No {label.toLowerCase()} edge right now</div>
+      </div>
+    );
+  }
 
-  const indicator = priceChange > 1
-    ? { icon: '▲', text: `+${priceChange.toFixed(1)}`, color: 'text-emerald-400' }
-    : priceChange < -1
-    ? { icon: '▼', text: priceChange.toFixed(1), color: 'text-red-400' }
-    : { icon: '→', text: null, color: 'text-gray-500' };
+  const yesDir = opp.direction === 'YES';
 
   return (
-    <div className="flex items-center gap-1.5">
-      <span className={`text-xs font-mono font-semibold ${indicator.color}`}>
-        {indicator.icon}{indicator.text ? ` ${indicator.text}` : ''}
-      </span>
-      {ageMin !== null && (
-        <span className="text-[10px] text-gray-600">vs {ageMin}m ago</span>
+    <div className={`snap-start shrink-0 w-72 md:w-auto rounded-2xl border ${borderColor} p-4 flex flex-col gap-3`}
+      style={{ background: '#111' }}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="text-xl">{emoji}</div>
+          <div className={`text-xs font-bold ${textColor} mt-0.5`}>{label}</div>
+        </div>
+        <div className={`px-2.5 py-1 rounded-full text-xs font-bold ${yesDir ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'}`}>
+          Bet {opp.direction}
+        </div>
+      </div>
+
+      <p className="text-sm text-white font-medium leading-snug line-clamp-2">{opp.market}</p>
+      {opp.contract && <p className="text-[10px] text-gray-500">Contract: {opp.contract}</p>}
+
+      <div className="grid grid-cols-3 gap-1.5">
+        {[
+          { label: 'Market Says', val: `${fmt(opp.marketSays)}%` },
+          { label: 'Fair Value',  val: `${fmt(opp.fairValue)}%` },
+          { label: 'Edge Score',  val: fmt(opp.edgeScore) },
+        ].map(({ label: l, val }) => (
+          <div key={l} className="bg-white/3 rounded-lg p-1.5 text-center">
+            <div className="text-[9px] text-gray-600 leading-none mb-0.5">{l}</div>
+            <div className={`text-sm font-bold font-mono ${l === 'Fair Value' ? textColor : 'text-white'}`}>{val}</div>
+          </div>
+        ))}
+      </div>
+
+      {opp.catalyst && (
+        <p className="text-[11px] text-gray-400 leading-relaxed line-clamp-2">{opp.catalyst}</p>
       )}
     </div>
   );
 }
 
-// ─── Opportunity card ─────────────────────────────────────────────────────────
+// ─── Expandable detail ────────────────────────────────────────────────────────
 
-function OpportunityCard({ opp, snapshotTs }: { opp: ScoredOpportunity; snapshotTs: number | null }) {
-  const tc = TIER_COLORS[opp.tier];
-  const sc = SOURCE_COLORS[opp.source] ?? 'text-gray-400 border-gray-500/30 bg-gray-500/10';
-
-  const daysLeft = (new Date(opp.closesAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
-  const closesLabel = daysLeft < 1
-    ? `< 1 day`
-    : daysLeft < 7
-    ? `${Math.ceil(daysLeft)}d`
-    : daysLeft < 60
-    ? `${Math.ceil(daysLeft / 7)}w`
-    : `${Math.ceil(daysLeft / 30)}mo`;
-
+function ExpandedDetail({ opp }: { opp: Opportunity }) {
+  const blocks = [
+    { label: 'Catalyst',          val: opp.catalyst },
+    { label: 'Why Crowd Is Wrong',val: opp.whyCrowdIsWrong },
+    { label: 'Suggested Entry',   val: opp.suggestedEntry },
+    { label: 'Suggested Exit',    val: opp.suggestedExit },
+  ];
   return (
-    <div className={`${tc.bg} border ${tc.border} rounded-2xl p-4 flex flex-col gap-3 transition-all hover:brightness-110`}>
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <p className="text-white text-sm font-semibold leading-snug line-clamp-2">{opp.title}</p>
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${sc}`}>
-              {opp.sourceLabel}
-            </span>
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${tc.badge}`}>
-              T{opp.tier}
-            </span>
-            {opp.arbitrageGap !== null && opp.arbitrageGap >= 5 && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold border bg-rose-500/20 text-rose-300 border-rose-500/40">
-                Arb {opp.arbitrageGap.toFixed(0)}¢ vs {opp.arbitrageSource}
-              </span>
-            )}
+    <div className="px-4 pb-4 pt-3 border-t border-white/5 flex flex-col gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {blocks.map(({ label, val }) => (
+          <div key={label} className="bg-white/3 rounded-xl p-3">
+            <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-1">{label}</div>
+            <div className="text-xs text-gray-300 leading-relaxed">{val || '--'}</div>
           </div>
-        </div>
-        <div className="text-right shrink-0">
-          <div className="text-xl font-bold font-mono text-white">{opp.pricePct.toFixed(0)}%</div>
-          <div className="text-[10px] text-gray-500 font-mono">YES prob</div>
-        </div>
+        ))}
       </div>
-
-      {/* Score bar */}
-      <ScoreBar score={opp.score} />
-
-      {/* Price change */}
-      <PriceChangeIndicator priceChange={opp.priceChange} snapshotTs={snapshotTs} />
-
-      {/* Signals */}
-      {opp.signals.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {opp.signals.map((s, i) => (
-            <span key={i} className="text-[10px] text-gray-400 bg-[#1a1a1a] border border-[#2a2a2a] px-1.5 py-0.5 rounded">
-              {s}
-            </span>
+      <div className="bg-white/3 rounded-xl p-3">
+        <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-2">Score Breakdown</div>
+        <div className="flex flex-col gap-1.5">
+          {(Object.entries(MODULE_LABELS) as [keyof Opportunity['moduleScores'], string][]).map(([key, lbl]) => (
+            <ModuleBar key={key} label={lbl} value={opp.moduleScores?.[key] ?? 0} />
           ))}
         </div>
-      )}
-
-      {/* Footer stats */}
-      <div className="flex items-center gap-3 text-[10px] font-mono text-gray-600 pt-1 border-t border-[#1e1e1e] flex-wrap">
-        {opp.volume > 0 && (
-          <span>Vol {opp.volume >= 1e6 ? `$${(opp.volume/1e6).toFixed(1)}M` : opp.volume >= 1e3 ? `$${(opp.volume/1e3).toFixed(0)}K` : `$${opp.volume}`}</span>
-        )}
-        <span>Closes {closesLabel}</span>
-        {opp.openInterest > 0 && (
-          <span>OI {opp.openInterest >= 1e6 ? `$${(opp.openInterest/1e6).toFixed(1)}M` : `$${(opp.openInterest/1e3).toFixed(0)}K`}</span>
-        )}
       </div>
     </div>
   );
 }
 
-// ─── Debug panel ─────────────────────────────────────────────────────────────
+// ─── Opportunity row ──────────────────────────────────────────────────────────
 
-function DebugPanel({ debug }: { debug: DebugInfo }) {
-  const sourceKeys = ['kalshi', 'polymarket', 'manifold', 'predictit'] as const;
+function OpportunityRow({
+  opp, expanded, onToggle,
+}: { opp: Opportunity; expanded: boolean; onToggle: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    if (expanded) {
+      setHeight(ref.current.scrollHeight);
+    } else {
+      setHeight(0);
+    }
+  }, [expanded]);
+
+  const up = opp.fairValue > opp.marketSays;
+  const srcColor = SOURCE_COLORS[opp.source] ?? 'bg-gray-500/10 text-gray-400 border-gray-500/30';
+  const edgeSigned = opp.edgePct != null
+    ? `${opp.edgePct > 0 ? '+' : ''}${opp.edgePct.toFixed(1)}%`
+    : '--';
 
   return (
-    <div className="bg-[#0a0a0a] border border-[#2a2a2a] rounded-xl p-4 font-mono text-xs space-y-3">
-      <div className="text-gray-400 font-semibold text-[11px] uppercase tracking-widest mb-2">Data Sources</div>
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="text-[10px] uppercase tracking-wider text-gray-600">
-              <th className="pr-4 pb-1">Source</th>
-              <th className="pr-4 pb-1">Status</th>
-              <th className="pr-4 pb-1 text-right">Fetched</th>
-              <th className="pr-4 pb-1 text-right">Scored</th>
-              <th className="pr-4 pb-1 text-right">Rejected</th>
-              <th className="pb-1">Error</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sourceKeys.map(key => {
-              const s = debug.sources[key];
-              return (
-                <tr key={key} className="border-t border-[#1e1e1e]">
-                  <td className="pr-4 py-1 capitalize text-gray-300">{key}</td>
-                  <td className="pr-4 py-1">
-                    {s.active
-                      ? <span className="text-emerald-400">✓ Live</span>
-                      : s.error
-                      ? <span className="text-red-400">✗ Error</span>
-                      : <span className="text-gray-600">— Empty</span>
-                    }
-                  </td>
-                  <td className="pr-4 py-1 text-right text-gray-400">{s.fetched.toLocaleString()}</td>
-                  <td className="pr-4 py-1 text-right text-gray-400">{s.scored.toLocaleString()}</td>
-                  <td className="pr-4 py-1 text-right text-gray-400">{s.rejected.toLocaleString()}</td>
-                  <td className="py-1 text-gray-600 truncate max-w-[200px]">
-                    {s.error ? <span className="text-red-400/70">{s.error.slice(0, 60)}</span> : '—'}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="text-gray-500 text-[11px] flex flex-wrap gap-3 pt-1 border-t border-[#1e1e1e]">
-        <span>
-          Threshold: <span className="text-gray-300">{debug.thresholdMode === 'normal' ? 'Normal' : 'Adaptive'}</span>{' '}
-          (floor={debug.scoreFloor}, T1≥{debug.tier1Min}, T2≥{debug.tier2Min})
+    <div className="rounded-xl border border-white/5 overflow-hidden" style={{ background: '#111' }}>
+      <button
+        className="w-full text-left px-4 py-3 flex items-center gap-2 hover:bg-white/3 transition-colors"
+        onClick={onToggle}
+      >
+        {/* Source badge */}
+        <span className={`hidden sm:inline text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${srcColor}`}>
+          {opp.source}
         </span>
-        <span>·</span>
-        <span>Total: <span className="text-gray-300">{debug.totalFetched.toLocaleString()}</span> fetched</span>
-        <span>·</span>
-        <span><span className="text-gray-300">{debug.totalScored.toLocaleString()}</span> scored</span>
-        <span>·</span>
-        <span><span className="text-gray-300">{debug.totalRejected.toLocaleString()}</span> rejected</span>
-        {debug.cacheAge > 0 && (
-          <>
-            <span>·</span>
-            <span>Cache: <span className="text-amber-400">{Math.round(debug.cacheAge / 1000)}s old</span></span>
-          </>
-        )}
+
+        {/* Market + contract */}
+        <div className="flex-1 min-w-0">
+          <div className="text-xs text-gray-200 font-medium truncate">{opp.market}</div>
+          {opp.contract && (
+            <div className="text-[10px] text-gray-600 truncate">{opp.contract}</div>
+          )}
+        </div>
+
+        {/* Price arrow */}
+        <div className="flex items-center gap-1 shrink-0 text-xs font-mono">
+          <span className="text-gray-400">{fmt(opp.marketSays)}%</span>
+          <span className={up ? 'text-emerald-400' : 'text-red-400'}>{up ? '↑' : '↓'}</span>
+          <span className={up ? 'text-emerald-400' : 'text-red-400'}>{fmt(opp.fairValue)}%</span>
+        </div>
+
+        {/* Edge badge */}
+        <span className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded shrink-0 ${
+          up ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'
+        }`}>
+          {edgeSigned}
+        </span>
+
+        {/* Direction chip */}
+        <span className={`hidden sm:inline text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+          opp.direction === 'YES' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'
+        }`}>
+          {opp.direction}
+        </span>
+
+        {/* Days + volume */}
+        <div className="hidden md:flex items-center gap-2 text-[10px] text-gray-600 font-mono shrink-0">
+          <span>{fmt(opp.daysLeft)}d</span>
+          <span>{opp.volume ? fmtVol(opp.volume) : '--'}</span>
+        </div>
+
+        <span className="text-[10px] text-gray-600 shrink-0">{expanded ? '▲' : '▼'}</span>
+      </button>
+
+      {/* Animated expand */}
+      <div
+        ref={ref}
+        style={{ maxHeight: height, overflow: 'hidden', transition: 'max-height 0.25s ease' }}
+      >
+        {expanded && <ExpandedDetail opp={opp} />}
       </div>
     </div>
   );
 }
 
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
+// ─── Tier section ─────────────────────────────────────────────────────────────
 
-function Skeleton() {
+function TierSection({
+  tier, opps, expandedId, onToggle, isMobile,
+}: {
+  tier: 1 | 2 | 3;
+  opps: Opportunity[];
+  expandedId: string | null;
+  onToggle: (id: string) => void;
+  isMobile: boolean;
+}) {
+  const [localExpanded, setLocalExpanded] = useState<Set<string>>(new Set());
+
+  const labels = { 1: 'Tier 1 -- High Conviction', 2: 'Tier 2 -- Moderate', 3: 'Tier 3 -- Speculative' };
+  const colors = { 1: 'text-emerald-400', 2: 'text-amber-400', 3: 'text-gray-500' };
+
+  if (opps.length === 0) return null;
+
+  const toggle = (id: string) => {
+    if (isMobile) {
+      onToggle(id); // accordion: parent manages
+    } else {
+      setLocalExpanded(prev => {
+        const next = new Set(prev);
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+      });
+    }
+  };
+
+  const isExpanded = (id: string) => isMobile ? expandedId === id : localExpanded.has(id);
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {[1, 2, 3, 4, 5, 6].map(i => (
-        <div key={i} className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-4 h-40 animate-pulse" />
-      ))}
+    <div className="mb-5">
+      <div className="flex items-center gap-2 mb-2">
+        <span className={`text-[10px] font-bold uppercase tracking-widest ${colors[tier]}`}>{labels[tier]}</span>
+        <span className="text-[10px] text-gray-700">{opps.length} markets</span>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {opps.map(opp => (
+          <OpportunityRow
+            key={opp.id}
+            opp={opp}
+            expanded={isExpanded(opp.id)}
+            onToggle={() => toggle(opp.id)}
+          />
+        ))}
+      </div>
     </div>
   );
 }
 
-// ─── Hero header ──────────────────────────────────────────────────────────────
+// ─── Filter bar ───────────────────────────────────────────────────────────────
 
-const ACCENT = 'text-emerald-400';
+const ALL_CATEGORIES = ['Politics', 'Economics', 'Crypto', 'Sports', 'Geopolitics', 'Other'];
 
-function HeroCard({ total, tier1, tier2, sources }: { total: number; tier1: number; tier2: number; sources: number }) {
+function FilterBar({
+  tierFilter, setTierFilter, catFilter, setCatFilter, activeCount,
+}: {
+  tierFilter: 0 | 1 | 2 | 3;
+  setTierFilter: (t: 0 | 1 | 2 | 3) => void;
+  catFilter: Set<string>;
+  setCatFilter: (f: Set<string>) => void;
+  activeCount: number;
+}) {
+  const toggleCat = (cat: string) => {
+    const next = new Set(catFilter);
+    if (cat === 'All') { setCatFilter(new Set()); return; }
+    next.has(cat) ? next.delete(cat) : next.add(cat);
+    setCatFilter(next);
+  };
+
+  const hasActive = tierFilter !== 0 || catFilter.size > 0;
+
   return (
-    <div className="bg-gradient-to-br from-[#111111] to-[#0d1a12] border border-emerald-500/20 rounded-2xl p-5 flex flex-wrap gap-6">
-      <div>
-        <div className={`text-3xl font-bold font-mono ${ACCENT}`}>{total}</div>
-        <div className="text-xs text-gray-500 mt-0.5">Opportunities</div>
-      </div>
-      <div>
-        <div className="text-3xl font-bold font-mono text-white">{tier1}</div>
-        <div className="text-xs text-gray-500 mt-0.5">Tier 1 (high score)</div>
-      </div>
-      <div>
-        <div className="text-3xl font-bold font-mono text-white">{tier2}</div>
-        <div className="text-xs text-gray-500 mt-0.5">Tier 2</div>
-      </div>
-      <div>
-        <div className="text-3xl font-bold font-mono text-white">{sources}</div>
-        <div className="text-xs text-gray-500 mt-0.5">Active sources</div>
+    <div className="sticky top-0 z-20 py-2 -mx-3 px-3 md:-mx-6 md:px-6" style={{ background: '#0a0a0a' }}>
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Tier filter */}
+        <div className="flex items-center gap-0.5 bg-white/3 rounded-lg p-0.5">
+          {([0, 1, 2, 3] as const).map(t => (
+            <button key={t} onClick={() => setTierFilter(t)}
+              className={`text-[11px] px-2.5 py-1 rounded-md transition-all ${
+                tierFilter === t ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'
+              }`}>
+              {t === 0 ? 'All' : `T${t}`}
+            </button>
+          ))}
+        </div>
+
+        {/* Category filter */}
+        <div className="flex flex-wrap items-center gap-0.5 bg-white/3 rounded-lg p-0.5">
+          <button onClick={() => toggleCat('All')}
+            className={`text-[11px] px-2 py-1 rounded-md transition-all ${
+              catFilter.size === 0 ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'
+            }`}>All</button>
+          {ALL_CATEGORIES.map(cat => (
+            <button key={cat} onClick={() => toggleCat(cat)}
+              className={`text-[11px] px-2 py-1 rounded-md transition-all ${
+                catFilter.has(cat) ? `bg-white/10 ${CAT_COLORS[cat] ?? 'text-white'}` : 'text-gray-500 hover:text-gray-300'
+              }`}>{cat}</button>
+          ))}
+        </div>
+
+        {/* Active count + clear */}
+        <div className="ml-auto flex items-center gap-2">
+          {hasActive && (
+            <>
+              <span className="text-[10px] text-gray-600">{activeCount} shown</span>
+              <button onClick={() => { setTierFilter(0); setCatFilter(new Set()); }}
+                className="text-[10px] text-gray-500 hover:text-gray-300 underline underline-offset-2">
+                Clear
+              </button>
+            </>
+          )}
+          {!hasActive && <span className="text-[10px] text-gray-700">{activeCount} markets</span>}
+        </div>
       </div>
     </div>
   );
@@ -321,185 +501,116 @@ function HeroCard({ total, tier1, tier2, sources }: { total: number; tier1: numb
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function EdgePage() {
-  const [opportunities, setOpportunities] = useState<ScoredOpportunity[]>([]);
-  const [debug, setDebug] = useState<DebugInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [fetchFailed, setFetchFailed] = useState(false);
-  const [fromCache, setFromCache] = useState(false);
-  const [showDebug, setShowDebug] = useState(false);
-  const [snapshotTs, setSnapshotTs] = useState<number | null>(null);
-  const snapshotRef = useRef<Snapshot | null>(null);
+  const [tierFilter, setTierFilter] = useState<0 | 1 | 2 | 3>(0);
+  const [catFilter, setCatFilter] = useState<Set<string>>(new Set());
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Read snapshot BEFORE fetch
-      if (snapshotRef.current === null) {
-        snapshotRef.current = readSnapshot();
-        if (snapshotRef.current) setSnapshotTs(snapshotRef.current.ts);
-      }
-
-      const res = await fetch('/api/edge/score');
-      const json: EdgeResponse = await res.json();
-
-      // Annotate with price change from snapshot
-      const annotated = annotateWithPriceChange(json.opportunities, snapshotRef.current);
-
-      // Save new snapshot for next load
-      saveSnapshot(json.opportunities);
-      // Update ref for subsequent refreshes
-      snapshotRef.current = readSnapshot();
-
-      setOpportunities(annotated);
-      setDebug(json.debug ?? null);
-      setFetchFailed(json.fetchFailed ?? false);
-      setFromCache(json.fromCache ?? false);
-    } catch {
-      setFetchFailed(true);
-    }
-    setLoading(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    setIsMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const toggleExpand = (id: string) =>
+    setExpandedId(prev => (prev === id ? null : id));
 
-  const tier1 = opportunities.filter(o => o.tier === 1);
-  const tier2 = opportunities.filter(o => o.tier === 2);
-  const tier3 = opportunities.filter(o => o.tier === 3);
-  const activeSources = debug
-    ? Object.values(debug.sources).filter(s => s.active).length
-    : 0;
+  // Hero picks
+  const heroes = useMemo(() => ({
+    MISPRICED:   pickHero(MOCK, 'mispricing'),
+    UNWATCHED:   pickHero(MOCK, 'liquidity'),
+    PRE_NEWS:    pickHero(MOCK, 'newsTiming'),
+    CROWD_WRONG: pickHero(MOCK, 'crowdBias'),
+  }), []);
+
+  // Filtered + sorted list
+  const filtered = useMemo(() => {
+    return [...MOCK]
+      .filter(o => tierFilter === 0 || o.tier === tierFilter)
+      .filter(o => catFilter.size === 0 || catFilter.has(o.category))
+      .sort((a, b) => Math.abs(b.edgePct) - Math.abs(a.edgePct));
+  }, [tierFilter, catFilter]);
+
+  const byTier = useMemo(() => ({
+    1: filtered.filter(o => o.tier === 1),
+    2: filtered.filter(o => o.tier === 2),
+    3: filtered.filter(o => o.tier === 3),
+  }), [filtered]);
+
+  const isEmpty = MOCK.length === 0;
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="flex-1 p-3 md:p-6 overflow-y-auto" style={{ background: '#0a0a0a' }}>
       {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-3">
+      <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-2xl font-bold text-white">Edge Scanner</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Live prediction market opportunities · Kalshi · Polymarket · Manifold · PredictIt
-          </p>
+          <h1 className="text-xl font-bold text-white">Edge Scanner</h1>
+          <p className="text-xs text-gray-600 mt-0.5">Prediction markets · Where the crowd is wrong</p>
         </div>
-        <div className="flex items-center gap-2">
-          {loading && opportunities.length > 0 && (
-            <span className="text-xs text-amber-400/70 animate-pulse">Refreshing…</span>
-          )}
-          <button
-            onClick={() => setShowDebug(p => !p)}
-            className={`px-3 py-1.5 text-xs font-semibold border rounded-full transition-all ${
-              showDebug
-                ? 'bg-[#1a1a1a] border-emerald-500/30 text-emerald-400'
-                : 'bg-[#1a1a1a] border-[#2a2a2a] text-gray-500 hover:text-gray-300 hover:border-[#3a3a3a]'
-            }`}
-          >
-            ⚙ Debug
-          </button>
-          <button
-            onClick={load}
-            disabled={loading}
-            className="px-4 py-1.5 text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] rounded-full text-gray-300 hover:border-emerald-500/30 hover:text-white transition-all disabled:opacity-50"
-          >
-            {loading ? 'Scanning…' : '↻ Refresh'}
-          </button>
+        <span className="text-[10px] text-gray-700 font-mono">{MOCK.length} markets loaded</span>
+      </div>
+
+      {/* ── Section 1: Hero Cards ── */}
+      <div className="mb-6">
+        <div className="text-[10px] text-gray-600 uppercase tracking-widest mb-3">Best Opportunities Right Now</div>
+        {/* Mobile: horizontal snap carousel */}
+        <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-smooth md:hidden">
+          {(Object.keys(HERO_META) as (keyof typeof HERO_META)[]).map(type => (
+            <HeroCard key={type} type={type} opp={heroes[type]} />
+          ))}
+        </div>
+        {/* Desktop: 2x2 grid */}
+        <div className="hidden md:grid grid-cols-2 gap-3">
+          {(Object.keys(HERO_META) as (keyof typeof HERO_META)[]).map(type => (
+            <HeroCard key={type} type={type} opp={heroes[type]} />
+          ))}
         </div>
       </div>
 
-      {/* Cache banner */}
-      {fromCache && !loading && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-2 text-xs text-amber-400">
-          Serving cached data — live sources unavailable
-        </div>
-      )}
+      {/* ── Section 4: Filter bar (sticky, above tier list) ── */}
+      <FilterBar
+        tierFilter={tierFilter}
+        setTierFilter={setTierFilter}
+        catFilter={catFilter}
+        setCatFilter={setCatFilter}
+        activeCount={filtered.length}
+      />
 
-      {/* Hero stats */}
-      {(opportunities.length > 0 || !loading) && (
-        <HeroCard
-          total={opportunities.length}
-          tier1={tier1.length}
-          tier2={tier2.length}
-          sources={activeSources}
-        />
-      )}
-
-      {/* Debug panel */}
-      {showDebug && debug && <DebugPanel debug={debug} />}
-
-      {/* All sources failed, no cache */}
-      {fetchFailed && !fromCache && (
-        <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-5 space-y-3">
-          <p className="text-red-400 font-semibold">All data sources failed</p>
-          {debug && (
-            <div className="space-y-1">
-              {(['kalshi', 'polymarket', 'manifold', 'predictit'] as const).map(key => {
-                const s = debug.sources[key];
-                return s.error ? (
-                  <div key={key} className="text-xs text-red-400/70 font-mono">
-                    {key}: {s.error}
-                  </div>
-                ) : null;
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Loading skeleton (only if no data yet) */}
-      {loading && opportunities.length === 0 && <Skeleton />}
-
-      {/* Empty state: fetched OK but nothing passed threshold */}
-      {!loading && !fetchFailed && debug && debug.totalFetched > 0 && opportunities.length === 0 && (
-        <div className="text-center py-16 text-gray-600">
+      {/* ── Sections 2+3: Tier list with expandable rows ── */}
+      {isEmpty ? (
+        <div className="text-center py-16">
           <div className="text-4xl mb-3">🔍</div>
-          <div className="text-base font-semibold">No opportunities above threshold</div>
-          <div className="text-xs mt-2">
-            {debug.totalFetched.toLocaleString()} markets scanned · score floor = {debug.scoreFloor}
-          </div>
+          <div className="text-gray-400 text-sm mb-1">No opportunities -- check data feed</div>
+          <div className="text-gray-600 text-xs">Active sources: 0</div>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-12">
+          <div className="text-gray-500 text-sm">No markets match current filters</div>
+          <button onClick={() => { setTierFilter(0); setCatFilter(new Set()); }}
+            className="mt-3 text-xs text-emerald-400 underline underline-offset-2">Clear filters</button>
+        </div>
+      ) : (
+        <div className="mt-4">
+          {([1, 2, 3] as const).map(t => (
+            <TierSection
+              key={t}
+              tier={t}
+              opps={byTier[t]}
+              expandedId={expandedId}
+              onToggle={toggleExpand}
+              isMobile={isMobile}
+            />
+          ))}
         </div>
       )}
 
-      {/* Tier 1 */}
-      {tier1.length > 0 && (
-        <section className="space-y-3">
-          <div className="flex items-center gap-2 pb-1 border-b border-emerald-500/20">
-            <h2 className="text-white font-bold text-base">Tier 1 — High Conviction</h2>
-            <span className="text-xs text-gray-600">(score ≥ {debug?.tier1Min ?? 30})</span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {tier1.map(o => <OpportunityCard key={o.id} opp={o} snapshotTs={snapshotTs} />)}
-          </div>
-        </section>
-      )}
-
-      {/* Tier 2 */}
-      {tier2.length > 0 && (
-        <section className="space-y-3">
-          <div className="flex items-center gap-2 pb-1 border-b border-amber-500/20">
-            <h2 className="text-white font-bold text-base">Tier 2 — Noteworthy</h2>
-            <span className="text-xs text-gray-600">(score {debug?.tier2Min ?? 15}–{(debug?.tier1Min ?? 30) - 1})</span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {tier2.map(o => <OpportunityCard key={o.id} opp={o} snapshotTs={snapshotTs} />)}
-          </div>
-        </section>
-      )}
-
-      {/* Tier 3 */}
-      {tier3.length > 0 && (
-        <section className="space-y-3">
-          <div className="flex items-center gap-2 pb-1 border-b border-[#1e1e1e]">
-            <h2 className="text-white font-bold text-base">Tier 3 — Watchlist</h2>
-            <span className="text-xs text-gray-600">(score {debug?.scoreFloor ?? 4}–{(debug?.tier2Min ?? 15) - 1})</span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {tier3.map(o => <OpportunityCard key={o.id} opp={o} snapshotTs={snapshotTs} />)}
-          </div>
-        </section>
-      )}
-
-      <p className="text-xs text-gray-700 pb-4">
-        Scores based on: probability extremes, near-50 uncertainty, volume, bid-ask spread, time decay, open interest, payoff asymmetry.
-        Cross-source arbitrage gaps identified via Jaccard title similarity ≥ 0.35.
-        Not financial advice — verify on source platform before trading.
-      </p>
+      <div className="mt-6 pt-4 border-t border-white/5">
+        <p className="text-[10px] text-gray-700">
+          Edge Scanner · 7-module scoring model · Not financial advice · Data: Kalshi, Polymarket, PredictIt, Manifold
+        </p>
+      </div>
     </div>
   );
 }
