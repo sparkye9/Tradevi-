@@ -50,7 +50,7 @@ export async function fetchKalshiSource(): Promise<SourceResult> {
 
     do {
       const url = new URL('https://api.elections.kalshi.com/trade-api/v2/markets');
-      url.searchParams.set('status', 'open');
+      // Don't filter by status server-side — API uses "active" not "open", we filter below
       url.searchParams.set('limit', '200');
       if (cursor) url.searchParams.set('cursor', cursor);
 
@@ -79,39 +79,55 @@ export async function fetchKalshiSource(): Promise<SourceResult> {
 
     for (const raw of allRaw) {
       const m = raw as Record<string, unknown>;
-      if (m.status !== 'open') continue;
+      // API returns status "active" for open markets, not "open"
+      if (m.status !== 'open' && m.status !== 'active') continue;
 
-      const yesBid = typeof m.yes_bid === 'number' ? m.yes_bid : 0;
-      const yesAsk = typeof m.yes_ask === 'number' ? m.yes_ask : 0;
-      const noBid = typeof m.no_bid === 'number' ? m.no_bid : 0;
-      const noAsk = typeof m.no_ask === 'number' ? m.no_ask : 0;
-      const lastPrice = typeof m.last_price === 'number' ? m.last_price : null;
+      // API uses _dollars suffix (string "0.0320" = $0.032 = 3.2 cents)
+      const parseD = (v: unknown) => v != null ? parseFloat(String(v)) * 100 : 0;
+      const yesBid = parseD(m.yes_bid_dollars);
+      const yesAsk = parseD(m.yes_ask_dollars);
+      const noBid  = parseD(m.no_bid_dollars);
+      const noAsk  = parseD(m.no_ask_dollars);
+      // last_price_dollars or previous_price_dollars as fallback
+      const lastPriceRaw = m.last_price_dollars ?? m.previous_price_dollars ?? null;
+      const lastPrice = lastPriceRaw != null ? parseFloat(String(lastPriceRaw)) * 100 : null;
 
+      // Derive YES probability (0–100)
       let pricePct: number;
-      if (yesBid > 0 && yesAsk > 0) {
-        pricePct = ((yesBid + yesAsk) / 2) * 100;
-      } else if (lastPrice !== null) {
-        pricePct = lastPrice * 100;
+      const midYes = yesBid > 0 && yesAsk > 0 ? (yesBid + yesAsk) / 2 : 0;
+      const midNo  = noBid  > 0 && noAsk  > 0 ? (noBid  + noAsk)  / 2 : 0;
+      if (midYes > 0) {
+        pricePct = midYes;
+      } else if (midNo > 0) {
+        pricePct = 100 - midNo;
+      } else if (lastPrice !== null && lastPrice > 0) {
+        pricePct = lastPrice;
       } else {
-        continue; // skip: no price
+        continue; // no usable price
       }
+
+      // Clamp to valid range
+      if (pricePct <= 0 || pricePct >= 100) continue;
 
       const closesAt = typeof m.close_time === 'string'
         ? m.close_time
         : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+
+      // volume_fp and open_interest_fp are decimal strings
+      const parseN = (v: unknown) => v != null ? parseFloat(String(v)) : 0;
 
       markets.push({
         id: String(m.ticker ?? m.id ?? ''),
         source,
         title: String(m.title ?? ''),
         pricePct,
-        volume: typeof m.volume === 'number' ? m.volume : 0,
+        volume: parseN(m.volume_fp ?? m.volume),
         closesAt,
-        openInterest: typeof m.open_interest === 'number' ? m.open_interest : 0,
-        yesBid: yesBid * 100,
-        yesAsk: yesAsk * 100,
-        noBid: noBid * 100,
-        noAsk: noAsk * 100,
+        openInterest: parseN(m.open_interest_fp ?? m.open_interest),
+        yesBid,
+        yesAsk,
+        noBid,
+        noAsk,
       });
     }
 
