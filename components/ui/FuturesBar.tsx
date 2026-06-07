@@ -92,11 +92,11 @@ export default function FuturesBar() {
       style={{ background: '#090909', minHeight: 42 }}
     >
       {/* Status + time */}
-      <div className="flex items-center gap-2 px-4 shrink-0 border-r border-[#1e1e1e] h-full py-2">
+      <div className="flex items-center gap-2 px-3 shrink-0 border-r border-[#1e1e1e] h-full py-2">
         <span className={`text-[10px] font-bold tracking-widest px-2 py-0.5 rounded-full border ${statusStyle}`}>
           {status}
         </span>
-        <span className="text-gray-600 font-mono text-xs">{etTime} ET</span>
+        <span className="hidden sm:inline text-gray-600 font-mono text-xs">{etTime} ET</span>
       </div>
 
       {/* Instrument chips */}
@@ -110,10 +110,10 @@ export default function FuturesBar() {
         return (
           <div
             key={item.symbol}
-            className={`flex items-center gap-2.5 px-4 py-2 shrink-0 ${!isLast ? 'border-r border-[#1e1e1e]' : ''} hover:bg-white/[0.02] transition-colors`}
+            className={`flex items-center gap-1.5 px-2.5 sm:px-4 py-2 shrink-0 ${!isLast ? 'border-r border-[#1e1e1e]' : ''} hover:bg-white/[0.02] transition-colors`}
           >
             <div className="flex flex-col">
-              <span className="text-[10px] text-gray-500 font-medium leading-none mb-0.5">{item.label}</span>
+              <span className="text-[9px] sm:text-[10px] text-gray-500 font-medium leading-none mb-0.5">{item.symbol}</span>
               {hasData ? (
                 <span className="text-white font-mono text-xs font-semibold leading-none">
                   {item.symbol === 'VIX'

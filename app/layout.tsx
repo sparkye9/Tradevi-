@@ -15,10 +15,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="bg-[#0f0f0f] text-white min-h-screen flex">
         <Sidebar />
-        <div className="flex-1 flex flex-col overflow-auto">
+        {/* On mobile: push content below top bar (h-12) and above bottom nav (h-14) */}
+        <div className="flex-1 flex flex-col overflow-auto pt-12 pb-14 md:pt-0 md:pb-0">
           <FuturesBar />
           <ScriptureRotator />
-          <main className="flex-1 p-6">{children}</main>
+          <main className="flex-1 p-3 md:p-6">{children}</main>
           <BibleVerse />
         </div>
       </body>
