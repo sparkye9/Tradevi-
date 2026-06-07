@@ -289,6 +289,7 @@ export default function EdgePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState('');
+  const [meta, setMeta] = useState<{ kalshiFetched: number; polymarketFetched: number; scored: number; returned: number } | null>(null);
   const [tierFilter, setTierFilter] = useState<0 | 1 | 2 | 3>(0);
   const [catFilter, setCatFilter] = useState('All');
 
@@ -300,6 +301,7 @@ export default function EdgePage() {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const j = await resp.json();
       setOpportunities(j.opportunities ?? []);
+      setMeta(j.meta ?? null);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (e) {
       setError(String(e));
@@ -414,7 +416,18 @@ export default function EdgePage() {
         <div className="text-center py-16">
           <div className="text-4xl mb-4">🔍</div>
           <div className="text-gray-400 text-sm mb-1">No opportunities found</div>
-          <div className="text-gray-600 text-xs mb-4">Kalshi may be slow or all markets are fully priced</div>
+          <div className="text-gray-600 text-xs mb-2">
+            {meta && meta.kalshiFetched === 0
+              ? 'Kalshi API unreachable from the server — check network policy'
+              : meta
+              ? `Fetched ${meta.kalshiFetched} Kalshi markets but none scored — markets may be fully priced`
+              : 'Kalshi may be slow or all markets are fully priced'}
+          </div>
+          {meta && (
+            <div className="text-[10px] text-gray-700 mb-4">
+              Kalshi: {meta.kalshiFetched} · Polymarket: {meta.polymarketFetched} · Scored: {meta.scored}
+            </div>
+          )}
           <button onClick={load} className="text-xs px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400">
             Try Again
           </button>
@@ -426,7 +439,7 @@ export default function EdgePage() {
         <div className="mb-5">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Tier 1 — Strong Edge</span>
-            <span className="text-[10px] text-gray-600">Score 45+</span>
+            <span className="text-[10px] text-gray-600">Score 30+</span>
           </div>
           <div className="flex flex-col gap-1.5">
             {tier1.map((opp, i) => <OpportunityCard key={opp.id} opp={opp} rank={i + 1} />)}
@@ -439,7 +452,7 @@ export default function EdgePage() {
         <div className="mb-5">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Tier 2 — Moderate Edge</span>
-            <span className="text-[10px] text-gray-600">Score 25–44</span>
+            <span className="text-[10px] text-gray-600">Score 15–29</span>
           </div>
           <div className="flex flex-col gap-1.5">
             {tier2.map((opp, i) => <OpportunityCard key={opp.id} opp={opp} rank={tier1.length + i + 1} />)}
@@ -452,7 +465,7 @@ export default function EdgePage() {
         <div className="mb-5">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Tier 3 — Watch List</span>
-            <span className="text-[10px] text-gray-600">Score 10–24</span>
+            <span className="text-[10px] text-gray-600">Score 4–14</span>
           </div>
           <div className="flex flex-col gap-1.5">
             {tier3.map((opp, i) => (

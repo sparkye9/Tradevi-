@@ -382,7 +382,9 @@ export async function GET() {
     const noAsk = km.no_ask ?? 0;
     const midYes = yesBid > 0 && yesAsk > 0 ? (yesBid + yesAsk) / 2 : 0;
     const midNo = noBid > 0 && noAsk > 0 ? (noBid + noAsk) / 2 : 0;
-    const pricePct = midYes > 0 ? midYes : midNo > 0 ? 100 - midNo : 50;
+    // Skip markets with no tradeable price at all
+    if (midYes <= 0 && midNo <= 0) continue;
+    const pricePct = midYes > 0 ? midYes : 100 - midNo;
     const days = daysUntil(km.close_time);
     const category = categoryFromTitle(km.title);
 
@@ -418,14 +420,14 @@ export async function GET() {
     const { score: ceScore, signal: emotionSignal } = scoreCrowdEmotion(category, pricePct, km.volume);
 
     const total = pc + fm + ig + glitchScore + or + eaScore + ceScore;
-    if (total < 10) continue; // not interesting
+    if (total < 4) continue; // skip only the truly inert
 
     // Fair value
     const fairValuePct = direction === 'YES'
       ? Math.min(pricePct + edge, 97)
       : Math.max(pricePct - edge, 3);
 
-    const tier: 1 | 2 | 3 = total >= 45 ? 1 : total >= 25 ? 2 : 3;
+    const tier: 1 | 2 | 3 = total >= 30 ? 1 : total >= 15 ? 2 : 3;
     const riskLevel: 'Low' | 'Medium' | 'High' =
       days < 3 ? 'High' : km.volume < 1000 ? 'High' : km.volume < 10000 ? 'Medium' : 'Low';
 
@@ -464,13 +466,25 @@ export async function GET() {
   opportunities.sort((a, b) => b.scores.total - a.scores.total);
   const top50 = opportunities.slice(0, 50);
 
-  // Pick hero cards
-  const mispriced = top50.find((o) => o.scores.priceConflict >= 15) ?? top50[0];
-  const forgotten = top50.find((o) => o.scores.forgottenMarket >= 12 && o !== mispriced);
-  const breaking = top50.find((o) => o.scores.eventArbitrage >= 4 && o !== mispriced && o !== forgotten)
-    ?? top50.find((o) => o.scores.infoGap >= 12 && o !== mispriced && o !== forgotten);
-  const wrongCrowd = top50.find((o) => (o.scores.crowdEmotion >= 4 || o.scores.overreaction >= 7)
-    && o !== mispriced && o !== forgotten && o !== breaking);
+  // Pick hero cards — best in each category, with sensible fallbacks
+  const byPriceConflict = [...top50].sort((a, b) => b.scores.priceConflict - a.scores.priceConflict);
+  const byForgotten = [...top50].sort((a, b) => b.scores.forgottenMarket - a.scores.forgottenMarket);
+  const byBreaking = [...top50].sort((a, b) =>
+    (b.scores.eventArbitrage + b.scores.infoGap) - (a.scores.eventArbitrage + a.scores.infoGap));
+  const byWrongCrowd = [...top50].sort((a, b) =>
+    (b.scores.crowdEmotion + b.scores.overreaction) - (a.scores.crowdEmotion + a.scores.overreaction));
+
+  const used = new Set<string>();
+  const pick = (sorted: ScoredOpportunity[]) => {
+    const found = sorted.find((o) => !used.has(o.id));
+    if (found) used.add(found.id);
+    return found;
+  };
+
+  const mispriced = pick(byPriceConflict);
+  const forgotten = pick(byForgotten);
+  const breaking = pick(byBreaking);
+  const wrongCrowd = pick(byWrongCrowd);
 
   if (mispriced) mispriced.heroType = 'mispriced';
   if (forgotten) forgotten.heroType = 'forgotten';
@@ -478,5 +492,14 @@ export async function GET() {
   if (wrongCrowd) wrongCrowd.heroType = 'wrong_crowd';
 
   scoreCache = { opportunities: top50, ts: Date.now() };
-  return NextResponse.json({ opportunities: top50, cached: false });
+  return NextResponse.json({
+    opportunities: top50,
+    cached: false,
+    meta: {
+      kalshiFetched: kalshiMarkets.length,
+      polymarketFetched: polyMarkets.length,
+      scored: opportunities.length,
+      returned: top50.length,
+    },
+  });
 }
