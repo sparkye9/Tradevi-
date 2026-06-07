@@ -1,24 +1,18 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 
-// ─── Fee Schedule ─────────────────────────────────────────────────────────────
-// Kalshi fee schedule — update these when Kalshi changes fees
-// Current: taker fee = min(7% of profit, 7 cents) per contract per side
+// ─── Fee config (update when Kalshi changes their schedule) ──────────────────
 // Source: https://kalshi.com/docs/kalshi-fee-schedule.pdf
-const FEE_PCT = 0.07;         // 7% of profit on winning contracts
-const FEE_CAP_CENTS = 7;      // max 7 cents per contract
+const FEE_PCT = 0.07;      // 7% of profit on winning side
+const FEE_CAP_CENTS = 7;   // capped at 7¢ per contract
 
 function kalshiFee(priceCents: number): number {
-  // fee on a winning contract bought at priceCents
-  const profit = 100 - priceCents;
-  return Math.min(FEE_PCT * profit, FEE_CAP_CENTS);
+  return Math.min(FEE_PCT * (100 - priceCents), FEE_CAP_CENTS);
 }
 
-function netEV(impliedProb: number, userProb: number, priceCents: number): number {
-  // EV in cents per contract, net of taker fees
-  const fee = kalshiFee(priceCents);
-  const profit = 100 - priceCents - fee;
-  return userProb * profit - (1 - userProb) * priceCents;
+// Net profit (in cents) if you buy at priceCents and win
+function netProfit(priceCents: number): number {
+  return 100 - priceCents - kalshiFee(priceCents);
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -41,756 +35,550 @@ interface KalshiMarket {
   status: string;
 }
 
-interface OverroundArb {
-  event_ticker: string;
-  legs: KalshiMarket[];
-  askSum: number;
-  overround: number;
-  tradeable: boolean;
-  module: 'A';
+type DateFilter = 'today' | 'week' | 'all';
+
+// ─── Scoring & ranking ────────────────────────────────────────────────────────
+
+function midPrice(m: KalshiMarket): number | null {
+  if (m.yes_bid == null || m.yes_ask == null) return null;
+  return (m.yes_bid + m.yes_ask) / 2;
 }
 
-interface ImplicationBreak {
-  seriesTicker: string;
-  lowerMarket: KalshiMarket;
-  higherMarket: KalshiMarket;
-  lowerThreshold: number;
-  higherThreshold: number;
-  lowerAsk: number;
-  higherAsk: number;
-  spread: number;
-  module: 'B';
+function spreadCents(m: KalshiMarket): number | null {
+  if (m.yes_bid == null || m.yes_ask == null) return null;
+  return m.yes_ask - m.yes_bid;
 }
 
-interface StaleMarket {
-  market: KalshiMarket;
-  reason: string;
-  module: 'D';
+// "Best side": which side to buy — YES if market implies <50% (YES is cheap),
+// NO if market implies >50% (NO is cheap). Cheapest side = lowest risk capital.
+function bestSide(mid: number): 'YES' | 'NO' {
+  return mid <= 50 ? 'YES' : 'NO';
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function midPrice(market: KalshiMarket): number | null {
-  if (market.yes_bid == null || market.yes_ask == null) return null;
-  return (market.yes_bid + market.yes_ask) / 2;
+function entryPrice(m: KalshiMarket, side: 'YES' | 'NO'): number | null {
+  if (side === 'YES') return m.yes_ask;
+  if (m.yes_bid == null) return null;
+  return 100 - m.yes_bid; // NO ask = 100 - YES bid
 }
 
-function spread(market: KalshiMarket): number | null {
-  if (market.yes_bid == null || market.yes_ask == null) return null;
-  return market.yes_ask - market.yes_bid;
+// Score: structural arbs > high volume + liquid > standard
+// Returns 0–100 — higher = show first
+function opportunityScore(m: KalshiMarket, isArb: boolean): number {
+  let score = 0;
+  if (isArb) score += 50;
+  const sp = spreadCents(m);
+  if (sp !== null && sp <= 4) score += 20;
+  else if (sp !== null && sp <= 8) score += 10;
+  if (m.volume_24h > 1000) score += 15;
+  else if (m.volume_24h > 200) score += 8;
+  // Prefer near resolution
+  const hoursLeft = (new Date(m.close_time).getTime() - Date.now()) / 3_600_000;
+  if (hoursLeft > 0 && hoursLeft < 6) score += 10;
+  else if (hoursLeft > 0 && hoursLeft < 24) score += 5;
+  return Math.min(score, 100);
 }
 
-function spreadLabel(s: number | null): string {
-  if (s === null) return '--';
-  if (s <= 4) return 'Liquid';
-  if (s <= 10) return 'Normal';
-  return 'Thin';
-}
-
-function formatTimestamp(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZoneName: 'short',
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function formatCloseTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: 'America/New_York',
-    });
-  } catch {
-    return iso;
-  }
-}
+// ─── Date helpers ─────────────────────────────────────────────────────────────
 
 function isToday(iso: string): boolean {
-  try {
-    const d = new Date(iso);
-    const now = new Date();
-    const ny = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' });
-    return ny.format(d) === ny.format(now);
-  } catch {
-    return false;
-  }
+  const d = new Date(iso);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
 }
 
-function isWithinWeek(iso: string): boolean {
-  try {
-    const d = new Date(iso);
-    const week = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    return d <= week && d >= new Date();
-  } catch {
-    return false;
-  }
+function isThisWeek(iso: string): boolean {
+  const d = new Date(iso);
+  return d.getTime() - Date.now() < 7 * 86_400_000 && d.getTime() > Date.now();
 }
 
-function parseThreshold(title: string): number | null {
-  const m =
-    title.match(/above\s+([\d.,]+)/i) ||
-    title.match(/at\s+least\s+([\d.,]+)/i) ||
-    title.match(/>\s*([\d.,]+)/);
-  if (!m) return null;
-  return parseFloat(m[1].replace(/,/g, ''));
+function fmtClose(iso: string): string {
+  const d = new Date(iso);
+  const now = Date.now();
+  const diff = d.getTime() - now;
+  if (diff < 0) return 'Resolving soon';
+  const h = Math.floor(diff / 3_600_000);
+  const m = Math.floor((diff % 3_600_000) / 60_000);
+  if (h < 1) return `${m}m left`;
+  if (h < 24) return `${h}h ${m}m left`;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-// ─── Module A: Overround arb detection ────────────────────────────────────────
+// ─── Structural arb detection ─────────────────────────────────────────────────
 
-function detectOverroundArbs(markets: KalshiMarket[]): OverroundArb[] {
+interface StructuralArb {
+  type: 'OVERROUND' | 'IMPLICATION';
+  markets: KalshiMarket[];
+  description: string;
+  edgeCents: number; // how much is mispriced
+}
+
+function detectArbs(markets: KalshiMarket[]): Map<string, StructuralArb> {
+  const arbMap = new Map<string, StructuralArb>();
+
+  // Module A: multi-outcome overround
   const byEvent = new Map<string, KalshiMarket[]>();
   for (const m of markets) {
-    if (!m.event_ticker) continue;
-    const arr = byEvent.get(m.event_ticker) ?? [];
-    arr.push(m);
-    byEvent.set(m.event_ticker, arr);
+    if (!byEvent.has(m.event_ticker)) byEvent.set(m.event_ticker, []);
+    byEvent.get(m.event_ticker)!.push(m);
   }
-
-  const arbs: OverroundArb[] = [];
-  Array.from(byEvent.entries()).forEach(([event_ticker, legs]) => {
-    if (legs.length < 2) return;
-    if (!legs.every((l: KalshiMarket) => l.yes_ask != null)) return;
-    const askSum = legs.reduce((s: number, l: KalshiMarket) => s + (l.yes_ask ?? 0), 0);
-    if (askSum <= 100) return;
-    const tradeable = legs.filter((l: KalshiMarket) => (spread(l) ?? 99) <= 10).length >= 3;
-    arbs.push({ event_ticker, legs, askSum, overround: askSum - 100, tradeable, module: 'A' });
-  });
-  return arbs.sort((a, b) => b.overround - a.overround);
-}
-
-// ─── Module B: Implication break detection ────────────────────────────────────
-
-function detectImplicationBreaks(markets: KalshiMarket[]): ImplicationBreak[] {
-  const bySeries = new Map<string, KalshiMarket[]>();
-  for (const m of markets) {
-    if (!m.series_ticker) continue;
-    const arr = bySeries.get(m.series_ticker) ?? [];
-    arr.push(m);
-    bySeries.set(m.series_ticker, arr);
-  }
-
-  const breaks: ImplicationBreak[] = [];
-  Array.from(bySeries.entries()).forEach(([seriesTicker, legs]) => {
-    const withThreshold = legs
-      .map((l: KalshiMarket) => ({ market: l, threshold: parseThreshold(l.title) }))
-      .filter((x): x is { market: KalshiMarket; threshold: number } => x.threshold !== null && x.market.yes_ask != null)
-      .sort((a: { threshold: number }, b: { threshold: number }) => a.threshold - b.threshold);
-
-    for (let i = 1; i < withThreshold.length; i++) {
-      const lower = withThreshold[i - 1];
-      const higher = withThreshold[i];
-      const lowerAsk = lower.market.yes_ask!;
-      const higherAsk = higher.market.yes_ask!;
-      if (higherAsk > lowerAsk) {
-        breaks.push({
-          seriesTicker,
-          lowerMarket: lower.market,
-          higherMarket: higher.market,
-          lowerThreshold: lower.threshold,
-          higherThreshold: higher.threshold,
-          lowerAsk,
-          higherAsk,
-          spread: higherAsk - lowerAsk,
-          module: 'B',
+  for (const [, group] of Array.from(byEvent.entries())) {
+    if (group.length < 2) continue;
+    const withAsks = group.filter((m: KalshiMarket) => m.yes_ask != null);
+    if (withAsks.length < 2) continue;
+    const askSum = withAsks.reduce((s: number, m: KalshiMarket) => s + m.yes_ask!, 0);
+    if (askSum > 103) { // >3¢ overround after fees
+      const edge = askSum - 100;
+      for (const m of withAsks) {
+        arbMap.set(m.ticker, {
+          type: 'OVERROUND',
+          markets: withAsks,
+          description: `All outcomes add up to ${askSum}¢ — market is overpriced by ${edge}¢`,
+          edgeCents: edge,
         });
       }
     }
-  });
-  return breaks.sort((a, b) => b.spread - a.spread);
+  }
+
+  // Module B: implication breaks within a series
+  const bySeries = new Map<string, KalshiMarket[]>();
+  for (const m of markets) {
+    if (!m.series_ticker) continue;
+    if (!bySeries.has(m.series_ticker)) bySeries.set(m.series_ticker, []);
+    bySeries.get(m.series_ticker)!.push(m);
+  }
+  for (const [, group] of Array.from(bySeries.entries())) {
+    if (group.length < 2) continue;
+    const withThresholds = group
+      .map((m: KalshiMarket) => {
+        const match = m.title.match(/(?:above|at least|>|≥|over)\s*([\d.]+)/i);
+        return match ? { m, threshold: parseFloat(match[1]) } : null;
+      })
+      .filter(Boolean) as { m: KalshiMarket; threshold: number }[];
+    if (withThresholds.length < 2) continue;
+    withThresholds.sort((a, b) => a.threshold - b.threshold);
+    for (let i = 0; i < withThresholds.length - 1; i++) {
+      const lower = withThresholds[i];
+      const higher = withThresholds[i + 1];
+      if (lower.m.yes_ask == null || higher.m.yes_ask == null) continue;
+      if (higher.m.yes_ask > lower.m.yes_ask + 2) {
+        const edge = higher.m.yes_ask - lower.m.yes_ask;
+        arbMap.set(lower.m.ticker, {
+          type: 'IMPLICATION',
+          markets: [lower.m, higher.m],
+          description: `"${higher.m.title}" costs more than "${lower.m.title}" — logically impossible`,
+          edgeCents: edge,
+        });
+        arbMap.set(higher.m.ticker, {
+          type: 'IMPLICATION',
+          markets: [lower.m, higher.m],
+          description: `"${higher.m.title}" costs more than "${lower.m.title}" — logically impossible`,
+          edgeCents: edge,
+        });
+      }
+    }
+  }
+
+  return arbMap;
 }
 
-// ─── Module D: Stale thin market detection ────────────────────────────────────
+// ─── Profit Calculator ────────────────────────────────────────────────────────
 
-function detectStaleMarkets(markets: KalshiMarket[]): StaleMarket[] {
-  return markets
-    .filter((m) => m.volume_24h < 50 && (spread(m) ?? 0) > 10)
-    .map((m) => ({
-      market: m,
-      reason: `vol_24h=${m.volume_24h}, spread=${spread(m)}¢`,
-      module: 'D' as const,
-    }));
-}
+function ProfitCalc({ priceCents, side }: { priceCents: number; side: 'YES' | 'NO' }) {
+  const [dollars, setDollars] = useState('10');
+  const d = parseFloat(dollars) || 0;
+  const contracts = Math.floor((d * 100) / priceCents);
+  const cost = (contracts * priceCents) / 100;
+  const profit = (contracts * netProfit(priceCents)) / 100;
+  const total = cost + profit;
+  const pct = cost > 0 ? (profit / cost) * 100 : 0;
 
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
-
-function SkeletonRows() {
   return (
-    <>
-      {[0, 1, 2].map((i) => (
-        <div key={i} className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-5 animate-pulse h-20" />
-      ))}
-    </>
+    <div className="mt-3 pt-3 border-t border-[#1e1e1e]">
+      <div className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-2">Profit Calculator</div>
+      <div className="flex items-center gap-2">
+        <span className="text-gray-500 text-xs">I put in</span>
+        <div className="flex items-center bg-[#0d0d0d] border border-[#2a2a2a] rounded-lg px-2 py-1">
+          <span className="text-gray-500 text-xs">$</span>
+          <input
+            type="number"
+            min="1"
+            step="5"
+            value={dollars}
+            onChange={(e) => setDollars(e.target.value)}
+            className="w-16 bg-transparent text-white text-xs font-mono focus:outline-none ml-1"
+          />
+        </div>
+        <span className="text-gray-500 text-xs">on {side}</span>
+      </div>
+      {contracts > 0 ? (
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          <div className="bg-[#0d0d0d] rounded-lg p-2 text-center">
+            <div className="text-gray-600 text-[10px] uppercase">Contracts</div>
+            <div className="text-white font-mono font-bold text-sm">{contracts}</div>
+          </div>
+          <div className="bg-[#0d0d0d] rounded-lg p-2 text-center">
+            <div className="text-gray-600 text-[10px] uppercase">Win profit</div>
+            <div className="text-emerald-400 font-mono font-bold text-sm">+${profit.toFixed(2)}</div>
+          </div>
+          <div className="bg-[#0d0d0d] rounded-lg p-2 text-center">
+            <div className="text-gray-600 text-[10px] uppercase">Total back</div>
+            <div className="text-white font-mono font-bold text-sm">${total.toFixed(2)}</div>
+          </div>
+        </div>
+      ) : (
+        <p className="text-gray-600 text-xs mt-2">Enter an amount to see potential returns.</p>
+      )}
+      {contracts > 0 && (
+        <p className="text-gray-700 text-[10px] mt-1.5">
+          {pct.toFixed(0)}% return if {side} wins · {contracts} contracts at {priceCents}¢ · net of fees
+        </p>
+      )}
+    </div>
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Opportunity Card ─────────────────────────────────────────────────────────
 
-export default function EdgeScannerPage() {
+function OpportunityCard({
+  market,
+  arb,
+  rank,
+}: {
+  market: KalshiMarket;
+  arb: StructuralArb | undefined;
+  rank: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const mid = midPrice(market);
+  const sp = spreadCents(market);
+  const side = mid != null ? bestSide(mid) : 'YES';
+  const entry = entryPrice(market, side);
+  const impliedPct = mid != null ? (side === 'YES' ? mid : 100 - mid) : null;
+  const winProb = impliedPct != null ? (side === 'YES' ? mid! : 100 - mid!) : null;
+  const profit = entry != null ? netProfit(entry) : null;
+
+  const isArb = !!arb;
+  const hoursLeft = (new Date(market.close_time).getTime() - Date.now()) / 3_600_000;
+  const urgentSoon = hoursLeft > 0 && hoursLeft < 3;
+
+  const borderClass = isArb
+    ? 'border-amber-500/40 hover:border-amber-500/70'
+    : urgentSoon
+    ? 'border-emerald-500/30 hover:border-emerald-500/50'
+    : 'border-[#1e1e1e] hover:border-[#2a2a2a]';
+
+  const spreadLabel = sp === null ? '--' : sp <= 4 ? 'Liquid' : sp <= 10 ? 'Normal' : 'Thin';
+  const spreadColor = sp === null ? 'text-gray-600' : sp <= 4 ? 'text-emerald-400' : sp <= 10 ? 'text-amber-400' : 'text-red-400';
+
+  return (
+    <div className={`bg-[#111111] border ${borderClass} rounded-2xl p-4 flex flex-col gap-3 transition-all cursor-pointer`}
+      onClick={() => setExpanded((p) => !p)}>
+
+      {/* Top badges row */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] font-bold text-gray-600 font-mono">#{rank}</span>
+        {isArb && (
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase tracking-wider">
+            {arb.type === 'OVERROUND' ? '⚡ Price Conflict' : '⚡ Logic Break'}
+          </span>
+        )}
+        {urgentSoon && !isArb && (
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+            Resolves Soon
+          </span>
+        )}
+        <span className="ml-auto text-[10px] text-gray-600 font-mono">{fmtClose(market.close_time)}</span>
+      </div>
+
+      {/* Market title */}
+      <div className="text-white text-sm font-semibold leading-snug">{market.title}</div>
+
+      {/* Key numbers */}
+      <div className="flex items-end gap-4 flex-wrap">
+        {/* Win probability */}
+        <div>
+          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-0.5">Market says</div>
+          <div className="flex items-baseline gap-1">
+            <span className={`font-mono font-bold text-2xl ${side === 'YES' ? 'text-emerald-400' : 'text-red-400'}`}>
+              {winProb != null ? `${winProb.toFixed(0)}%` : '--'}
+            </span>
+            <span className="text-gray-500 text-xs">chance of {side}</span>
+          </div>
+        </div>
+
+        {/* Entry */}
+        <div>
+          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-0.5">Buy {side} for</div>
+          <div className="font-mono font-bold text-xl text-white">
+            {entry != null ? `${entry}¢` : '--'}
+          </div>
+          <div className="text-[10px] text-gray-600 font-mono">${entry != null ? (entry / 100).toFixed(2) : '--'} per contract</div>
+        </div>
+
+        {/* Payout */}
+        <div>
+          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-0.5">Win payout</div>
+          <div className="font-mono font-bold text-xl text-emerald-400">
+            {profit != null ? `${profit.toFixed(0)}¢` : '--'}
+          </div>
+          <div className="text-[10px] text-gray-600 font-mono">net of fees</div>
+        </div>
+
+        {/* Spread / liquidity */}
+        <div className="ml-auto text-right">
+          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-0.5">Liquidity</div>
+          <div className={`font-mono font-semibold text-sm ${spreadColor}`}>{spreadLabel}</div>
+          <div className="text-[10px] text-gray-600 font-mono">{sp != null ? `${sp}¢ spread` : '--'}</div>
+        </div>
+      </div>
+
+      {/* Stats row */}
+      <div className="flex items-center gap-3 text-[10px] text-gray-600 font-mono pt-1 border-t border-[#1e1e1e]">
+        <span>{market.category}</span>
+        <span>·</span>
+        <span>24h vol: {market.volume_24h.toLocaleString()}</span>
+        {isArb && <span className="text-amber-400 ml-auto">{arb.edgeCents.toFixed(0)}¢ edge</span>}
+        <span className={`${isArb ? '' : 'ml-auto'} text-gray-700`}>{expanded ? '▲ less' : '▼ more'}</span>
+      </div>
+
+      {/* Expanded: arb detail + calculator */}
+      {expanded && (
+        <div onClick={(e) => e.stopPropagation()}>
+          {isArb && (
+            <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 mb-3">
+              <div className="text-amber-400 text-xs font-semibold mb-1">Price Inconsistency Detected</div>
+              <p className="text-gray-400 text-xs leading-relaxed">{arb.description}</p>
+              <p className="text-gray-600 text-[10px] mt-2">
+                Always verify these share the same settlement source before trading. Structural edges can disappear quickly.
+              </p>
+            </div>
+          )}
+          {entry != null && <ProfitCalc priceCents={entry} side={side} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function EdgePage() {
   const [markets, setMarkets] = useState<KalshiMarket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
-
-  // Filters
-  const [dateFilter, setDateFilter] = useState<'today' | 'week' | 'all'>('today');
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [allCategories, setAllCategories] = useState<string[]>([]);
-  const [minVolume, setMinVolume] = useState(0);
-  const [minEdge, setMinEdge] = useState(0);
+  const [dateFilter, setDateFilter] = useState<DateFilter>('today');
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
-  // Module C user probs
-  const [userProbs, setUserProbs] = useState<Record<string, number>>({});
-
-  // Expanded rows
-  const [expandedTicker, setExpandedTicker] = useState<string | null>(null);
-
-  const fetchMarkets = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
       const res = await fetch('/api/kalshi/markets');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      if (json.sourceError && json.markets?.length === 0) {
-        setError(json.sourceError);
-      } else {
-        setError(null);
-      }
-      const raw: KalshiMarket[] = json.markets ?? [];
-      setMarkets(raw);
+      setMarkets(json.markets ?? []);
       setLastUpdated(json.lastUpdated ?? null);
-
-      const cats = Array.from(new Set(raw.map((m) => m.category).filter(Boolean))).sort();
-      setAllCategories(cats);
-      setSelectedCategories((prev) => (prev.length === 0 ? cats : prev));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Kalshi data unavailable — check connection');
+      setError(null);
+    } catch {
+      setError('Could not reach Kalshi — check connection');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchMarkets();
-  }, [fetchMarkets]);
+    load();
+  }, [load]);
 
   useEffect(() => {
     if (!autoRefresh) return;
-    const id = setInterval(fetchMarkets, 30_000);
-    return () => clearInterval(id);
-  }, [autoRefresh, fetchMarkets]);
+    const iv = setInterval(load, 30_000);
+    return () => clearInterval(iv);
+  }, [autoRefresh, load]);
 
-  // ── Filter ──
+  // Filter
   const filtered = markets.filter((m) => {
+    if (m.status !== 'open') return false;
     if (dateFilter === 'today' && !isToday(m.close_time)) return false;
-    if (dateFilter === 'week' && !isWithinWeek(m.close_time)) return false;
-    if (selectedCategories.length > 0 && !selectedCategories.includes(m.category)) return false;
-    if (m.volume < minVolume) return false;
+    if (dateFilter === 'week' && !isThisWeek(m.close_time)) return false;
+    if (categoryFilter !== 'all' && m.category !== categoryFilter) return false;
     return true;
   });
 
-  // ── Module detections ──
-  const overroundArbs = detectOverroundArbs(filtered);
-  const implicationBreaks = detectImplicationBreaks(filtered);
-  const staleMarkets = detectStaleMarkets(filtered);
+  // Detect arbs across ALL filtered markets
+  const arbMap = detectArbs(filtered);
 
-  // ── Ranked table rows (Module C + all) ──
-  const tableRows = filtered
-    .map((m) => {
-      const mid = midPrice(m);
-      const impliedProb = mid != null ? mid / 100 : null;
-      const userProbPct = userProbs[m.ticker];
-      const userProbFrac = userProbPct != null ? userProbPct / 100 : impliedProb;
-      const edgePct =
-        userProbPct != null && impliedProb != null ? userProbPct - impliedProb * 100 : null;
-      const ev =
-        userProbFrac != null && mid != null
-          ? netEV(impliedProb ?? 0, userProbFrac, mid)
-          : null;
+  // Rank
+  const ranked = [...filtered]
+    .filter((m) => midPrice(m) != null)
+    .sort((a, b) => {
+      const sa = opportunityScore(a, arbMap.has(a.ticker));
+      const sb = opportunityScore(b, arbMap.has(b.ticker));
+      return sb - sa;
+    });
 
-      const sp = spread(m);
-      const isStale = staleMarkets.some((s) => s.market.ticker === m.ticker);
-      const isOverround = overroundArbs.some((a) => a.legs.some((l) => l.ticker === m.ticker));
-      const isImplication = implicationBreaks.some(
-        (b) => b.lowerMarket.ticker === m.ticker || b.higherMarket.ticker === m.ticker
-      );
+  const arbCount = new Set(Array.from(arbMap.keys()).map((k) => {
+    const arb = arbMap.get(k)!;
+    return arb.markets.map((m: KalshiMarket) => m.ticker).join(',');
+  })).size;
 
-      let type: 'A' | 'B' | 'C' | 'D' = 'C';
-      if (isOverround) type = 'A';
-      else if (isImplication) type = 'B';
-      else if (isStale) type = 'D';
+  // Unique categories
+  const categories = ['all', ...Array.from(new Set(markets.map((m) => m.category).filter(Boolean))).sort()];
 
-      return { market: m, impliedProb, edgePct, ev, sp, type };
-    })
-    .filter((r) => {
-      if (minEdge > 0) return r.edgePct != null && Math.abs(r.edgePct) >= minEdge;
-      return true;
-    })
-    .sort((a, b) => (b.ev ?? -999) - (a.ev ?? -999));
-
-  const structuralArbCount = overroundArbs.length + implicationBreaks.length;
-
-  function toggleCategory(cat: string) {
-    setSelectedCategories((prev) =>
-      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
-    );
-  }
+  const topArbs = ranked.filter((m) => arbMap.has(m.ticker));
+  const topOpps = ranked.filter((m) => !arbMap.has(m.ticker)).slice(0, 20);
 
   return (
-    <div className="min-h-screen bg-[#111111] text-white p-6 space-y-6">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl font-bold tracking-tight">Kalshi Edge Scanner</span>
-          <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold px-2 py-0.5 rounded-full">
-            BETA
-          </span>
+    <div className="space-y-5 max-w-4xl">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Edge Scanner</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Best Kalshi opportunities right now — ranked automatically.
+          </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
           {lastUpdated && (
-            <span className="text-xs text-gray-500">
-              Updated {formatTimestamp(lastUpdated)}
+            <span className="text-[10px] text-gray-700 font-mono">
+              Updated {new Date(lastUpdated).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
           <button
-            onClick={fetchMarkets}
-            className="px-3 py-1.5 rounded-lg text-xs border border-[#2a2a2a] text-gray-400 hover:text-gray-200 hover:bg-white/5 transition-all"
+            onClick={load}
+            disabled={loading}
+            className="px-3 py-1.5 text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] rounded-full text-gray-300 hover:text-white hover:border-emerald-500/30 transition-all disabled:opacity-50"
           >
-            ↻ Refresh
+            {loading ? 'Scanning...' : '↻ Refresh'}
           </button>
           <button
             onClick={() => setAutoRefresh((v) => !v)}
-            className={`px-3 py-1.5 rounded-lg text-xs border transition-all ${
+            className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-all ${
               autoRefresh
-                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                : 'text-gray-500 border-[#2a2a2a] hover:text-gray-300'
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                : 'text-gray-500 border-[#2a2a2a]'
             }`}
           >
-            Auto {autoRefresh ? 'ON' : 'OFF'}
+            {autoRefresh ? '● Auto' : '○ Auto'}
           </button>
         </div>
       </div>
 
-      {/* ── Filter bar ── */}
-      <div className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-5 space-y-4">
-        <span className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Filters</span>
-
-        <div className="flex flex-wrap items-center gap-4">
-          {/* Date filter */}
-          <div className="flex gap-1">
-            {(['today', 'week', 'all'] as const).map((d) => (
-              <button
-                key={d}
-                onClick={() => setDateFilter(d)}
-                className={`px-3 py-1.5 rounded-lg text-xs border transition-all ${
-                  dateFilter === d
-                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                    : 'text-gray-500 border-[#2a2a2a] hover:text-gray-300'
-                }`}
-              >
-                {d === 'today' ? 'Today' : d === 'week' ? 'This Week' : 'All Open'}
-              </button>
-            ))}
+      {/* Stats row */}
+      {!loading && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-[#111111] border border-[#1e1e1e] rounded-xl p-3 text-center">
+            <div className="text-2xl font-bold font-mono text-white">{ranked.length}</div>
+            <div className="text-[10px] text-gray-600 uppercase tracking-wider mt-0.5">Markets scanned</div>
           </div>
-
-          {/* Volume slider */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">Min Vol:</span>
-            <input
-              type="range"
-              min={0}
-              max={500}
-              step={50}
-              value={minVolume}
-              onChange={(e) => setMinVolume(Number(e.target.value))}
-              className="w-24 accent-emerald-500"
-            />
-            <span className="text-xs text-gray-400 w-8">{minVolume}</span>
+          <div className={`border rounded-xl p-3 text-center ${arbCount > 0 ? 'bg-amber-500/5 border-amber-500/20' : 'bg-[#111111] border-[#1e1e1e]'}`}>
+            <div className={`text-2xl font-bold font-mono ${arbCount > 0 ? 'text-amber-400' : 'text-white'}`}>{arbCount}</div>
+            <div className="text-[10px] text-gray-600 uppercase tracking-wider mt-0.5">Price conflicts</div>
           </div>
-
-          {/* Min edge slider */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">Min Edge:</span>
-            <input
-              type="range"
-              min={0}
-              max={20}
-              step={1}
-              value={minEdge}
-              onChange={(e) => setMinEdge(Number(e.target.value))}
-              className="w-24 accent-emerald-500"
-            />
-            <span className="text-xs text-gray-400 w-8">{minEdge}%</span>
+          <div className="bg-[#111111] border border-[#1e1e1e] rounded-xl p-3 text-center">
+            <div className="text-2xl font-bold font-mono text-white">{topOpps.length}</div>
+            <div className="text-[10px] text-gray-600 uppercase tracking-wider mt-0.5">Opportunities</div>
           </div>
         </div>
+      )}
 
-        {/* Category pills */}
-        {allCategories.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Date filter */}
+        <div className="flex rounded-full overflow-hidden border border-[#2a2a2a] bg-[#0d0d0d]">
+          {(['today', 'week', 'all'] as DateFilter[]).map((f) => (
             <button
-              onClick={() =>
-                setSelectedCategories(
-                  selectedCategories.length === allCategories.length ? [] : allCategories
-                )
-              }
-              className="px-2.5 py-0.5 rounded-full text-xs border border-[#2a2a2a] text-gray-500 hover:text-gray-300 transition-all"
+              key={f}
+              onClick={() => setDateFilter(f)}
+              className={`px-4 py-1.5 text-xs font-semibold transition-all ${
+                dateFilter === f
+                  ? 'bg-emerald-500/20 text-emerald-400'
+                  : 'text-gray-500 hover:text-gray-300'
+              }`}
             >
-              {selectedCategories.length === allCategories.length ? 'None' : 'All'}
+              {f === 'today' ? 'Today' : f === 'week' ? 'This Week' : 'All Open'}
             </button>
-            {allCategories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => toggleCategory(cat)}
-                className={`px-2.5 py-0.5 rounded-full text-xs border transition-all ${
-                  selectedCategories.includes(cat)
-                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                    : 'text-gray-600 border-[#2a2a2a] hover:text-gray-400'
-                }`}
-              >
-                {cat || 'Uncategorized'}
-              </button>
-            ))}
-          </div>
-        )}
+          ))}
+        </div>
+
+        {/* Category filter */}
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          className="px-3 py-1.5 text-xs font-semibold bg-[#0d0d0d] border border-[#2a2a2a] rounded-full text-gray-300 focus:outline-none focus:border-emerald-500/40"
+        >
+          {categories.map((c) => (
+            <option key={c} value={c}>{c === 'all' ? 'All Categories' : c}</option>
+          ))}
+        </select>
       </div>
 
-      {/* ── Structural Arbs Panel ── */}
-      {!loading && structuralArbCount > 0 && (
-        <div className="bg-[#0f0f0f] border border-amber-500/20 rounded-2xl p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xs uppercase tracking-wider text-gray-500 font-semibold">
-              Structural Arbs
-            </span>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold border bg-amber-500/20 text-amber-400 border-amber-500/30">
-              {structuralArbCount}
-            </span>
-          </div>
+      {/* Error */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm">
+          {error}
+        </div>
+      )}
 
-          {/* Module A */}
-          {overroundArbs.map((arb) => (
-            <div key={arb.event_ticker} className="border border-[#2a2a2a] rounded-xl p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                  MOD A
-                </span>
-                <span className="text-sm font-semibold text-white">{arb.event_ticker}</span>
-                <span className="text-xs text-amber-400">
-                  Overround: +{arb.overround.toFixed(1)}¢ ({arb.legs.length} legs, sum={arb.askSum.toFixed(1)})
-                </span>
-                {arb.tradeable && (
-                  <span className="text-xs text-emerald-400">Tradeable</span>
-                )}
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                {arb.legs.map((leg) => (
-                  <div key={leg.ticker} className="bg-[#1a1a1a] rounded-lg px-2.5 py-1.5 text-xs">
-                    <span className="text-gray-400">{leg.title.slice(0, 35)}</span>
-                    <span className="ml-2 text-amber-400 font-mono">ask={leg.yes_ask}¢</span>
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-gray-600 italic">
-                ⚠ Verify settlement source before trading. Order book depth available on expansion.
-              </p>
-            </div>
-          ))}
-
-          {/* Module B */}
-          {implicationBreaks.map((brk, i) => (
-            <div key={i} className="border border-[#2a2a2a] rounded-xl p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                  MOD B
-                </span>
-                <span className="text-sm font-semibold text-white">{brk.seriesTicker}</span>
-                <span className="text-xs text-amber-400">
-                  Break: +{brk.spread.toFixed(1)}¢
-                </span>
-              </div>
-              <div className="flex gap-4 text-xs">
-                <div className="bg-[#1a1a1a] rounded-lg px-2.5 py-1.5">
-                  <span className="text-gray-400">Lower (≥{brk.lowerThreshold}): </span>
-                  <span className="text-white font-mono">{brk.lowerAsk}¢</span>
-                  <div className="text-gray-600 truncate max-w-[180px]">{brk.lowerMarket.title}</div>
-                </div>
-                <div className="text-gray-500 self-center">{'<'} ask</div>
-                <div className="bg-[#1a1a1a] rounded-lg px-2.5 py-1.5">
-                  <span className="text-gray-400">Higher (≥{brk.higherThreshold}): </span>
-                  <span className="text-amber-400 font-mono">{brk.higherAsk}¢</span>
-                  <div className="text-gray-600 truncate max-w-[180px]">{brk.higherMarket.title}</div>
-                </div>
-              </div>
-            </div>
+      {/* Loading skeleton */}
+      {loading && (
+        <div className="space-y-3">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-4 animate-pulse h-36" />
           ))}
         </div>
       )}
 
-      {/* ── Main table ── */}
-      <div className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <span className="text-xs uppercase tracking-wider text-gray-500 font-semibold">
-            Markets
-          </span>
-          {!loading && (
-            <span className="text-xs text-gray-600">
-              {tableRows.length} shown / {markets.length} total
-            </span>
-          )}
+      {!loading && ranked.length === 0 && !error && (
+        <div className="text-center py-16 text-gray-600">
+          <div className="text-4xl mb-3">◎</div>
+          <div className="text-sm">No markets found for this filter.</div>
+          <div className="text-xs mt-1">Try switching to "This Week" or "All Open".</div>
         </div>
+      )}
 
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400">
-            {error}
+      {/* Price conflict arbs — pinned at top */}
+      {!loading && topArbs.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <h2 className="text-xs uppercase tracking-wider font-semibold text-amber-400">
+              ⚡ Price Conflicts
+            </h2>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+              {topArbs.length}
+            </span>
+            <span className="text-[10px] text-gray-600">Markets where prices don't add up — closest to risk-free</span>
           </div>
-        )}
-
-        {loading ? (
-          <SkeletonRows />
-        ) : tableRows.length === 0 ? (
-          <p className="text-gray-500 text-sm py-4">
-            {markets.length === 0
-              ? 'Kalshi data unavailable — check connection'
-              : 'No markets match current filters'}
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-[#1e1e1e]">
-                  {[
-                    'Market',
-                    'Category',
-                    'Resolves',
-                    'Implied %',
-                    'Your %',
-                    'Edge %',
-                    <span key="ev" title="Net EV in cents per contract, after taker fees">
-                      Net EV <span className="text-gray-600">(net fees)</span>
-                    </span>,
-                    'Spread',
-                    'Vol 24h',
-                    'Type',
-                  ].map((col, i) => (
-                    <th
-                      key={i}
-                      className="text-left text-gray-500 font-semibold uppercase tracking-wider pb-2 pr-3"
-                    >
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {tableRows.map(({ market: m, impliedProb, edgePct, ev, sp, type }) => {
-                  const expanded = expandedTicker === m.ticker;
-                  const spreadLbl = spreadLabel(sp);
-                  const spreadColor =
-                    spreadLbl === 'Liquid'
-                      ? 'text-emerald-400'
-                      : spreadLbl === 'Normal'
-                      ? 'text-gray-400'
-                      : 'text-amber-400';
-
-                  const typeBadge =
-                    type === 'A' || type === 'B'
-                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                      : type === 'C'
-                      ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-                      : 'bg-gray-500/20 text-gray-400 border-gray-500/30';
-
-                  const edgeColor =
-                    edgePct == null
-                      ? 'text-gray-500'
-                      : edgePct > 0
-                      ? 'text-emerald-400'
-                      : 'text-red-400';
-
-                  return (
-                    <>
-                      <tr
-                        key={m.ticker}
-                        onClick={() => setExpandedTicker(expanded ? null : m.ticker)}
-                        className="border-b border-[#1a1a1a] hover:bg-white/[0.02] cursor-pointer transition-colors"
-                      >
-                        <td className="py-2.5 pr-3 max-w-[200px]">
-                          <div className="text-white font-medium truncate">{m.title}</div>
-                          <div className="text-gray-600 font-mono">{m.ticker}</div>
-                        </td>
-                        <td className="py-2.5 pr-3 text-gray-400">{m.category || '—'}</td>
-                        <td className="py-2.5 pr-3 text-gray-400 whitespace-nowrap">
-                          {formatCloseTime(m.close_time)}
-                        </td>
-                        <td className="py-2.5 pr-3 font-mono text-white">
-                          {impliedProb != null ? (impliedProb * 100).toFixed(1) + '%' : '—'}
-                        </td>
-                        <td className="py-2.5 pr-3">
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={1}
-                            value={userProbs[m.ticker] ?? ''}
-                            placeholder="—"
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => {
-                              const v = parseFloat(e.target.value);
-                              setUserProbs((prev) => ({
-                                ...prev,
-                                [m.ticker]: isNaN(v) ? 0 : Math.min(100, Math.max(0, v)),
-                              }));
-                            }}
-                            className="w-16 bg-[#1a1a1a] border border-[#2a2a2a] rounded px-1.5 py-0.5 text-white font-mono text-xs text-center focus:outline-none focus:border-emerald-500/50"
-                          />
-                        </td>
-                        <td className={`py-2.5 pr-3 font-mono font-bold ${edgeColor}`}>
-                          {edgePct != null
-                            ? (edgePct > 0 ? '+' : '') + edgePct.toFixed(1) + '%'
-                            : '—'}
-                        </td>
-                        <td className="py-2.5 pr-3 font-mono">
-                          {ev != null ? (
-                            <span className={ev >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                              {ev >= 0 ? '+' : ''}{ev.toFixed(1)}¢
-                            </span>
-                          ) : (
-                            <span className="text-gray-600">—</span>
-                          )}
-                        </td>
-                        <td className={`py-2.5 pr-3 font-mono ${spreadColor}`}>
-                          {sp != null ? `${sp}¢ ` : ''}
-                          <span className="text-gray-600">{spreadLbl}</span>
-                        </td>
-                        <td className="py-2.5 pr-3 font-mono text-gray-400">
-                          {m.volume_24h.toLocaleString()}
-                        </td>
-                        <td className="py-2.5">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${typeBadge}`}
-                          >
-                            {type}
-                          </span>
-                        </td>
-                      </tr>
-
-                      {expanded && (
-                        <tr key={`${m.ticker}-expand`}>
-                          <td colSpan={10} className="pb-3 px-2">
-                            <div className="bg-[#0f0f0f] border border-[#2a2a2a] rounded-xl p-4 text-xs space-y-2">
-                              {(type === 'A' || type === 'B') && (
-                                <>
-                                  {overroundArbs
-                                    .filter((a) => a.legs.some((l) => l.ticker === m.ticker))
-                                    .map((arb) => (
-                                      <div key={arb.event_ticker} className="space-y-1">
-                                        <p className="text-amber-400 font-semibold">
-                                          Overround Arb — {arb.event_ticker}
-                                        </p>
-                                        <p className="text-gray-400">
-                                          Sum of yes_asks across {arb.legs.length} legs ={' '}
-                                          <span className="text-white font-mono">{arb.askSum.toFixed(1)}¢</span>
-                                          {' '}&gt; 100 → overround{' '}
-                                          <span className="text-amber-400 font-mono">
-                                            +{arb.overround.toFixed(1)}¢
-                                          </span>
-                                        </p>
-                                        <div className="flex flex-wrap gap-1">
-                                          {arb.legs.map((leg) => (
-                                            <span key={leg.ticker} className="bg-[#1a1a1a] rounded px-2 py-0.5 text-gray-300">
-                                              {leg.ticker}: ask={leg.yes_ask}¢
-                                            </span>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  {implicationBreaks
-                                    .filter(
-                                      (b) =>
-                                        b.lowerMarket.ticker === m.ticker ||
-                                        b.higherMarket.ticker === m.ticker
-                                    )
-                                    .map((brk, i) => (
-                                      <div key={i} className="space-y-1">
-                                        <p className="text-blue-400 font-semibold">
-                                          Implication Break — {brk.seriesTicker}
-                                        </p>
-                                        <p className="text-gray-400">
-                                          Higher threshold (≥{brk.higherThreshold}) ask{' '}
-                                          <span className="text-amber-400 font-mono">{brk.higherAsk}¢</span>
-                                          {' '}&gt; lower threshold (≥{brk.lowerThreshold}) ask{' '}
-                                          <span className="text-white font-mono">{brk.lowerAsk}¢</span>
-                                          {' '}— violates monotonicity by{' '}
-                                          <span className="text-amber-400 font-mono">+{brk.spread.toFixed(1)}¢</span>
-                                        </p>
-                                      </div>
-                                    ))}
-                                </>
-                              )}
-
-                              {type === 'C' && (
-                                <div className="space-y-1">
-                                  <p className="text-blue-400 font-semibold">Module C — Opinion Edge</p>
-                                  {userProbs[m.ticker] != null && impliedProb != null ? (
-                                    <p className="text-gray-400">
-                                      Your estimate:{' '}
-                                      <span className="text-white font-mono">{userProbs[m.ticker]}%</span>
-                                      {' '}vs market implied:{' '}
-                                      <span className="text-white font-mono">
-                                        {(impliedProb * 100).toFixed(1)}%
-                                      </span>
-                                      {' '}={' '}
-                                      <span className={edgePct! > 0 ? 'text-emerald-400' : 'text-red-400'}>
-                                        {edgePct! > 0 ? '+' : ''}{edgePct!.toFixed(1)}% edge
-                                      </span>
-                                      . Net EV:{' '}
-                                      <span className={ev! >= 0 ? 'text-emerald-400 font-mono' : 'text-red-400 font-mono'}>
-                                        {ev! >= 0 ? '+' : ''}{ev!.toFixed(2)}¢
-                                      </span>{' '}
-                                      per contract.
-                                    </p>
-                                  ) : (
-                                    <p className="text-gray-500">
-                                      Enter your probability estimate in &quot;Your %&quot; to compute edge and EV.
-                                    </p>
-                                  )}
-                                  {impliedProb != null && (
-                                    <p className="text-gray-600">
-                                      Mid price: {midPrice(m)?.toFixed(1)}¢ | Fee on win:{' '}
-                                      {kalshiFee(midPrice(m) ?? 50).toFixed(2)}¢ | Profit after fee:{' '}
-                                      {(100 - (midPrice(m) ?? 50) - kalshiFee(midPrice(m) ?? 50)).toFixed(2)}¢
-                                    </p>
-                                  )}
-                                </div>
-                              )}
-
-                              {type === 'D' && (
-                                <div className="space-y-1">
-                                  <p className="text-gray-400 font-semibold">Module D — Stale / Thin</p>
-                                  <p className="text-gray-500">
-                                    Low activity — verify if a related market has moved.{' '}
-                                    {staleMarkets.find((s) => s.market.ticker === m.ticker)?.reason}
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {topArbs.map((m, i) => (
+              <OpportunityCard key={m.ticker} market={m} arb={arbMap.get(m.ticker)} rank={i + 1} />
+            ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Top opportunities */}
+      {!loading && topOpps.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <h2 className="text-xs uppercase tracking-wider font-semibold text-white">
+              Top Opportunities
+            </h2>
+            <span className="text-[10px] text-gray-600">Best liquidity + volume + resolving soonest · tap a card to see payout calculator</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {topOpps.map((m, i) => (
+              <OpportunityCard key={m.ticker} market={m} arb={arbMap.get(m.ticker)} rank={topArbs.length + i + 1} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="text-[10px] text-gray-700 text-center pt-2">
+        All payouts shown net of fees · Not financial advice · Always verify settlement criteria before trading
+      </p>
     </div>
   );
 }
