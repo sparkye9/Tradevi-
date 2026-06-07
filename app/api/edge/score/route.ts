@@ -7,10 +7,11 @@ export const runtime = 'nodejs';
 interface KalshiMarket {
   ticker: string;
   title: string;
-  yes_bid: number;   // cents
-  yes_ask: number;
-  no_bid: number;
-  no_ask: number;
+  yes_bid: number | null;
+  yes_ask: number | null;
+  no_bid: number | null;
+  no_ask: number | null;
+  last_price: number | null;
   volume: number;
   open_interest: number;
   close_time: string;
@@ -303,6 +304,7 @@ async function fetchKalshiMarkets(): Promise<KalshiMarket[]> {
         yes_ask: m.yes_ask != null ? Number(m.yes_ask) : null,
         no_bid: m.no_bid != null ? Number(m.no_bid) : null,
         no_ask: m.no_ask != null ? Number(m.no_ask) : null,
+        last_price: m.last_price != null ? Number(m.last_price) : null,
         volume: Number(m.volume ?? 0),
         open_interest: Number(m.open_interest ?? 0),
         close_time: String(m.close_time ?? ''),
@@ -382,9 +384,11 @@ export async function GET() {
     const noAsk = km.no_ask ?? 0;
     const midYes = yesBid > 0 && yesAsk > 0 ? (yesBid + yesAsk) / 2 : 0;
     const midNo = noBid > 0 && noAsk > 0 ? (noBid + noAsk) / 2 : 0;
-    // Skip markets with no tradeable price at all
-    if (midYes <= 0 && midNo <= 0) continue;
-    const pricePct = midYes > 0 ? midYes : 100 - midNo;
+    // Fall back to last_price when no active bid/ask (most Kalshi markets)
+    const lastPrice = km.last_price ?? 0;
+    const hasPrice = midYes > 0 || midNo > 0 || lastPrice > 0;
+    if (!hasPrice) continue;
+    const pricePct = midYes > 0 ? midYes : midNo > 0 ? 100 - midNo : lastPrice;
     const days = daysUntil(km.close_time);
     const category = categoryFromTitle(km.title);
 
@@ -397,8 +401,10 @@ export async function GET() {
     // Module 3
     const ig = scoreInfoGap(km.title, km.volume);
 
-    // Module 4
-    const { score: glitchScore, detail: glitchDetail } = scoreGlitch(yesBid, yesAsk, noBid, noAsk);
+    // Module 4 — only meaningful when we have live bid/ask
+    const { score: glitchScore, detail: glitchDetail } = (yesBid > 0 || yesAsk > 0)
+      ? scoreGlitch(yesBid, yesAsk, noBid, noAsk)
+      : { score: 0, detail: '' };
 
     // Module 5
     const or = scoreOverreaction(pricePct, km.volume, days);
