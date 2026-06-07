@@ -1,606 +1,472 @@
 'use client';
+
 import { useEffect, useState, useCallback } from 'react';
 
-// ─── Fee config ───────────────────────────────────────────────────────────────
-const FEE_PCT = 0.07;
-const FEE_CAP_CENTS = 7;
-
-function kalshiFee(priceCents: number): number {
-  return Math.min(FEE_PCT * (100 - priceCents), FEE_CAP_CENTS);
-}
-function netProfit(priceCents: number): number {
-  return 100 - priceCents - kalshiFee(priceCents);
-}
-// "If I bet $1, I get back $X total" — the number the user cares about
-function dollarMultiplier(priceCents: number): number {
-  return (priceCents + netProfit(priceCents)) / priceCents;
+interface ScoreBreakdown {
+  priceConflict: number;
+  forgottenMarket: number;
+  infoGap: number;
+  glitch: number;
+  overreaction: number;
+  eventArbitrage: number;
+  crowdEmotion: number;
+  total: number;
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface KalshiMarket {
-  ticker: string;
-  event_ticker: string;
-  series_ticker: string;
+interface Opportunity {
+  id: string;
+  source: 'kalshi' | 'polymarket' | 'cross';
   title: string;
-  yes_bid: number | null;
-  yes_ask: number | null;
-  no_bid: number | null;
-  no_ask: number | null;
-  last_price: number | null;
-  volume: number;
-  volume_24h: number;
-  open_interest: number;
-  close_time: string;
   category: string;
-  status: string;
+  currentPricePct: number;
+  fairValuePct: number;
+  edgePct: number;
+  direction: 'YES' | 'NO';
+  tier: 1 | 2 | 3;
+  riskLevel: 'Low' | 'Medium' | 'High';
+  catalyst: string;
+  reasonCrowdIsWrong: string;
+  suggestedEntry: string;
+  suggestedExit: string;
+  volume: number;
+  closesAt: string;
+  scores: ScoreBreakdown;
+  heroType?: 'mispriced' | 'forgotten' | 'breaking' | 'wrong_crowd';
 }
 
-// ─── Scoring helpers ──────────────────────────────────────────────────────────
+const HERO_CONFIG = {
+  mispriced: {
+    icon: '🎯',
+    label: 'Mispriced Probability',
+    desc: 'Biggest gap between market odds and estimated fair value',
+    accent: 'emerald' as const,
+  },
+  forgotten: {
+    icon: '👀',
+    label: "Nobody's Watching",
+    desc: 'Lowest attention + highest upcoming catalyst',
+    accent: 'blue' as const,
+  },
+  breaking: {
+    icon: '⚡',
+    label: 'Breaking Before News',
+    desc: 'Unusual price divergence before mainstream coverage',
+    accent: 'yellow' as const,
+  },
+  wrong_crowd: {
+    icon: '🔥',
+    label: 'Crowd Is Wrong',
+    desc: 'Emotional overreaction — smart money disagrees',
+    accent: 'red' as const,
+  },
+};
 
-function noCostCents(m: KalshiMarket): number | null {
-  if (m.yes_bid == null) return null;
-  return 100 - m.yes_bid;
+const ACCENT = {
+  emerald: {
+    border: 'border-emerald-500/40',
+    iconBg: 'bg-emerald-500/15',
+    text: 'text-emerald-400',
+    badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  },
+  blue: {
+    border: 'border-blue-500/40',
+    iconBg: 'bg-blue-500/15',
+    text: 'text-blue-400',
+    badge: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  },
+  yellow: {
+    border: 'border-yellow-500/40',
+    iconBg: 'bg-yellow-500/15',
+    text: 'text-yellow-400',
+    badge: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
+  },
+  red: {
+    border: 'border-red-500/40',
+    iconBg: 'bg-red-500/15',
+    text: 'text-red-400',
+    badge: 'bg-red-500/20 text-red-300 border-red-500/30',
+  },
+};
+
+function formatVolume(v: number): string {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}K`;
+  return `$${v}`;
 }
 
-// Find the cheapest side and its price
-function cheapestSide(m: KalshiMarket): { side: 'YES' | 'NO'; price: number } | null {
-  const yesCost = m.yes_ask;
-  const noCost = noCostCents(m);
-  if (yesCost == null && noCost == null) return null;
-  if (yesCost == null) return noCost != null ? { side: 'NO', price: noCost } : null;
-  if (noCost == null) return { side: 'YES', price: yesCost };
-  return yesCost <= noCost ? { side: 'YES', price: yesCost } : { side: 'NO', price: noCost };
-}
-
-function spreadCents(m: KalshiMarket): number | null {
-  if (m.yes_bid == null || m.yes_ask == null) return null;
-  return m.yes_ask - m.yes_bid;
-}
-
-function hoursUntilClose(m: KalshiMarket): number {
-  return (new Date(m.close_time).getTime() - Date.now()) / 3_600_000;
-}
-
-function fmtClose(iso: string): string {
-  const h = (new Date(iso).getTime() - Date.now()) / 3_600_000;
-  if (h < 0) return 'Resolving now';
-  if (h < 1) return `${Math.floor(h * 60)}m left`;
-  if (h < 24) return `${Math.floor(h)}h left`;
-  const d = Math.floor(h / 24);
-  return `${d}d left`;
-}
-
-// ─── The Hunt: overlooked cheap markets ──────────────────────────────────────
-// These are the $1 → $X plays.
-// Signals: cheap price (high multiplier) + low volume (overlooked) + resolving soon (event near)
-
-interface HuntOpportunity {
-  market: KalshiMarket;
-  side: 'YES' | 'NO';
-  priceCents: number;
-  multiplier: number;     // $1 bet → $X back if correct
-  isOverlooked: boolean;  // low volume signal
-  hoursLeft: number;
-  huntScore: number;
-}
-
-function buildHuntOpps(markets: KalshiMarket[]): HuntOpportunity[] {
-  const opps: HuntOpportunity[] = [];
-
-  for (const m of markets) {
-    const cheap = cheapestSide(m);
-    if (!cheap) continue;
-    if (cheap.price > 30) continue; // only show ≤30¢ (≥3.3x multiplier)
-    if (cheap.price < 1) continue;
-
-    const hours = hoursUntilClose(m);
-    if (hours < 0) continue; // already closed
-
-    const mult = dollarMultiplier(cheap.price);
-    const isOverlooked = m.volume_24h < 100;
-
-    // Hunt score — higher is better opportunity
-    // Cheap price (multiplier) is king, then overlooked signal, then near resolution
-    let score = mult * 10;                          // core: multiplier
-    if (isOverlooked) score += 20;                  // not being watched
-    if (hours < 24) score += 15;                    // event is TODAY
-    else if (hours < 72) score += 8;                // event is this week
-    if (m.volume_24h === 0) score += 10;            // completely forgotten
-    const sp = spreadCents(m);
-    if (sp !== null && sp <= 6) score += 5;         // tradeable liquidity
-
-    opps.push({ market: m, side: cheap.side, priceCents: cheap.price, multiplier: mult, isOverlooked, hoursLeft: hours, huntScore: score });
+function daysUntil(dateStr: string): string {
+  try {
+    const ms = new Date(dateStr).getTime() - Date.now();
+    const d = Math.floor(ms / 86400000);
+    if (d < 0) return 'Expired';
+    if (d === 0) return 'Today';
+    if (d === 1) return '1 day';
+    return `${d} days`;
+  } catch {
+    return '?';
   }
-
-  return opps.sort((a, b) => b.huntScore - a.huntScore);
 }
 
-// ─── Structural arbs (price conflicts) ───────────────────────────────────────
-
-interface StructuralArb {
-  type: 'OVERROUND' | 'IMPLICATION';
-  markets: KalshiMarket[];
-  description: string;
-  edgeCents: number;
-}
-
-function detectArbs(markets: KalshiMarket[]): Map<string, StructuralArb> {
-  const arbMap = new Map<string, StructuralArb>();
-
-  // Overround: mutually exclusive markets in same event sum >100¢
-  const byEvent = new Map<string, KalshiMarket[]>();
-  for (const m of markets) {
-    if (!byEvent.has(m.event_ticker)) byEvent.set(m.event_ticker, []);
-    byEvent.get(m.event_ticker)!.push(m);
-  }
-  for (const [, group] of Array.from(byEvent.entries())) {
-    if (group.length < 2) continue;
-    const withAsks = group.filter((m: KalshiMarket) => m.yes_ask != null);
-    if (withAsks.length < 2) continue;
-    const askSum = withAsks.reduce((s: number, m: KalshiMarket) => s + m.yes_ask!, 0);
-    if (askSum > 103) {
-      const edge = askSum - 100;
-      for (const m of withAsks) {
-        arbMap.set(m.ticker, {
-          type: 'OVERROUND',
-          markets: withAsks,
-          description: `All outcomes sum to ${askSum}¢ — should be 100¢. ${edge}¢ mispriced.`,
-          edgeCents: edge,
-        });
-      }
-    }
-  }
-
-  // Implication: higher threshold priced more than lower threshold
-  const bySeries = new Map<string, KalshiMarket[]>();
-  for (const m of markets) {
-    if (!m.series_ticker) continue;
-    if (!bySeries.has(m.series_ticker)) bySeries.set(m.series_ticker, []);
-    bySeries.get(m.series_ticker)!.push(m);
-  }
-  for (const [, group] of Array.from(bySeries.entries())) {
-    if (group.length < 2) continue;
-    const parsed = group.map((m: KalshiMarket) => {
-      const match = m.title.match(/(?:above|at least|>|≥|over)\s*([\d.]+)/i);
-      return match ? { m, threshold: parseFloat(match[1]) } : null;
-    }).filter(Boolean) as { m: KalshiMarket; threshold: number }[];
-    if (parsed.length < 2) continue;
-    parsed.sort((a, b) => a.threshold - b.threshold);
-    for (let i = 0; i < parsed.length - 1; i++) {
-      const lo = parsed[i], hi = parsed[i + 1];
-      if (!lo.m.yes_ask || !hi.m.yes_ask) continue;
-      if (hi.m.yes_ask > lo.m.yes_ask + 2) {
-        const edge = hi.m.yes_ask - lo.m.yes_ask;
-        const desc = `"${hi.m.title}" priced higher than "${lo.m.title}" — impossible. ${edge}¢ gap.`;
-        arbMap.set(lo.m.ticker, { type: 'IMPLICATION', markets: [lo.m, hi.m], description: desc, edgeCents: edge });
-        arbMap.set(hi.m.ticker, { type: 'IMPLICATION', markets: [lo.m, hi.m], description: desc, edgeCents: edge });
-      }
-    }
-  }
-
-  return arbMap;
-}
-
-// ─── Profit Calculator ────────────────────────────────────────────────────────
-
-function ProfitCalc({ priceCents, side }: { priceCents: number; side: 'YES' | 'NO' }) {
-  const [dollars, setDollars] = useState('5');
-  const d = parseFloat(dollars) || 0;
-  const contracts = Math.floor((d * 100) / priceCents);
-  const cost = (contracts * priceCents) / 100;
-  const profit = (contracts * netProfit(priceCents)) / 100;
-  const total = cost + profit;
-
+function ScoreBar({ value, max, color }: { value: number; max: number; color: string }) {
+  const pct = Math.min(100, (value / max) * 100);
   return (
-    <div className="mt-3 pt-3 border-t border-[#1e1e1e] space-y-2" onClick={(e) => e.stopPropagation()}>
-      <div className="text-xs text-gray-500 uppercase tracking-wider font-semibold">If I put in...</div>
-      <div className="flex gap-2 flex-wrap">
-        {[1, 5, 10, 25, 50].map((amt) => {
-          const c = Math.floor((amt * 100) / priceCents);
-          const p = (c * netProfit(priceCents)) / 100;
-          return (
-            <button
-              key={amt}
-              onClick={() => setDollars(String(amt))}
-              className={`flex-1 min-w-[60px] text-center rounded-xl p-2 border transition-all ${
-                parseFloat(dollars) === amt
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                  : 'bg-[#0d0d0d] border-[#2a2a2a] text-gray-400 hover:border-[#3a3a3a]'
-              }`}
-            >
-              <div className="text-xs font-bold font-mono">${amt}</div>
-              <div className="text-[10px] text-gray-500 font-mono">+${p.toFixed(0)}</div>
-            </button>
-          );
-        })}
-        <div className="flex items-center bg-[#0d0d0d] border border-[#2a2a2a] rounded-xl px-3 py-2 min-w-[80px]">
-          <span className="text-gray-500 text-xs">$</span>
-          <input
-            type="number"
-            min="1"
-            value={dollars}
-            onChange={(e) => setDollars(e.target.value)}
-            className="w-16 bg-transparent text-white text-xs font-mono focus:outline-none ml-1"
-          />
-        </div>
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
       </div>
-      {contracts > 0 && (
-        <div className="bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl p-3 grid grid-cols-3 gap-3 text-center">
-          <div>
-            <div className="text-[10px] text-gray-600 uppercase">You spend</div>
-            <div className="text-white font-mono font-bold">${cost.toFixed(2)}</div>
-          </div>
-          <div>
-            <div className="text-[10px] text-gray-600 uppercase">Win profit</div>
-            <div className="text-emerald-400 font-mono font-bold">+${profit.toFixed(2)}</div>
-          </div>
-          <div>
-            <div className="text-[10px] text-gray-600 uppercase">Total back</div>
-            <div className="text-white font-mono font-bold">${total.toFixed(2)}</div>
-          </div>
-        </div>
-      )}
-      <p className="text-gray-700 text-[10px]">{contracts} contracts · net of fees · lose ${cost.toFixed(2)} if wrong</p>
+      <span className="text-[10px] text-gray-500 w-4 text-right">{value}</span>
     </div>
   );
 }
 
-// ─── Hunt Card ────────────────────────────────────────────────────────────────
-
-function HuntCard({ opp, rank }: { opp: HuntOpportunity; rank: number }) {
-  const [expanded, setExpanded] = useState(false);
-  const { market: m, side, priceCents, multiplier, isOverlooked, hoursLeft } = opp;
-  const sp = spreadCents(m);
-  const isUrgent = hoursLeft < 24;
-  const isForgotten = m.volume_24h === 0;
+function HeroCard({ opp }: { opp: Opportunity }) {
+  const heroType = opp.heroType as keyof typeof HERO_CONFIG;
+  const cfg = HERO_CONFIG[heroType];
+  const ac = ACCENT[cfg.accent];
 
   return (
-    <div
-      onClick={() => setExpanded((p) => !p)}
-      className={`bg-[#111111] border rounded-2xl p-4 flex flex-col gap-3 transition-all cursor-pointer ${
-        isForgotten
-          ? 'border-purple-500/30 hover:border-purple-500/50'
-          : isUrgent
-          ? 'border-emerald-500/30 hover:border-emerald-500/50'
-          : 'border-[#1e1e1e] hover:border-[#2a2a2a]'
-      }`}
-    >
-      {/* Badges */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] font-bold text-gray-700 font-mono">#{rank}</span>
-        {isForgotten && (
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30 tracking-wider">
-            FORGOTTEN
-          </span>
-        )}
-        {!isForgotten && isOverlooked && (
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 tracking-wider">
-            LOW TRAFFIC
-          </span>
-        )}
-        {isUrgent && (
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 tracking-wider">
-            TODAY
-          </span>
-        )}
-        <span className="ml-auto text-[10px] text-gray-500 font-mono">{fmtClose(m.close_time)}</span>
-      </div>
-
-      {/* Title */}
-      <div className="text-white text-sm font-semibold leading-snug">{m.title}</div>
-
-      {/* The big number */}
-      <div className="bg-[#0a0a0a] border border-[#1e1e1e] rounded-xl p-3 flex items-center justify-between">
-        <div>
-          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Buy {side} for</div>
-          <div className="text-white font-mono font-bold text-2xl">{priceCents}¢</div>
-          <div className="text-gray-600 text-[10px] font-mono">${(priceCents / 100).toFixed(2)} per contract</div>
+    <div className={`rounded-xl border ${ac.border} p-4 flex flex-col gap-3`}
+      style={{ background: 'rgba(255,255,255,0.02)' }}>
+      <div className="flex items-start gap-3">
+        <div className={`w-9 h-9 rounded-lg ${ac.iconBg} flex items-center justify-center text-lg flex-shrink-0`}>
+          {cfg.icon}
         </div>
-        <div className="text-right">
-          <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">If right, $1 → </div>
-          <div className="text-emerald-400 font-mono font-bold text-3xl">${multiplier.toFixed(1)}</div>
-          <div className="text-gray-600 text-[10px] font-mono">net of fees</div>
+        <div className="flex-1 min-w-0">
+          <div className={`text-xs font-semibold ${ac.text} mb-0.5`}>{cfg.label}</div>
+          <div className="text-[10px] text-gray-500">{cfg.desc}</div>
+        </div>
+        <div className={`text-xs font-bold px-2 py-0.5 rounded-full border ${ac.badge} whitespace-nowrap`}>
+          {opp.direction} +{opp.edgePct.toFixed(1)}%
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="flex items-center gap-3 text-[10px] text-gray-600 font-mono">
-        <span className="capitalize">{m.category || 'Other'}</span>
-        <span>·</span>
-        <span>
-          {m.volume_24h === 0
-            ? <span className="text-purple-400">0 trades today</span>
-            : `${m.volume_24h.toLocaleString()} vol 24h`}
-        </span>
-        <span>·</span>
-        <span className={
-          sp === null ? 'text-gray-600' :
-          sp <= 4 ? 'text-emerald-400' :
-          sp <= 10 ? 'text-amber-400' : 'text-red-400'
-        }>
-          {sp === null ? '--' : sp <= 4 ? 'Liquid' : sp <= 10 ? 'Normal' : 'Thin'}
-        </span>
-        <span className="ml-auto text-gray-700">{expanded ? '▲' : '▼ calculator'}</span>
+      <div className="text-sm text-gray-200 font-medium leading-tight line-clamp-2">{opp.title}</div>
+
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-white/3 rounded-lg p-2 text-center">
+          <div className="text-[10px] text-gray-600 mb-0.5">Market Says</div>
+          <div className="text-base font-bold text-white">{opp.currentPricePct.toFixed(0)}¢</div>
+        </div>
+        <div className="bg-white/3 rounded-lg p-2 text-center">
+          <div className="text-[10px] text-gray-600 mb-0.5">Fair Value</div>
+          <div className={`text-base font-bold ${ac.text}`}>{opp.fairValuePct.toFixed(0)}¢</div>
+        </div>
+        <div className="bg-white/3 rounded-lg p-2 text-center">
+          <div className="text-[10px] text-gray-600 mb-0.5">Edge Score</div>
+          <div className="text-base font-bold text-white">{opp.scores.total}</div>
+        </div>
       </div>
 
-      {expanded && <ProfitCalc priceCents={priceCents} side={side} />}
+      <div className="text-[11px] text-gray-400 leading-relaxed">{opp.catalyst}</div>
     </div>
   );
 }
 
-// ─── Arb Card ─────────────────────────────────────────────────────────────────
-
-function ArbCard({ market, arb, rank }: { market: KalshiMarket; arb: StructuralArb; rank: number }) {
+function OpportunityCard({ opp, rank }: { opp: Opportunity; rank: number }) {
   const [expanded, setExpanded] = useState(false);
-  const cheap = cheapestSide(market);
-  const entry = cheap?.price ?? null;
+
+  const tierColor = opp.tier === 1
+    ? 'text-emerald-400 border-emerald-500/40'
+    : opp.tier === 2
+    ? 'text-blue-400 border-blue-500/40'
+    : 'text-gray-400 border-gray-600/40';
+
+  const riskColor = opp.riskLevel === 'Low'
+    ? 'text-emerald-400 bg-emerald-500/10'
+    : opp.riskLevel === 'Medium'
+    ? 'text-yellow-400 bg-yellow-500/10'
+    : 'text-red-400 bg-red-500/10';
+
+  const dirColor = opp.direction === 'YES' ? 'text-emerald-400' : 'text-red-400';
 
   return (
     <div
-      onClick={() => setExpanded((p) => !p)}
-      className="bg-[#111111] border border-amber-500/30 hover:border-amber-500/50 rounded-2xl p-4 flex flex-col gap-3 transition-all cursor-pointer"
+      className="rounded-xl border border-white/5 overflow-hidden cursor-pointer hover:border-white/10 transition-all"
+      style={{ background: '#111111' }}
+      onClick={() => setExpanded(!expanded)}
     >
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] font-bold text-gray-700 font-mono">#{rank}</span>
-        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 tracking-wider">
-          ⚡ {arb.type === 'OVERROUND' ? 'PRICE CONFLICT' : 'LOGIC BREAK'}
-        </span>
-        <span className="ml-auto text-amber-400 font-mono font-bold text-sm">{arb.edgeCents.toFixed(0)}¢ edge</span>
-      </div>
-      <div className="text-white text-sm font-semibold leading-snug">{market.title}</div>
-      <p className="text-amber-400/70 text-xs leading-relaxed">{arb.description}</p>
-      <div className="flex items-center gap-3 text-[10px] text-gray-600 font-mono">
-        <span>{fmtClose(market.close_time)}</span>
-        <span>·</span>
-        <span>{market.volume_24h.toLocaleString()} vol 24h</span>
-        <span className="ml-auto text-gray-700">{expanded ? '▲' : '▼ calculator'}</span>
-      </div>
-      {expanded && entry != null && cheap && (
-        <div onClick={(e) => e.stopPropagation()}>
-          <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 mb-3">
-            <p className="text-gray-500 text-xs">
-              Prices on this platform are mathematically inconsistent. The edge exists regardless of outcome — but always verify both markets settle on the same event criteria.
-            </p>
+      <div className="px-4 py-3 flex items-center gap-3">
+        <div className="text-xs text-gray-700 w-5 flex-shrink-0 text-right">{rank}</div>
+
+        <div className="flex-1 min-w-0">
+          <div className="text-sm text-gray-200 font-medium leading-tight truncate">{opp.title}</div>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-[10px] text-gray-600">{opp.category}</span>
+            <span className="text-[10px] text-gray-700">·</span>
+            <span className="text-[10px] text-gray-600">{formatVolume(opp.volume)} vol</span>
+            <span className="text-[10px] text-gray-700">·</span>
+            <span className="text-[10px] text-gray-600">{daysUntil(opp.closesAt)}</span>
           </div>
-          <ProfitCalc priceCents={entry} side={cheap.side} />
+        </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="text-right">
+            <div className="text-xs">
+              <span className="text-gray-300 font-medium">{opp.currentPricePct.toFixed(0)}¢</span>
+              <span className="text-gray-700 mx-1">→</span>
+              <span className={`font-semibold ${dirColor}`}>{opp.fairValuePct.toFixed(0)}¢</span>
+            </div>
+            <div className={`text-[10px] font-bold ${dirColor}`}>
+              {opp.direction} +{opp.edgePct.toFixed(1)}%
+            </div>
+          </div>
+
+          <div className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${tierColor}`}>
+            T{opp.tier}
+          </div>
+
+          <div className="text-gray-600 text-[10px]">{expanded ? '▲' : '▼'}</div>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="px-4 pb-4 border-t border-white/5 pt-3 grid grid-cols-1 gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white/3 rounded-lg p-3">
+              <div className="text-[10px] text-gray-600 mb-1 uppercase tracking-wide">Catalyst</div>
+              <div className="text-xs text-gray-300">{opp.catalyst}</div>
+            </div>
+            <div className="bg-white/3 rounded-lg p-3">
+              <div className="text-[10px] text-gray-600 mb-1 uppercase tracking-wide">Why Crowd Is Wrong</div>
+              <div className="text-xs text-gray-300">{opp.reasonCrowdIsWrong}</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-emerald-500/5 border border-emerald-500/15 rounded-lg p-3">
+              <div className="text-[10px] text-emerald-700 mb-1 uppercase tracking-wide">Suggested Entry</div>
+              <div className="text-xs text-emerald-300">{opp.suggestedEntry}</div>
+            </div>
+            <div className="bg-blue-500/5 border border-blue-500/15 rounded-lg p-3">
+              <div className="text-[10px] text-blue-700 mb-1 uppercase tracking-wide">Suggested Exit</div>
+              <div className="text-xs text-blue-300">{opp.suggestedExit}</div>
+            </div>
+          </div>
+
+          <div className="bg-white/3 rounded-lg p-3">
+            <div className="text-[10px] text-gray-600 mb-2 uppercase tracking-wide">Score Breakdown</div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+              <div>
+                <div className="text-[10px] text-gray-500 mb-0.5">Price Conflict</div>
+                <ScoreBar value={opp.scores.priceConflict} max={25} color="bg-emerald-500" />
+              </div>
+              <div>
+                <div className="text-[10px] text-gray-500 mb-0.5">Forgotten Market</div>
+                <ScoreBar value={opp.scores.forgottenMarket} max={20} color="bg-blue-500" />
+              </div>
+              <div>
+                <div className="text-[10px] text-gray-500 mb-0.5">Info Gap</div>
+                <ScoreBar value={opp.scores.infoGap} max={20} color="bg-purple-500" />
+              </div>
+              <div>
+                <div className="text-[10px] text-gray-500 mb-0.5">Glitch Detection</div>
+                <ScoreBar value={opp.scores.glitch} max={15} color="bg-red-500" />
+              </div>
+              <div>
+                <div className="text-[10px] text-gray-500 mb-0.5">Overreaction</div>
+                <ScoreBar value={opp.scores.overreaction} max={10} color="bg-orange-500" />
+              </div>
+              <div>
+                <div className="text-[10px] text-gray-500 mb-0.5">Cross-Market Arb</div>
+                <ScoreBar value={opp.scores.eventArbitrage} max={5} color="bg-yellow-500" />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className={`text-[10px] px-2 py-0.5 rounded ${riskColor}`}>{opp.riskLevel} Risk</span>
+            <span className="text-[10px] text-gray-600">Kalshi</span>
+            <span className="text-[10px] text-gray-600">Closes {daysUntil(opp.closesAt)}</span>
+          </div>
         </div>
       )}
     </div>
   );
 }
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
-type TabId = 'hunt' | 'arbs';
-type DateFilter = 'today' | 'week' | 'all';
 
 export default function EdgePage() {
-  const [markets, setMarkets] = useState<KalshiMarket[]>([]);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
-  const [tab, setTab] = useState<TabId>('hunt');
-  const [dateFilter, setDateFilter] = useState<DateFilter>('week');
-  const [autoRefresh, setAutoRefresh] = useState(true);
-  const [maxPrice, setMaxPrice] = useState(20); // max cent price to show in hunt
+  const [lastUpdated, setLastUpdated] = useState('');
+  const [tierFilter, setTierFilter] = useState<0 | 1 | 2 | 3>(0);
+  const [catFilter, setCatFilter] = useState('All');
 
   const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const res = await fetch('/api/kalshi/markets');
-      const json = await res.json();
-      setMarkets(json.markets ?? []);
-      setLastUpdated(json.lastUpdated ?? null);
-      setError(null);
-    } catch {
-      setError('Could not reach Kalshi — check connection');
+      const resp = await fetch('/api/edge/score', { cache: 'no-store' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const j = await resp.json();
+      setOpportunities(j.opportunities ?? []);
+      setLastUpdated(new Date().toLocaleTimeString());
+    } catch (e) {
+      setError(String(e));
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    if (!autoRefresh) return;
-    const iv = setInterval(load, 30_000);
-    return () => clearInterval(iv);
-  }, [autoRefresh, load]);
 
-  // Date filter
-  const filtered = markets.filter((m) => {
-    if (m.status !== 'open') return false;
-    const h = hoursUntilClose(m);
-    if (h < 0) return false;
-    if (dateFilter === 'today' && h > 24) return false;
-    if (dateFilter === 'week' && h > 168) return false;
+  const heroes = opportunities.filter((o) => o.heroType);
+  const heroOrder = ['mispriced', 'forgotten', 'breaking', 'wrong_crowd'] as const;
+  const heroCards = heroOrder
+    .map((type) => heroes.find((o) => o.heroType === type))
+    .filter(Boolean) as Opportunity[];
+
+  const categories = ['All', ...Array.from(new Set(opportunities.map((o) => o.category))).sort()];
+
+  const filtered = opportunities.filter((o) => {
+    if (tierFilter !== 0 && o.tier !== tierFilter) return false;
+    if (catFilter !== 'All' && o.category !== catFilter) return false;
     return true;
   });
 
-  // Hunt: cheap markets filtered by maxPrice
-  const allHunt = buildHuntOpps(filtered).filter((o) => o.priceCents <= maxPrice);
-  const topHunt = allHunt.slice(0, 30);
-
-  // Arbs
-  const arbMap = detectArbs(filtered);
-  const arbMarkets = filtered.filter((m) => arbMap.has(m.ticker));
-  // Deduplicate arb groups
-  const seenArbGroups = new Set<string>();
-  const uniqueArbs: KalshiMarket[] = [];
-  for (const m of arbMarkets) {
-    const arb = arbMap.get(m.ticker)!;
-    const key = arb.markets.map((x: KalshiMarket) => x.ticker).sort().join(',');
-    if (!seenArbGroups.has(key)) {
-      seenArbGroups.add(key);
-      uniqueArbs.push(m);
-    }
-  }
-
-  const forgottenCount = topHunt.filter((o) => o.market.volume_24h === 0).length;
+  const tier1 = filtered.filter((o) => o.tier === 1);
+  const tier2 = filtered.filter((o) => o.tier === 2);
+  const tier3 = filtered.filter((o) => o.tier === 3);
 
   return (
-    <div className="space-y-5 max-w-4xl">
+    <div className="flex-1 p-6 overflow-y-auto" style={{ background: '#0a0a0a' }}>
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">Edge Scanner</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Finds markets the crowd is sleeping on — cheap entry, big payout if right.
+          <h1 className="text-xl font-bold text-white mb-1">Edge Scanner</h1>
+          <p className="text-sm text-gray-500">
+            7-module scoring · Kalshi prediction markets · Where the crowd is wrong
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {lastUpdated && (
-            <span className="text-[10px] text-gray-700 font-mono">
-              {new Date(lastUpdated).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-            </span>
-          )}
-          <button onClick={load} disabled={loading}
-            className="px-3 py-1.5 text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] rounded-full text-gray-300 hover:text-white hover:border-emerald-500/30 transition-all disabled:opacity-50">
-            {loading ? 'Scanning...' : '↻ Refresh'}
-          </button>
-          <button onClick={() => setAutoRefresh((v) => !v)}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-all ${autoRefresh ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'text-gray-500 border-[#2a2a2a]'}`}>
-            {autoRefresh ? '● Live' : '○ Live'}
+        <div className="flex items-center gap-3">
+          {lastUpdated && <span className="text-[10px] text-gray-600">Updated {lastUpdated}</span>}
+          <button
+            onClick={load}
+            disabled={loading}
+            className="text-xs px-3 py-1.5 bg-white/5 hover:bg-white/8 border border-white/10 rounded-lg text-gray-400 disabled:opacity-50 transition-all"
+          >
+            {loading ? 'Scanning…' : '↻ Refresh'}
           </button>
         </div>
       </div>
 
-      {/* Stats */}
-      {!loading && (
-        <div className="grid grid-cols-4 gap-3">
-          <div className="bg-[#111111] border border-[#1e1e1e] rounded-xl p-3 text-center">
-            <div className="text-xl font-bold font-mono text-white">{filtered.length}</div>
-            <div className="text-[10px] text-gray-600 uppercase tracking-wider mt-0.5">Markets</div>
-          </div>
-          <div className={`border rounded-xl p-3 text-center ${forgottenCount > 0 ? 'bg-purple-500/5 border-purple-500/20' : 'bg-[#111111] border-[#1e1e1e]'}`}>
-            <div className={`text-xl font-bold font-mono ${forgottenCount > 0 ? 'text-purple-400' : 'text-white'}`}>{forgottenCount}</div>
-            <div className="text-[10px] text-gray-600 uppercase tracking-wider mt-0.5">Forgotten</div>
-          </div>
-          <div className="bg-[#111111] border border-[#1e1e1e] rounded-xl p-3 text-center">
-            <div className="text-xl font-bold font-mono text-white">{topHunt.length}</div>
-            <div className="text-[10px] text-gray-600 uppercase tracking-wider mt-0.5">Under {maxPrice}¢</div>
-          </div>
-          <div className={`border rounded-xl p-3 text-center ${uniqueArbs.length > 0 ? 'bg-amber-500/5 border-amber-500/20' : 'bg-[#111111] border-[#1e1e1e]'}`}>
-            <div className={`text-xl font-bold font-mono ${uniqueArbs.length > 0 ? 'text-amber-400' : 'text-white'}`}>{uniqueArbs.length}</div>
-            <div className="text-[10px] text-gray-600 uppercase tracking-wider mt-0.5">Conflicts</div>
-          </div>
-        </div>
-      )}
-
-      {/* Controls */}
-      <div className="flex flex-wrap items-center gap-3">
-        {/* Tabs */}
-        <div className="flex rounded-xl overflow-hidden border border-[#2a2a2a] bg-[#0d0d0d]">
-          <button onClick={() => setTab('hunt')}
-            className={`px-5 py-2 text-xs font-semibold transition-all ${tab === 'hunt' ? 'bg-emerald-500/20 text-emerald-400' : 'text-gray-500 hover:text-gray-300'}`}>
-            🎯 The Hunt
-          </button>
-          <button onClick={() => setTab('arbs')}
-            className={`px-5 py-2 text-xs font-semibold transition-all relative ${tab === 'arbs' ? 'bg-amber-500/20 text-amber-400' : 'text-gray-500 hover:text-gray-300'}`}>
-            ⚡ Price Conflicts
-            {uniqueArbs.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-black text-[10px] font-bold rounded-full flex items-center justify-center">
-                {uniqueArbs.length}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {/* Date filter */}
-        <div className="flex rounded-full overflow-hidden border border-[#2a2a2a] bg-[#0d0d0d]">
-          {(['today', 'week', 'all'] as DateFilter[]).map((f) => (
-            <button key={f} onClick={() => setDateFilter(f)}
-              className={`px-3 py-1.5 text-xs font-semibold transition-all ${dateFilter === f ? 'bg-emerald-500/20 text-emerald-400' : 'text-gray-500 hover:text-gray-300'}`}>
-              {f === 'today' ? 'Today' : f === 'week' ? 'This Week' : 'All'}
-            </button>
-          ))}
-        </div>
-
-        {/* Max price filter — only on hunt tab */}
-        {tab === 'hunt' && (
-          <div className="flex items-center gap-2 ml-auto">
-            <span className="text-xs text-gray-500">Max price:</span>
-            <div className="flex rounded-full overflow-hidden border border-[#2a2a2a] bg-[#0d0d0d]">
-              {[5, 10, 20, 30].map((p) => (
-                <button key={p} onClick={() => setMaxPrice(p)}
-                  className={`px-3 py-1.5 text-xs font-semibold transition-all ${maxPrice === p ? 'bg-emerald-500/20 text-emerald-400' : 'text-gray-500 hover:text-gray-300'}`}>
-                  {p}¢
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Error */}
       {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm">
+        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400">
           {error}
         </div>
       )}
 
-      {/* Loading */}
-      {loading && (
-        <div className="space-y-3">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-4 animate-pulse h-32" />
+      {loading && opportunities.length === 0 && (
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-44 rounded-xl border border-white/5 animate-pulse" style={{ background: '#111' }} />
           ))}
         </div>
       )}
 
-      {/* Hunt tab */}
-      {!loading && tab === 'hunt' && (
-        <>
-          {topHunt.length === 0 ? (
-            <div className="text-center py-16 text-gray-600">
-              <div className="text-4xl mb-3">◎</div>
-              <div className="text-sm">No markets under {maxPrice}¢ for this timeframe.</div>
-              <div className="text-xs mt-1">Try increasing the max price or switching to "All".</div>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center gap-2 mb-1">
-                <p className="text-xs text-gray-600">
-                  Ranked by: <span className="text-gray-400">multiplier × low traffic × time to close</span> —
-                  tap any card to see the profit calculator
-                </p>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {topHunt.map((opp, i) => (
-                  <HuntCard key={opp.market.ticker} opp={opp} rank={i + 1} />
-                ))}
-              </div>
-            </>
-          )}
-        </>
+      {/* Hero Cards */}
+      {heroCards.length > 0 && (
+        <div className="mb-6">
+          <div className="text-[10px] text-gray-600 uppercase tracking-widest mb-3">Best Opportunities Right Now</div>
+          <div className="grid grid-cols-2 gap-3">
+            {heroCards.map((opp) => <HeroCard key={opp.id} opp={opp} />)}
+          </div>
+        </div>
       )}
 
-      {/* Arbs tab */}
-      {!loading && tab === 'arbs' && (
-        <>
-          {uniqueArbs.length === 0 ? (
-            <div className="text-center py-16 text-gray-600">
-              <div className="text-4xl mb-3">◎</div>
-              <div className="text-sm">No price conflicts detected right now.</div>
-              <div className="text-xs mt-1">These come and go — check back or switch to All Open.</div>
-            </div>
-          ) : (
-            <>
-              <p className="text-xs text-gray-600 mb-1">
-                Prices on the same platform that don't add up — closest to mathematical edges, but always check settlement criteria.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {uniqueArbs.map((m, i) => (
-                  <ArbCard key={m.ticker} market={m} arb={arbMap.get(m.ticker)!} rank={i + 1} />
-                ))}
-              </div>
-            </>
-          )}
-        </>
+      {/* Filters */}
+      {opportunities.length > 0 && (
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          <div className="flex items-center gap-0.5 bg-white/3 rounded-lg p-0.5">
+            {([0, 1, 2, 3] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTierFilter(t)}
+                className={`text-[11px] px-2.5 py-1 rounded-md transition-all ${
+                  tierFilter === t ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {t === 0 ? 'All' : `Tier ${t}`}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-0.5 bg-white/3 rounded-lg p-0.5 flex-wrap">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setCatFilter(cat)}
+                className={`text-[11px] px-2.5 py-1 rounded-md transition-all ${
+                  catFilter === cat ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          <span className="text-[10px] text-gray-600 ml-auto">{filtered.length} markets</span>
+        </div>
       )}
 
-      <p className="text-[10px] text-gray-700 text-center pt-2">
-        All returns net of fees · Not financial advice · Verify settlement criteria before trading
-      </p>
+      {/* Empty state */}
+      {!loading && opportunities.length === 0 && !error && (
+        <div className="text-center py-16">
+          <div className="text-4xl mb-4">🔍</div>
+          <div className="text-gray-400 text-sm mb-1">No opportunities found</div>
+          <div className="text-gray-600 text-xs mb-4">Kalshi may be slow or all markets are fully priced</div>
+          <button onClick={load} className="text-xs px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400">
+            Try Again
+          </button>
+        </div>
+      )}
+
+      {/* Tier 1 */}
+      {tier1.length > 0 && (
+        <div className="mb-5">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Tier 1 — Strong Edge</span>
+            <span className="text-[10px] text-gray-600">Score 45+</span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {tier1.map((opp, i) => <OpportunityCard key={opp.id} opp={opp} rank={i + 1} />)}
+          </div>
+        </div>
+      )}
+
+      {/* Tier 2 */}
+      {tier2.length > 0 && (
+        <div className="mb-5">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Tier 2 — Moderate Edge</span>
+            <span className="text-[10px] text-gray-600">Score 25–44</span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {tier2.map((opp, i) => <OpportunityCard key={opp.id} opp={opp} rank={tier1.length + i + 1} />)}
+          </div>
+        </div>
+      )}
+
+      {/* Tier 3 */}
+      {tier3.length > 0 && (
+        <div className="mb-5">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Tier 3 — Watch List</span>
+            <span className="text-[10px] text-gray-600">Score 10–24</span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {tier3.map((opp, i) => (
+              <OpportunityCard key={opp.id} opp={opp} rank={tier1.length + tier2.length + i + 1} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-8 pt-4 border-t border-white/5">
+        <p className="text-[10px] text-gray-700">
+          7 scoring modules: Price Conflict · Forgotten Market · Information Gap · Glitch Detection · Overreaction · Event Arbitrage · Crowd Emotion. Not financial advice.
+        </p>
+      </div>
     </div>
   );
 }
