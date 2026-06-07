@@ -137,6 +137,36 @@ const MOCK: Opportunity[] = [
     heroType: null,
     moduleScores: { mispricing: 22, liquidity: 30, newsTiming: 20, crowdBias: 25, catalystProximity: 40, spreadQuality: 35, payoffAsymmetry: 45 },
   },
+  {
+    id: '11', market: 'Will CPI (June 2026) come in below 2.8%?', contract: 'Yes',
+    source: 'Kalshi', category: 'Economics', marketSays: 44, fairValue: 62, edgePct: 18,
+    direction: 'YES', tier: 1, edgeScore: 79, daysLeft: 0, volume: 38400,
+    catalyst: 'BLS releases at 8:30 AM ET today. Core PCE yesterday printed 2.6% -- CPI likely follows.',
+    whyCrowdIsWrong: "Market stuck at 44c but every leading indicator (used cars, shelter, food) is lower. Crowd hasn't repriced after yesterday's PCE print.",
+    suggestedEntry: 'Buy YES now -- resolves today', suggestedExit: 'Closes at release 8:30 AM ET',
+    heroType: null,
+    moduleScores: { mispricing: 85, liquidity: 60, newsTiming: 95, crowdBias: 72, catalystProximity: 100, spreadQuality: 58, payoffAsymmetry: 80 },
+  },
+  {
+    id: '12', market: 'Will the Fed Chair speak at the 2pm press conference today?', contract: 'Yes',
+    source: 'Kalshi', category: 'Economics', marketSays: 88, fairValue: 97, edgePct: 9,
+    direction: 'YES', tier: 2, edgeScore: 55, daysLeft: 0, volume: 5100,
+    catalyst: 'FOMC meeting concludes today. Press conference is scheduled -- only cancels for extraordinary events.',
+    whyCrowdIsWrong: 'Residual 12% NO price is pure noise -- no cancellation precedent since COVID. Easy YES.',
+    suggestedEntry: 'Buy YES below 90c', suggestedExit: 'Resolves at 2pm ET today',
+    heroType: null,
+    moduleScores: { mispricing: 70, liquidity: 65, newsTiming: 88, crowdBias: 40, catalystProximity: 100, spreadQuality: 75, payoffAsymmetry: 85 },
+  },
+  {
+    id: '13', market: 'Will Bitcoin close above $105,000 today (June 7)?', contract: 'Yes',
+    source: 'Polymarket', category: 'Crypto', marketSays: 61, fairValue: 45, edgePct: -16,
+    direction: 'NO', tier: 1, edgeScore: 72, daysLeft: 1, volume: 92000,
+    catalyst: 'BTC currently at $103,800. Resistance at $105k has rejected 3 times this week.',
+    whyCrowdIsWrong: 'Crowd pricing in a breakout that technicals argue against. Volume is declining on each push up. Risk/reward favors NO with 4h to close.',
+    suggestedEntry: 'Buy NO above 37c', suggestedExit: 'Resolves at midnight UTC tonight',
+    heroType: null,
+    moduleScores: { mispricing: 65, liquidity: 42, newsTiming: 80, crowdBias: 75, catalystProximity: 100, spreadQuality: 55, payoffAsymmetry: 72 },
+  },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -377,6 +407,74 @@ function OpportunityRow({
   );
 }
 
+// ─── Today's Bets strip ───────────────────────────────────────────────────────
+
+function TodayStrip({ opps, expandedId, onToggle, isMobile }: {
+  opps: Opportunity[];
+  expandedId: string | null;
+  onToggle: (id: string) => void;
+  isMobile: boolean;
+}) {
+  const [localExpanded, setLocalExpanded] = useState<Set<string>>(new Set());
+  if (opps.length === 0) return null;
+
+  const toggle = (id: string) => {
+    if (isMobile) { onToggle(id); return; }
+    setLocalExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+  const isExpanded = (id: string) => isMobile ? expandedId === id : localExpanded.has(id);
+
+  return (
+    <div className="mb-6 rounded-2xl border border-amber-500/30 overflow-hidden" style={{ background: 'rgba(251,191,36,0.04)' }}>
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-amber-500/20">
+        <span className="text-sm">⏰</span>
+        <span className="text-xs font-bold text-amber-400 uppercase tracking-widest">Closing Today</span>
+        <span className="text-[10px] text-amber-600 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-full font-bold">
+          {opps.length} bet{opps.length !== 1 ? 's' : ''}
+        </span>
+        <span className="ml-auto text-[10px] text-amber-700">Act now or miss the window</span>
+      </div>
+      <div className="flex flex-col divide-y divide-amber-500/10">
+        {opps.map(opp => {
+          const up = opp.fairValue > opp.marketSays;
+          const expanded = isExpanded(opp.id);
+          const ref = useRef<HTMLDivElement>(null);
+          const [h, setH] = useState(0);
+          useEffect(() => { if (ref.current) setH(expanded ? ref.current.scrollHeight : 0); }, [expanded]);
+
+          return (
+            <div key={opp.id}>
+              <button
+                className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-amber-500/5 transition-colors"
+                onClick={() => toggle(opp.id)}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-white font-medium truncate">{opp.market}</div>
+                  <div className="text-[10px] text-amber-600 mt-0.5">
+                    {opp.daysLeft === 0 ? 'Resolves today' : 'Closes tomorrow'} · {opp.source}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs font-mono text-gray-400">{fmt(opp.marketSays)}%</span>
+                  <span className={up ? 'text-emerald-400 text-xs' : 'text-red-400 text-xs'}>{up ? '↑' : '↓'}</span>
+                  <span className={`text-xs font-mono font-bold ${up ? 'text-emerald-400' : 'text-red-400'}`}>{fmt(opp.fairValue)}%</span>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                    opp.direction === 'YES' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'
+                  }`}>{opp.direction}</span>
+                  <span className="text-[10px] text-gray-700">{expanded ? '▲' : '▼'}</span>
+                </div>
+              </button>
+              <div ref={ref} style={{ maxHeight: h, overflow: 'hidden', transition: 'max-height 0.25s ease' }}>
+                {expanded && <ExpandedDetail opp={opp} />}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Tier section ─────────────────────────────────────────────────────────────
 
 function TierSection({
@@ -434,12 +532,14 @@ function TierSection({
 const ALL_CATEGORIES = ['Politics', 'Economics', 'Crypto', 'Sports', 'Geopolitics', 'Other'];
 
 function FilterBar({
-  tierFilter, setTierFilter, catFilter, setCatFilter, activeCount,
+  tierFilter, setTierFilter, catFilter, setCatFilter, todayOnly, setTodayOnly, activeCount,
 }: {
   tierFilter: 0 | 1 | 2 | 3;
   setTierFilter: (t: 0 | 1 | 2 | 3) => void;
   catFilter: Set<string>;
   setCatFilter: (f: Set<string>) => void;
+  todayOnly: boolean;
+  setTodayOnly: (v: boolean) => void;
   activeCount: number;
 }) {
   const toggleCat = (cat: string) => {
@@ -449,11 +549,23 @@ function FilterBar({
     setCatFilter(next);
   };
 
-  const hasActive = tierFilter !== 0 || catFilter.size > 0;
+  const hasActive = tierFilter !== 0 || catFilter.size > 0 || todayOnly;
 
   return (
     <div className="sticky top-0 z-20 py-2 -mx-3 px-3 md:-mx-6 md:px-6" style={{ background: '#0a0a0a' }}>
       <div className="flex flex-wrap items-center gap-2">
+        {/* Today quick filter */}
+        <button
+          onClick={() => setTodayOnly(!todayOnly)}
+          className={`flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-lg border transition-all ${
+            todayOnly
+              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+              : 'bg-white/3 text-gray-500 border-white/5 hover:text-gray-300'
+          }`}
+        >
+          ⏰ Today
+        </button>
+
         {/* Tier filter */}
         <div className="flex items-center gap-0.5 bg-white/3 rounded-lg p-0.5">
           {([0, 1, 2, 3] as const).map(t => (
@@ -485,7 +597,7 @@ function FilterBar({
           {hasActive && (
             <>
               <span className="text-[10px] text-gray-600">{activeCount} shown</span>
-              <button onClick={() => { setTierFilter(0); setCatFilter(new Set()); }}
+              <button onClick={() => { setTierFilter(0); setCatFilter(new Set()); setTodayOnly(false); }}
                 className="text-[10px] text-gray-500 hover:text-gray-300 underline underline-offset-2">
                 Clear
               </button>
@@ -503,6 +615,7 @@ function FilterBar({
 export default function EdgePage() {
   const [tierFilter, setTierFilter] = useState<0 | 1 | 2 | 3>(0);
   const [catFilter, setCatFilter] = useState<Set<string>>(new Set());
+  const [todayOnly, setTodayOnly] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -525,13 +638,19 @@ export default function EdgePage() {
     CROWD_WRONG: pickHero(MOCK, 'crowdBias'),
   }), []);
 
+  // Today's bets — always from full list, unaffected by tier/cat filters
+  const todayBets = useMemo(() =>
+    [...MOCK].filter(o => o.daysLeft <= 1).sort((a, b) => Math.abs(b.edgePct) - Math.abs(a.edgePct)),
+  []);
+
   // Filtered + sorted list
   const filtered = useMemo(() => {
     return [...MOCK]
+      .filter(o => !todayOnly || o.daysLeft <= 1)
       .filter(o => tierFilter === 0 || o.tier === tierFilter)
       .filter(o => catFilter.size === 0 || catFilter.has(o.category))
       .sort((a, b) => Math.abs(b.edgePct) - Math.abs(a.edgePct));
-  }, [tierFilter, catFilter]);
+  }, [tierFilter, catFilter, todayOnly]);
 
   const byTier = useMemo(() => ({
     1: filtered.filter(o => o.tier === 1),
@@ -569,12 +688,22 @@ export default function EdgePage() {
         </div>
       </div>
 
+      {/* ── Today's Bets strip (between hero cards and filter bar) ── */}
+      <TodayStrip
+        opps={todayBets}
+        expandedId={expandedId}
+        onToggle={toggleExpand}
+        isMobile={isMobile}
+      />
+
       {/* ── Section 4: Filter bar (sticky, above tier list) ── */}
       <FilterBar
         tierFilter={tierFilter}
         setTierFilter={setTierFilter}
         catFilter={catFilter}
         setCatFilter={setCatFilter}
+        todayOnly={todayOnly}
+        setTodayOnly={setTodayOnly}
         activeCount={filtered.length}
       />
 
@@ -588,7 +717,7 @@ export default function EdgePage() {
       ) : filtered.length === 0 ? (
         <div className="text-center py-12">
           <div className="text-gray-500 text-sm">No markets match current filters</div>
-          <button onClick={() => { setTierFilter(0); setCatFilter(new Set()); }}
+          <button onClick={() => { setTierFilter(0); setCatFilter(new Set()); setTodayOnly(false); }}
             className="mt-3 text-xs text-emerald-400 underline underline-offset-2">Clear filters</button>
         </div>
       ) : (
