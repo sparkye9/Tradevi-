@@ -3,6 +3,7 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchYahooQuotes } from '@/lib/yahoo-screener';
+import { fetchFinvizPublicScreener } from '@/lib/finviz-public';
 import { fetchOptionsChain } from '@/lib/options-fetcher';
 import type { PutContract } from '@/lib/options-fetcher';
 
@@ -35,28 +36,86 @@ interface QuoteMap {
   [symbol: string]: {
     price: number;
     changePercent: number;
+    // Finviz relative fields (preferred)
+    sma50rel: 'above' | 'below' | null;
+    sma200rel: 'above' | 'below' | null;
+    rvol: number | null;
+    unusualVolume: boolean;
+    // Yahoo fallback fields (used when Finviz blocked)
     fiftyDayAverage: number;
     twoHundredDayAverage: number;
     regularMarketVolume: number;
     averageVolume: number;
     fiftyTwoWeekHigh: number;
-    fiftyTwoWeekLow: number;
   };
 }
 
 async function fetchQuotesMap(symbols: string[]): Promise<QuoteMap> {
-  const quotes = await fetchYahooQuotes(symbols);
   const map: QuoteMap = {};
+
+  // Try Finviz first
+  const fvResult = await fetchFinvizPublicScreener(symbols);
+
+  if (!fvResult.blocked && fvResult.data.length > 0) {
+    for (const q of fvResult.data) {
+      map[q.symbol] = {
+        price: q.price ?? 0,
+        changePercent: q.changePercent ?? 0,
+        sma50rel: q.sma50rel,
+        sma200rel: q.sma200rel,
+        rvol: q.rvol,
+        unusualVolume: q.unusualVolume,
+        // Not available from Finviz directly; leave as 0 (not used when sma*rel present)
+        fiftyDayAverage: 0,
+        twoHundredDayAverage: 0,
+        regularMarketVolume: 0,
+        averageVolume: 0,
+        fiftyTwoWeekHigh: 0,
+      };
+    }
+    // Fill any missing tickers via Yahoo
+    const missing = symbols.filter((s) => !map[s]);
+    if (missing.length > 0) {
+      const yahooQuotes = await fetchYahooQuotes(missing);
+      for (const q of yahooQuotes) {
+        map[q.symbol] = {
+          price: q.regularMarketPrice ?? 0,
+          changePercent: q.regularMarketChangePercent ?? 0,
+          sma50rel: null,
+          sma200rel: null,
+          rvol: null,
+          unusualVolume: false,
+          fiftyDayAverage: q.fiftyDayAverage ?? 0,
+          twoHundredDayAverage: q.twoHundredDayAverage ?? 0,
+          regularMarketVolume: q.regularMarketVolume ?? 0,
+          averageVolume: (q as unknown as Record<string, number>).averageDailyVolume3Month ?? 0,
+          fiftyTwoWeekHigh: q.fiftyTwoWeekHigh ?? 0,
+        };
+      }
+    }
+    return map;
+  }
+
+  // Finviz blocked — fall back entirely to Yahoo
+  const quotes = await fetchYahooQuotes(symbols);
   for (const q of quotes) {
+    const vol = q.regularMarketVolume ?? 0;
+    const avgVol = (q as unknown as Record<string, number>).averageDailyVolume3Month ?? 0;
+    const price = q.regularMarketPrice ?? 0;
+    const sma50 = q.fiftyDayAverage ?? 0;
+    const sma200 = q.twoHundredDayAverage ?? 0;
     map[q.symbol] = {
-      price: q.regularMarketPrice ?? 0,
+      price,
       changePercent: q.regularMarketChangePercent ?? 0,
-      fiftyDayAverage: q.fiftyDayAverage ?? 0,
-      twoHundredDayAverage: q.twoHundredDayAverage ?? 0,
-      regularMarketVolume: q.regularMarketVolume ?? 0,
-      averageVolume: (q as unknown as Record<string,number>).averageDailyVolume3Month ?? 0,
+      sma50rel: sma50 > 0 ? (price >= sma50 ? 'above' : 'below') : null,
+      sma200rel: sma200 > 0 ? (price >= sma200 ? 'above' : 'below') : null,
+      rvol: avgVol > 0 ? vol / avgVol : null,
+      unusualVolume: avgVol > 0 && vol >= avgVol * 2,
+      fiftyDayAverage: sma50,
+      twoHundredDayAverage: sma200,
+      regularMarketVolume: vol,
+      averageVolume: avgVol,
       fiftyTwoWeekHigh: q.fiftyTwoWeekHigh ?? 0,
-      fiftyTwoWeekLow: (q as unknown as Record<string,number>).fiftyTwoWeekLow ?? 0,
     };
   }
   return map;
@@ -64,23 +123,21 @@ async function fetchQuotesMap(symbols: string[]): Promise<QuoteMap> {
 
 function bearThesis(quote: QuoteMap[string]): string {
   const parts: string[] = [];
-  if (quote.price < quote.fiftyDayAverage) parts.push('Below 50d MA');
-  if (quote.price < quote.twoHundredDayAverage) parts.push('Below 200d MA');
+  if (quote.sma50rel === 'below') parts.push('Below 50d MA');
+  if (quote.sma200rel === 'below') parts.push('Below 200d MA');
   if (quote.changePercent < -2) parts.push('Strong daily sell-off');
   else if (quote.changePercent < -1) parts.push('Negative daily momentum');
-  if (quote.regularMarketVolume > quote.averageVolume * 1.5) parts.push('Volume surge');
-  if (quote.fiftyTwoWeekHigh > 0 && quote.price >= quote.fiftyTwoWeekHigh * 0.95) parts.push('Near 52w high resistance');
+  if (quote.unusualVolume || (quote.rvol !== null && quote.rvol >= 1.5)) parts.push('Volume surge');
   return parts.length > 0 ? parts.join(', ') : 'No clear bear signal';
 }
 
 function scoreSection1(quote: QuoteMap[string], put: PutContract): number {
   let score = 0;
-  if (quote.price < quote.fiftyDayAverage) score += 15;
-  if (quote.price < quote.twoHundredDayAverage) score += 10;
+  if (quote.sma50rel === 'below') score += 15;
+  if (quote.sma200rel === 'below') score += 10;
   if (quote.changePercent < -2) score += 15;
   else if (quote.changePercent < -1) score += 10;
-  if (quote.regularMarketVolume > quote.averageVolume * 1.5) score += 10;
-  if (quote.fiftyTwoWeekHigh > 0 && quote.price >= quote.fiftyTwoWeekHigh * 0.95) score += 20;
+  if (quote.unusualVolume || (quote.rvol !== null && quote.rvol >= 1.5)) score += 10;
   // delta closest to -0.55
   const deltaDiff = Math.abs(Math.abs(put.delta) - 0.55);
   if (deltaDiff < 0.05) score += 10;
@@ -135,7 +192,7 @@ async function section1() {
         riskRating,
         put: best.put,
         targetPrice: Math.round(q.price * 0.93 * 100) / 100,
-        resistance: Math.round(q.fiftyTwoWeekHigh * 100) / 100,
+        resistance: q.fiftyTwoWeekHigh > 0 ? Math.round(q.fiftyTwoWeekHigh * 100) / 100 : null,
         expectedReturn,
         expLabel: fmtDate(best.put.expiration),
       });
@@ -225,11 +282,11 @@ async function section3() {
       );
       if (candidates.length === 0) return;
 
-      // Score: negative change, high volume, proximity to 50d MA as VWAP proxy
+      // Score: negative change, high rvol, near 50d MA as VWAP proxy
       const score =
         (q.changePercent < -1 ? 30 : q.changePercent < 0 ? 10 : 0) +
-        (q.regularMarketVolume > q.averageVolume * 2 ? 30 : q.regularMarketVolume > q.averageVolume * 1.5 ? 15 : 0) +
-        (Math.abs(q.price - q.fiftyDayAverage) / q.price < 0.02 ? 20 : 0);
+        (q.rvol !== null && q.rvol >= 2 ? 30 : q.rvol !== null && q.rvol >= 1.5 ? 15 : 0) +
+        (q.sma50rel !== null ? 20 : 0);
 
       const confidence = score >= 60 ? 'High' : score >= 30 ? 'Medium' : 'Low';
       const best = candidates.sort((a, b) => Math.abs(a.delta + 0.55) - Math.abs(b.delta + 0.55))[0];
@@ -396,13 +453,13 @@ async function section6() {
   else if (vix < 30) { vixLabel = 'Elevated Fear'; signalColor = 'orange'; }
   else { vixLabel = 'Panic / Crash Risk'; signalColor = 'red'; }
 
-  const qqqTrend = qqq ? (qqq.price > qqq.fiftyDayAverage ? 'Above 50d MA' : 'Below 50d MA') : 'N/A';
-  const spyTrend = spy ? (spy.price > spy.fiftyDayAverage ? 'Above 50d MA' : 'Below 50d MA') : 'N/A';
+  const qqqTrend = qqq ? (qqq.sma50rel === 'above' ? 'Above 50d MA' : qqq.sma50rel === 'below' ? 'Below 50d MA' : 'N/A') : 'N/A';
+  const spyTrend = spy ? (spy.sma50rel === 'above' ? 'Above 50d MA' : spy.sma50rel === 'below' ? 'Below 50d MA' : 'N/A') : 'N/A';
 
   let overallSignal = 'Neutral';
-  if (vix < 15 && qqq?.price > qqq?.fiftyDayAverage) overallSignal = 'Bullish';
+  if (vix < 15 && qqq?.sma50rel === 'above') overallSignal = 'Bullish';
   else if (vix > 30) overallSignal = 'Crash Risk Elevated';
-  else if (vix > 20 || (qqq && qqq.price < qqq.fiftyDayAverage)) overallSignal = 'Bearish';
+  else if (vix > 20 || (qqq && qqq.sma50rel === 'below')) overallSignal = 'Bearish';
 
   interface CrashProbs { d30: number; d90: number; m6: number; m12: number }
   let crashProbs: CrashProbs = { d30: 8, d90: 15, m6: 22, m12: 32 };
