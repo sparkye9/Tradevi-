@@ -11,6 +11,7 @@ const MAIN_NAV = [
   { href: '/swing', label: 'Swing Trades', icon: '↗' },
   { href: '/intraday', label: 'Intraday', icon: '⚡' },
   { href: '/power-hour', label: 'Power Hour', icon: '◉' },
+  { href: '/options', label: 'Options Scanner', icon: '⊗' },
 ];
 
 const UTILITY_NAV = [
