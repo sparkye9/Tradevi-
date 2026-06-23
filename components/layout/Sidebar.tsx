@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
+import ModeToggle from '@/components/ui/ModeToggle';
 
 const MAIN_NAV = [
   { href: '/', label: 'Dashboard', icon: '⬡' },
@@ -71,8 +72,8 @@ export default function Sidebar() {
             <NavLink key={href} href={href} label={label} icon={icon} active={pathname === href} />
           ))}
         </nav>
-        <div className="px-3 pt-4 border-t border-[#1a1a1a]">
-          <p className="text-[10px] text-gray-600 leading-relaxed">Real data only</p>
+        <div className="px-2 pt-4 border-t border-[#1a1a1a] space-y-3">
+          <ModeToggle />
           <p className="text-[10px] text-gray-700">Stooq · Yahoo Finance</p>
         </div>
       </aside>
@@ -88,9 +89,12 @@ export default function Sidebar() {
             3.0
           </span>
         </div>
-        <button onClick={() => setDrawerOpen(true)} className="text-gray-400 text-xl px-1" aria-label="Open menu">
-          ☰
-        </button>
+        <div className="flex items-center gap-2">
+          <ModeToggle compact />
+          <button onClick={() => setDrawerOpen(true)} className="text-gray-400 text-xl px-1" aria-label="Open menu">
+            ☰
+          </button>
+        </div>
       </div>
 
       {/* ── Mobile drawer ── */}

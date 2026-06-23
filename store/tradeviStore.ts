@@ -64,6 +64,10 @@ export interface TradeviStore {
   // Capital selector for opportunity finder
   capitalAmount: number;
   setCapitalAmount: (n: number) => void;
+
+  // Global trading mode
+  tradingMode: 'puts' | 'both';
+  setTradingMode: (m: 'puts' | 'both') => void;
 }
 
 const DEFAULT_WATCHLIST = [
@@ -154,6 +158,9 @@ export const useTradeviStore = create<TradeviStore>()(
 
       capitalAmount: 100,
       setCapitalAmount: (n) => set({ capitalAmount: n }),
+
+      tradingMode: 'puts',
+      setTradingMode: (m) => set({ tradingMode: m }),
     }),
     { name: 'tradevi-store' }
   )
