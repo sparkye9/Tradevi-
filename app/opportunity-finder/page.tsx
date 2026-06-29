@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import TradingViewButton from '@/components/ui/TradingViewButton';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
@@ -110,6 +110,77 @@ function computeSwingLevels(price: number, dir: 'BULLISH' | 'BEARISH' | 'WATCH')
     return { entryZone: `$${entryLow}–$${entryHigh}`, support: `$${stop}`, invalidation: `$${stop}`, t1, t2, t3, rr, holdTime: '3–14 days' };
   }
   return null;
+}
+
+// ─── Affordability ─────────────────────────────────────────────────────────
+
+interface Affordability {
+  ok: boolean;
+  kind: 'shares' | 'option' | 'none';
+  label: string;            // e.g. "5 shares = $48" or "1 call $32 · 145c Δ0.45"
+  optionContract?: TradierContract;
+  contracts?: number;
+  totalCost?: number;
+}
+
+function contractMid(c: TradierContract): number | null {
+  if (c.bid === null || c.ask === null) return null;
+  const mid = (c.bid + c.ask) / 2;
+  return mid > 0 ? mid : null;
+}
+
+// Determine the best position you can actually take with `capital`.
+// Direction-aware: bullish/watch → calls, bearish → puts. Prefers shares when
+// affordable and cheaper-per-unit, otherwise the cheapest qualifying contract.
+function computeAffordability(
+  price: number | null,
+  capital: number,
+  dir: 'BULLISH' | 'BEARISH' | 'WATCH',
+  contracts: TradierContract[] | null,
+): Affordability {
+  const shares = price && price > 0 ? Math.floor(capital / price) : 0;
+
+  // Find cheapest qualifying option in the trade direction
+  const wantType: 'call' | 'put' = dir === 'BEARISH' ? 'put' : 'call';
+  let cheapest: TradierContract | null = null;
+  let cheapestCost = Infinity;
+  if (contracts) {
+    for (const c of contracts) {
+      if (c.type !== wantType) continue;
+      const mid = contractMid(c);
+      if (mid === null) continue;
+      const cost = mid * 100;
+      if (cost <= capital && cost < cheapestCost) {
+        cheapest = c;
+        cheapestCost = cost;
+      }
+    }
+  }
+
+  const canShares = shares >= 1;
+  const canOption = cheapest !== null;
+
+  // Prefer shares only if you can buy a meaningful position AND options aren't available;
+  // for small accounts options are usually the only real way in.
+  if (canOption && cheapest) {
+    const mid = contractMid(cheapest)!;
+    const qty = Math.floor(capital / (mid * 100));
+    const total = +(qty * mid * 100).toFixed(2);
+    const typeLabel = wantType === 'call' ? 'call' : 'put';
+    return {
+      ok: true,
+      kind: 'option',
+      label: `${qty} ${typeLabel}${qty > 1 ? 's' : ''} · $${total} (${cheapest.strike}${typeLabel[0]} ${cheapest.expiration})`,
+      optionContract: cheapest,
+      contracts: qty,
+      totalCost: total,
+    };
+  }
+  if (canShares && price) {
+    const cost = +(shares * price).toFixed(2);
+    return { ok: true, kind: 'shares', label: `${shares} share${shares > 1 ? 's' : ''} = $${cost}`, contracts: shares, totalCost: cost };
+  }
+  return { ok: false, kind: 'none', label: 'Out of budget', };
 }
 
 // ─── Position sizing ─────────────────────────────────────────────────────────
@@ -281,9 +352,9 @@ function MarketContextBanner({ ctx, loading }: { ctx: MarketCtx | null; loading:
 
 // ─── Intraday opportunity card ────────────────────────────────────────────────
 
-function IntradayCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: number; rvolThreshold: number }) {
+function IntradayCard({ q, capital, rvolThreshold, preloadedContracts, affordability }: { q: FinvizQuote; capital: number; rvolThreshold: number; preloadedContracts?: TradierContract[] | null; affordability?: Affordability }) {
   const [showSizing, setShowSizing] = useState(false);
-  const [contracts, setContracts] = useState<TradierContract[] | null>(null);
+  const [contracts, setContracts] = useState<TradierContract[] | null>(preloadedContracts ?? null);
   const [loadingContracts, setLoadingContracts] = useState(false);
 
   const score = computeScore(q, rvolThreshold);
@@ -415,6 +486,22 @@ function IntradayCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: 
         )}
       </div>
 
+      {/* Affordability — what you can actually take with this capital */}
+      {affordability && (
+        affordability.ok ? (
+          <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-2 flex items-center gap-2">
+            <span className="text-emerald-400 text-sm">✓</span>
+            <span className="text-xs text-emerald-300/90 font-mono">
+              With ${capital}: <span className="font-semibold">{affordability.label}</span>
+            </span>
+          </div>
+        ) : (
+          <div className="bg-[#0d0d0d] border border-[#1e1e1e] rounded-lg p-2 text-xs text-gray-600">
+            Needs more than ${capital} — no shares or contracts in budget
+          </div>
+        )
+      )}
+
       {/* Actions */}
       <div className="flex items-center gap-2 pt-1 border-t border-[#1e1e1e]">
         <button
@@ -441,7 +528,7 @@ function IntradayCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: 
 
 // ─── Swing opportunity card ───────────────────────────────────────────────────
 
-function SwingCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: number; rvolThreshold: number }) {
+function SwingCard({ q, capital, rvolThreshold, affordability }: { q: FinvizQuote; capital: number; rvolThreshold: number; affordability?: Affordability }) {
   const score = computeScore(q, rvolThreshold);
   const dir = deriveDirection(q);
   const lvl = q.price ? computeSwingLevels(q.price, dir) : null;
@@ -525,18 +612,20 @@ function SwingCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: num
         <p className="text-xs text-gray-500 leading-relaxed">{reason}</p>
       </div>
 
-      {/* Capital note */}
-      {q.price !== null && q.price <= capital && (
-        <div className="bg-[#0d0d0d] border border-[#1e1e1e] rounded-lg p-2 text-xs font-mono">
-          <span className="text-gray-600">With ${capital}: </span>
-          <span className="text-white">{Math.floor(capital / q.price)} shares</span>
-          <span className="text-gray-600"> = ${(Math.floor(capital / q.price) * q.price).toFixed(2)}</span>
-        </div>
-      )}
-      {q.price !== null && q.price > capital && (
-        <div className="text-xs text-amber-400/70 font-mono">
-          Price ${q.price.toFixed(2)} exceeds ${capital} capital — consider options
-        </div>
+      {/* Affordability — what you can actually take with this capital */}
+      {affordability && (
+        affordability.ok ? (
+          <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-2 flex items-center gap-2">
+            <span className="text-emerald-400 text-sm">✓</span>
+            <span className="text-xs text-emerald-300/90 font-mono">
+              With ${capital}: <span className="font-semibold">{affordability.label}</span>
+            </span>
+          </div>
+        ) : (
+          <div className="bg-[#0d0d0d] border border-[#1e1e1e] rounded-lg p-2 text-xs text-gray-600">
+            Needs more than ${capital} — no shares or contracts in budget
+          </div>
+        )
       )}
 
       <div className="flex justify-end pt-1 border-t border-[#1e1e1e]">
@@ -554,6 +643,9 @@ export default function OpportunityFinderPage() {
   const [loading, setLoading] = useState(true);
   const [futuresData, setFuturesData] = useState<{ changePercent: number; symbol: string }[]>([]);
   const [marketLoading, setMarketLoading] = useState(true);
+  const [affordableOnly, setAffordableOnly] = useState(true);
+  const [contractsMap, setContractsMap] = useState<Record<string, TradierContract[]>>({});
+  const [contractsLoading, setContractsLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -597,20 +689,71 @@ export default function OpportunityFinderPage() {
   const intradayScored = scored.filter(({ q }) => (q.rvol ?? 0) >= rvolThreshold || q.newHighDay || q.unusualVolume);
   const intradayFallback = [...candidates]
     .sort((a, b) => Math.abs(b.changePercent ?? 0) - Math.abs(a.changePercent ?? 0));
-  const intraday = (intradayScored.length >= 3 ? intradayScored : scored)
-    .slice(0, 10)
+  const intradayPool = (intradayScored.length >= 3 ? intradayScored : scored)
+    .slice(0, 16)
     .map(({ q }) => q);
-  // If still empty use raw fallback
-  const intradayFinal = intraday.length > 0 ? intraday : intradayFallback.slice(0, 10);
+  const intradayPoolFinal = intradayPool.length > 0 ? intradayPool : intradayFallback.slice(0, 16);
 
   // Swing: above both SMAs + positive momentum; fallback to any above SMA50
   const swingScored = scored.filter(({ q }) =>
     q.sma50rel === 'above' && q.sma200rel === 'above'
   );
   const swingFallback = scored.filter(({ q }) => q.sma50rel === 'above');
-  const swing = (swingScored.length >= 2 ? swingScored : swingFallback)
-    .slice(0, 5)
+  const swingPool = (swingScored.length >= 2 ? swingScored : swingFallback)
+    .slice(0, 10)
     .map(({ q }) => q);
+
+  // Batch-fetch option chains for the candidate pool so we can tell what fits the budget
+  const poolSymbols = useMemo(
+    () => Array.from(new Set([...intradayPoolFinal, ...swingPool].map(q => q.symbol))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [intradayPoolFinal.map(q => q.symbol).join(','), swingPool.map(q => q.symbol).join(',')]
+  );
+
+  useEffect(() => {
+    if (poolSymbols.length === 0) return;
+    const missing = poolSymbols.filter(s => !(s in contractsMap));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    setContractsLoading(true);
+    Promise.all(
+      missing.map(async (sym) => {
+        try {
+          const res = await fetch(`/api/tradier/options?symbol=${sym}`);
+          const json: TradierOptionsResult = await res.json();
+          return [sym, json.contracts ?? []] as const;
+        } catch {
+          return [sym, [] as TradierContract[]] as const;
+        }
+      })
+    ).then((entries) => {
+      if (cancelled) return;
+      setContractsMap(prev => {
+        const next = { ...prev };
+        for (const [sym, contracts] of entries) next[sym] = contracts;
+        return next;
+      });
+      setContractsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [poolSymbols, contractsMap]);
+
+  const affordabilityFor = (q: FinvizQuote): Affordability =>
+    computeAffordability(q.price, capitalAmount, deriveDirection(q), contractsMap[q.symbol] ?? null);
+
+  // Apply affordability filter (when toggle on). Until a symbol's chain loads,
+  // keep it if shares alone are affordable so the list isn't empty while loading.
+  const passesAffordability = (q: FinvizQuote): boolean => {
+    if (!affordableOnly) return true;
+    const aff = affordabilityFor(q);
+    if (aff.ok) return true;
+    // Chain not loaded yet — provisionally keep; it'll filter once loaded
+    if (!(q.symbol in contractsMap)) return true;
+    return false;
+  };
+
+  const intradayFinal = intradayPoolFinal.filter(passesAffordability).slice(0, 10);
+  const swing = swingPool.filter(passesAffordability).slice(0, 6);
 
   const cond = marketCondition(ctx);
 
@@ -661,7 +804,23 @@ export default function OpportunityFinderPage() {
           <span className="text-xs text-gray-600 ml-2">
             Selected: <span className="text-white font-mono font-semibold">${capitalAmount.toLocaleString()}</span>
           </span>
+          <button
+            onClick={() => setAffordableOnly(v => !v)}
+            className={`ml-auto px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${
+              affordableOnly
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                : 'bg-[#1a1a1a] text-gray-500 border-[#2a2a2a] hover:text-gray-300'
+            }`}
+          >
+            {affordableOnly ? '✓ Only what I can afford' : 'Show all setups'}
+          </button>
         </div>
+        {affordableOnly && (
+          <p className="text-[11px] text-gray-600 mt-2">
+            Showing only opportunities you can enter with ${capitalAmount.toLocaleString()} — as shares or the cheapest qualifying option contract.
+            {contractsLoading && <span className="text-amber-400/70"> Checking option prices…</span>}
+          </p>
+        )}
       </div>
 
       {data?.sourceError && <DataUnavailable reason={data.sourceError} />}
@@ -693,14 +852,16 @@ export default function OpportunityFinderPage() {
 
         {!loading && intradayFinal.length === 0 && (
           <div className="text-center py-10 text-gray-600">
-            No data returned. Check data source status above.
+            {affordableOnly
+              ? `Nothing fits a $${capitalAmount.toLocaleString()} budget right now. Raise your capital or tap "Show all setups".`
+              : 'No data returned. Check data source status above.'}
           </div>
         )}
 
         {!loading && intradayFinal.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {intradayFinal.map(q => (
-              <IntradayCard key={q.symbol} q={q} capital={capitalAmount} rvolThreshold={rvolThreshold} />
+              <IntradayCard key={q.symbol} q={q} capital={capitalAmount} rvolThreshold={rvolThreshold} preloadedContracts={contractsMap[q.symbol] ?? null} affordability={affordabilityFor(q)} />
             ))}
           </div>
         )}
@@ -723,14 +884,16 @@ export default function OpportunityFinderPage() {
 
         {!loading && swing.length === 0 && (
           <div className="text-center py-10 text-gray-600">
-            No swing setups with full trend alignment right now.
+            {affordableOnly
+              ? `No swing setups fit a $${capitalAmount.toLocaleString()} budget right now. Raise your capital or tap "Show all setups".`
+              : 'No swing setups with full trend alignment right now.'}
           </div>
         )}
 
         {!loading && swing.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {swing.map(q => (
-              <SwingCard key={q.symbol} q={q} capital={capitalAmount} rvolThreshold={rvolThreshold} />
+              <SwingCard key={q.symbol} q={q} capital={capitalAmount} rvolThreshold={rvolThreshold} affordability={affordabilityFor(q)} />
             ))}
           </div>
         )}
