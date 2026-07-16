@@ -4,6 +4,7 @@ import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
 import { useTradeviStore } from '@/store/tradeviStore';
+import type { TradierContract, TradierOptionsResult } from '@/lib/tradier';
 
 interface Scored {
   symbol: string;
@@ -79,9 +80,83 @@ function FuturesRow({ f }: { f: Scored }) {
   );
 }
 
+// Pick the most tradeable near-the-money contract in the trade direction.
+// Prefers ATM strikes with real liquidity (OI + a two-sided market).
+function pickContract(contracts: TradierContract[], wantType: 'call' | 'put', underlying: number | null): TradierContract | null {
+  const pool = contracts.filter(
+    (c) => c.type === wantType && c.bid !== null && c.ask !== null && c.ask > 0 && (c.openInterest ?? 0) >= 50,
+  );
+  if (pool.length === 0) return null;
+  const ref = underlying ?? pool[0].strike;
+  // Slightly favor near-the-money; break ties by open interest
+  return pool.reduce((best, c) => {
+    const dC = Math.abs(c.strike - ref);
+    const dB = Math.abs(best.strike - ref);
+    if (dC < dB) return c;
+    if (dC === dB && (c.openInterest ?? 0) > (best.openInterest ?? 0)) return c;
+    return best;
+  });
+}
+
+function ContractRow({ c }: { c: TradierContract }) {
+  const mid = c.bid !== null && c.ask !== null ? (c.bid + c.ask) / 2 : null;
+  const cost = mid !== null ? Math.round(mid * 100) : null;
+  return (
+    <div className="bg-[#0d0d0d] border border-[#1e1e1e] rounded-lg p-2.5 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="font-mono font-bold text-white text-sm">
+          ${c.strike}{c.type === 'put' ? 'P' : 'C'}
+        </span>
+        <span className="text-[10px] text-gray-500 font-mono">{c.expiration}</span>
+      </div>
+      <div className="flex items-center justify-between text-xs font-mono">
+        <span className="text-gray-500">Bid/Ask</span>
+        <span className="text-gray-300">
+          {c.bid !== null ? `$${c.bid.toFixed(2)}` : '--'} / {c.ask !== null ? `$${c.ask.toFixed(2)}` : '--'}
+        </span>
+      </div>
+      <div className="flex items-center justify-between text-xs font-mono">
+        <span className="text-gray-500">≈ Cost / contract</span>
+        <span className="text-emerald-400 font-semibold">{cost !== null ? `$${cost}` : '--'}</span>
+      </div>
+      <div className="flex items-center justify-between text-xs font-mono text-gray-600">
+        <span>Δ {c.delta !== null ? c.delta.toFixed(2) : '--'}</span>
+        <span>OI {c.openInterest ?? '--'}</span>
+        <span>Vol {c.volume ?? '--'}</span>
+      </div>
+    </div>
+  );
+}
+
 function MoverCard({ m }: { m: Scored }) {
   const isPut = m.direction === 'PUT';
   const border = isPut ? 'border-red-500/20 hover:border-red-500/40' : m.direction === 'CALL' ? 'border-emerald-500/20 hover:border-emerald-500/40' : 'border-[#1e1e1e]';
+
+  const [showOpts, setShowOpts] = useState(false);
+  const [contracts, setContracts] = useState<TradierContract[] | null>(null);
+  const [loadingOpts, setLoadingOpts] = useState(false);
+  const [optsError, setOptsError] = useState<string | null>(null);
+
+  const wantType: 'call' | 'put' = isPut ? 'put' : 'call';
+  const suggested = contracts ? pickContract(contracts, wantType, m.regularPrice ?? m.price) : null;
+
+  async function loadOptions() {
+    if (contracts !== null) { setShowOpts((p) => !p); return; }
+    setLoadingOpts(true);
+    setShowOpts(true);
+    setOptsError(null);
+    try {
+      const res = await fetch(`/api/tradier/options?symbol=${m.symbol}`);
+      const json: TradierOptionsResult = await res.json();
+      setContracts(json.contracts ?? []);
+      if ((json.contracts ?? []).length === 0) setOptsError(json.sourceError ?? 'No option chain available');
+    } catch {
+      setContracts([]);
+      setOptsError('Failed to load options');
+    }
+    setLoadingOpts(false);
+  }
+
   return (
     <div className={`bg-[#111111] border ${border} rounded-2xl p-4 flex flex-col gap-3 transition-all`}>
       <div className="flex items-start justify-between">
@@ -113,12 +188,46 @@ function MoverCard({ m }: { m: Scored }) {
           ))}
         </div>
       )}
-      <div className="flex items-center justify-between pt-1 border-t border-[#1e1e1e]">
-        {m.regularPrice != null && m.price != null && m.regularPrice !== m.price ? (
-          <span className="text-[10px] text-gray-600 font-mono">Reg close ${m.regularPrice.toFixed(2)}</span>
-        ) : <span />}
+      {m.regularPrice != null && m.price != null && m.regularPrice !== m.price && (
+        <span className="text-[10px] text-gray-600 font-mono">Reg close ${m.regularPrice.toFixed(2)}</span>
+      )}
+
+      {/* Options */}
+      <div className="flex items-center gap-2 pt-1 border-t border-[#1e1e1e]">
+        <button
+          onClick={loadOptions}
+          disabled={loadingOpts || m.direction === 'NONE'}
+          className={`flex-1 text-xs font-semibold py-1.5 px-3 rounded-lg transition-all border disabled:opacity-40 ${
+            showOpts
+              ? isPut ? 'bg-red-500/20 text-red-300 border-red-500/30' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+              : 'bg-[#1a1a1a] text-gray-400 border-[#2a2a2a] hover:text-white hover:border-[#3a3a3a]'
+          }`}
+        >
+          {loadingOpts
+            ? 'Loading…'
+            : showOpts
+              ? `▼ ${wantType === 'put' ? 'Puts' : 'Calls'}`
+              : `▶ ${wantType === 'put' ? 'View Puts' : 'View Calls'}`}
+        </button>
         <TradingViewButton symbol={m.symbol} label="Chart" />
       </div>
+
+      {showOpts && !loadingOpts && (
+        <div className="space-y-2">
+          {suggested ? (
+            <>
+              <div className="text-[10px] text-gray-600 uppercase tracking-widest">
+                Suggested {wantType} · near the money
+              </div>
+              <ContractRow c={suggested} />
+            </>
+          ) : (
+            <div className="text-xs text-gray-600 bg-[#0d0d0d] border border-[#1e1e1e] rounded-lg p-2">
+              {optsError ?? 'No liquid contracts found in this direction'}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
