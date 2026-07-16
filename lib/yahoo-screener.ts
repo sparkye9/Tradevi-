@@ -99,6 +99,12 @@ interface YahooQuoteRaw {
   sector?: string;
   industry?: string;
   shortName?: string;
+  // Extended hours
+  marketState?: string;              // PRE | REGULAR | POST | POSTPOST | CLOSED
+  preMarketPrice?: number;
+  preMarketChangePercent?: number;
+  postMarketPrice?: number;
+  postMarketChangePercent?: number;
 }
 
 const YAHOO_FIELDS = [
@@ -117,6 +123,11 @@ const YAHOO_FIELDS = [
   'sector',
   'industry',
   'shortName',
+  'marketState',
+  'preMarketPrice',
+  'preMarketChangePercent',
+  'postMarketPrice',
+  'postMarketChangePercent',
 ].join(',');
 
 export async function fetchYahooQuotes(symbols: string[]): Promise<YahooQuoteRaw[]> {

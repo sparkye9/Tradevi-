@@ -7,6 +7,7 @@ import ModeToggle from '@/components/ui/ModeToggle';
 const MAIN_NAV = [
   { href: '/', label: 'Dashboard', icon: '⬡' },
   { href: '/futures-bias', label: 'Futures', icon: '◀' },
+  { href: '/overnight', label: '24H Scanner', icon: '🌙' },
   { href: '/command-center', label: 'Command Center', icon: '⊕' },
   { href: '/mini-futures', label: 'Decision Engine', icon: '▦' },
   { href: '/swing', label: 'Swing Trades', icon: '↗' },
@@ -24,7 +25,7 @@ const UTILITY_NAV = [
 
 const BOTTOM_NAV = [
   { href: '/', label: 'Home', icon: '⬡' },
-  { href: '/futures-bias', label: 'Futures', icon: '◀' },
+  { href: '/overnight', label: '24H', icon: '🌙' },
   { href: '/edge', label: 'Edge', icon: '⊞' },
   { href: '/swing', label: 'Swing', icon: '↗' },
   { href: '/journal', label: 'Journal', icon: '◈' },
