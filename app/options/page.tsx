@@ -29,7 +29,7 @@ interface S1Item {
   riskRating: 'Low' | 'Medium' | 'High';
   put: PutContract;
   targetPrice: number;
-  resistance: number;
+  resistance: number | null;
   expectedReturn: number;
   expLabel: string;
 }
@@ -123,7 +123,8 @@ type SectionData = S1Item[] | S2Results | S3Item[] | S4Item[] | S5Item[] | S6Dat
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
-function fmt(n: number, decimals = 2): string {
+function fmt(n: number | null | undefined, decimals = 2): string {
+  if (n === null || n === undefined || Number.isNaN(n)) return '--';
   return n.toFixed(decimals);
 }
 function fmtK(n: number): string {
@@ -211,7 +212,9 @@ function Section1({ data }: { data: S1Item[] }) {
 
           <div className="flex items-center justify-between pt-1">
             <div className="text-xs text-gray-500">Target <span className="text-red-400 font-mono">${fmt(item.targetPrice)}</span></div>
-            <div className="text-xs text-gray-500">Resistance <span className="text-orange-400 font-mono">${fmt(item.resistance)}</span></div>
+            {item.resistance !== null && (
+              <div className="text-xs text-gray-500">Resistance <span className="text-orange-400 font-mono">${fmt(item.resistance)}</span></div>
+            )}
             <div className="text-xs text-gray-500">Expected <span className="text-emerald-400 font-bold">+{item.expectedReturn}%</span></div>
           </div>
         </div>
