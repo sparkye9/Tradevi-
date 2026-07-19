@@ -11,6 +11,7 @@ const NAV = [
   { href: '/options', label: 'Options', icon: '◈' },
   { href: '/mini-futures', label: 'Futures Guide', icon: '▦' },
   { href: '/power-hour', label: 'Power Hour', icon: '◉' },
+  { href: '/kalshi', label: 'Kalshi Scanner', icon: '◆' },
 ];
 
 // Mobile bottom nav shows a subset of the most-used pages
