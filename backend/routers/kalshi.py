@@ -154,11 +154,39 @@ def _run_scan(req: ScanRequest) -> ScanResponse:
 @router.get("/status")
 async def kalshi_status():
     """Check whether Kalshi auth env vars are present (no API call)."""
-    key_path = os.path.expanduser(os.environ.get("KALSHI_KEY_PATH", ""))
+    # Key content — check all supported var names
+    key_inline = bool(
+        os.environ.get("KALSHI_KEY", "").strip()
+        or os.environ.get("kalshi_key", "").strip()
+    )
+    key_path_val = os.path.expanduser(os.environ.get("KALSHI_KEY_PATH", ""))
+    key_file_exists = bool(key_path_val and os.path.exists(key_path_val))
+    key_ok = key_inline or key_file_exists
+
+    # Key ID — check both casings
+    key_id = (
+        os.environ.get("KALSHI_KEY_ID", "").strip()
+        or os.environ.get("kalshi_key_id", "").strip()
+    )
+    key_id_set = bool(key_id)
+
     return {
-        "key_id_set": bool(os.environ.get("KALSHI_KEY_ID")),
-        "key_file_exists": bool(key_path and os.path.exists(key_path)),
-        "ready": bool(os.environ.get("KALSHI_KEY_ID")) and bool(key_path and os.path.exists(key_path)),
+        "ready": key_ok and key_id_set,
+        "key_id_set": key_id_set,
+        "key_found": key_ok,
+        "key_source": (
+            "inline (KALSHI_KEY)" if key_inline
+            else "file (KALSHI_KEY_PATH)" if key_file_exists
+            else "missing"
+        ),
+        "hint": (
+            None if (key_ok and key_id_set)
+            else (
+                "Set KALSHI_KEY_ID (the identifier from Kalshi's API settings page) "
+                + ("" if key_id_set else "and ")
+                + ("" if key_ok else "KALSHI_KEY (PEM content) or KALSHI_KEY_PATH (file path)")
+            ).strip(" and ")
+        ),
     }
 
 

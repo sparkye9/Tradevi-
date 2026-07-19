@@ -45,15 +45,36 @@ SERIES_TICKERS: list[str] = [
 # ── auth ─────────────────────────────────────────────────────────────────────
 
 def load_private_key():
-    """Load RSA private key from KALSHI_KEY_PATH. Raises ValueError on missing config."""
+    """
+    Load RSA private key. Checks env vars in order:
+      1. KALSHI_KEY / kalshi_key — PEM content inline (common in cloud deploys)
+                                   or a file path if it doesn't start with '-----'
+      2. KALSHI_KEY_PATH          — explicit file path (legacy)
+    Raises ValueError with a clear message if nothing is found.
+    """
+    for var in ("KALSHI_KEY", "kalshi_key"):
+        val = os.environ.get(var, "").strip()
+        if not val:
+            continue
+        if val.startswith("-----"):
+            return serialization.load_pem_private_key(val.encode(), password=None)
+        # treat as file path
+        path = os.path.expanduser(val)
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                return serialization.load_pem_private_key(f.read(), password=None)
+
     path = os.path.expanduser(os.environ.get("KALSHI_KEY_PATH", ""))
-    if not path or not os.path.exists(path):
-        raise ValueError(
-            "KALSHI_KEY_PATH not set or file missing. "
-            "Set the env var to the path of your .pem file."
-        )
-    with open(path, "rb") as f:
-        return serialization.load_pem_private_key(f.read(), password=None)
+    if path and os.path.exists(path):
+        with open(path, "rb") as f:
+            return serialization.load_pem_private_key(f.read(), password=None)
+
+    raise ValueError(
+        "Kalshi private key not found. Set one of:\n"
+        "  KALSHI_KEY   — PEM content directly (for cloud/Vercel)\n"
+        "  KALSHI_KEY_PATH — path to your .pem file\n"
+        "Example: KALSHI_KEY='-----BEGIN RSA PRIVATE KEY-----\\n...'"
+    )
 
 
 def signed_headers(private_key, method: str, path: str) -> dict:
@@ -68,9 +89,17 @@ def signed_headers(private_key, method: str, path: str) -> dict:
         ),
         hashes.SHA256(),
     )
-    key_id = os.environ.get("KALSHI_KEY_ID", "")
+    # Accept KALSHI_KEY_ID or KALSHI_KEY_ID (same names, just in case)
+    key_id = (
+        os.environ.get("KALSHI_KEY_ID")
+        or os.environ.get("kalshi_key_id")
+        or ""
+    ).strip()
     if not key_id:
-        raise ValueError("KALSHI_KEY_ID not set.")
+        raise ValueError(
+            "KALSHI_KEY_ID not set. This is the key identifier string shown "
+            "in Kalshi's API settings (not the private key itself)."
+        )
     return {
         "KALSHI-ACCESS-KEY": key_id,
         "KALSHI-ACCESS-SIGNATURE": base64.b64encode(sig).decode(),
