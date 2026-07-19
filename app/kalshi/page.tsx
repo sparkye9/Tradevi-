@@ -189,7 +189,7 @@ export default function KalshiPage() {
                 min={1}
                 max={20}
                 value={minGap}
-                onChange={e => setMinGap(parseInt(e.target.value) || 3)}
+                onChange={e => setMinGap(Math.min(20, Math.max(1, parseInt(e.target.value) || 3)))}
                 className="w-20 bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50 text-center"
               />
               <span className="text-[10px] text-gray-600">lower = more results, higher = only strong edges</span>
