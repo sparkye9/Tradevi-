@@ -24,6 +24,14 @@ export interface TradierOptionsResult {
   lastUpdated: string;
 }
 
+export interface TradierOptionsFilter {
+  minDelta?: number;   // abs delta lower bound (default 0.20)
+  maxDelta?: number;   // abs delta upper bound (default 0.70)
+  minMid?: number;     // min mid price per share (default none)
+  maxMid?: number;     // max mid price per share (default none)
+  pennyMode?: boolean; // relax volume/OI, fetch 2 nearest expirations
+}
+
 function getBaseUrl(): string {
   const env = process.env.TRADIER_ENV ?? 'production';
   return env === 'sandbox'
@@ -50,14 +58,39 @@ async function tradierGet<T>(path: string, token: string): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
-export interface TradierOptionsFilter {
-  minDelta?: number;   // abs delta lower bound (default 0.20)
-  maxDelta?: number;   // abs delta upper bound (default 0.70)
-  minMid?: number;     // min mid price per share (default none)
-  maxMid?: number;     // max mid price per share (default none)
+type OptionRow = {
+  symbol: string;
+  expiration_date: string;
+  strike: number;
+  option_type: string;
+  bid: number;
+  ask: number;
+  volume: number;
+  open_interest: number;
+  greeks?: {
+    delta?: number;
+    gamma?: number;
+    theta?: number;
+    vega?: number;
+    mid_iv?: number;
+    updated_at?: string;
+  };
+};
+
+async function fetchChain(symbol: string, expiration: string, token: string): Promise<OptionRow[]> {
+  const chainData = await tradierGet<{
+    options: { option: OptionRow[] } | null;
+  }>(
+    `/markets/options/chains?symbol=${encodeURIComponent(symbol)}&expiration=${expiration}&greeks=true`,
+    token
+  );
+  return chainData.options?.option ?? [];
 }
 
-export async function fetchTradierOptions(symbol: string, filter?: TradierOptionsFilter): Promise<TradierOptionsResult> {
+export async function fetchTradierOptions(
+  symbol: string,
+  filter?: TradierOptionsFilter
+): Promise<TradierOptionsResult> {
   const token = getToken();
   if (!token) {
     return {
@@ -94,65 +127,45 @@ export async function fetchTradierOptions(symbol: string, filter?: TradierOption
     };
   }
 
-  // Use nearest expiration
-  const expiration = expirations[0];
+  // Penny mode: fetch nearest 2 expirations to find more cheap OTM options
+  const expirationsToFetch = filter?.pennyMode ? expirations.slice(0, 2) : [expirations[0]];
 
-  let chainData: {
-    options: {
-      option: Array<{
-        symbol: string;
-        expiration_date: string;
-        strike: number;
-        option_type: string;
-        bid: number;
-        ask: number;
-        volume: number;
-        open_interest: number;
-        greeks?: {
-          delta?: number;
-          gamma?: number;
-          theta?: number;
-          vega?: number;
-          mid_iv?: number;
-          updated_at?: string;
+  const allOptions: OptionRow[] = [];
+  for (const exp of expirationsToFetch) {
+    try {
+      const rows = await fetchChain(symbol, exp, token);
+      allOptions.push(...rows);
+    } catch (err) {
+      if (expirationsToFetch.length === 1) {
+        return {
+          contracts: [],
+          sourceError: `Tradier chain fetch failed: ${String(err)}`,
+          source: 'Tradier',
+          lastUpdated: now,
         };
-      }>;
-    } | null;
-  };
-
-  try {
-    chainData = await tradierGet(
-      `/markets/options/chains?symbol=${encodeURIComponent(symbol)}&expiration=${expiration}&greeks=true`,
-      token
-    );
-  } catch (err) {
-    return {
-      contracts: [],
-      sourceError: `Tradier chain fetch failed: ${String(err)}`,
-      source: 'Tradier',
-      lastUpdated: now,
-    };
+      }
+      // In penny mode, continue even if one expiration fails
+    }
   }
 
-  const options = chainData.options?.option ?? [];
+  const minDelta = filter?.minDelta ?? 0.20;
+  const maxDelta = filter?.maxDelta ?? 0.70;
+  const minVol = filter?.pennyMode ? 1 : 50;
+  const minOI = filter?.pennyMode ? 10 : 100;
+
   const contracts: TradierContract[] = [];
 
-  for (const opt of options) {
+  for (const opt of allOptions) {
     const delta = opt.greeks?.delta ?? null;
     const volume = opt.volume ?? null;
     const oi = opt.open_interest ?? null;
 
-    const minDelta = filter?.minDelta ?? 0.20;
-    const maxDelta = filter?.maxDelta ?? 0.70;
-
-    // Filter: delta range (absolute), volume > 50, OI > 100
     if (delta === null) continue;
     const absDelta = Math.abs(delta);
     if (absDelta < minDelta || absDelta > maxDelta) continue;
-    if (volume !== null && volume <= 50) continue;
-    if (oi !== null && oi <= 100) continue;
+    if (volume !== null && volume < minVol) continue;
+    if (oi !== null && oi < minOI) continue;
 
-    // Optional mid-price filter ($10–$50 per contract = $0.10–$0.50 per share)
     if (filter?.minMid !== undefined || filter?.maxMid !== undefined) {
       const mid = opt.bid !== null && opt.ask !== null ? (opt.bid + opt.ask) / 2 : null;
       if (mid === null) continue;
@@ -178,12 +191,7 @@ export async function fetchTradierOptions(symbol: string, filter?: TradierOption
     });
   }
 
-  // Sort by volume desc
   contracts.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
 
-  return {
-    contracts,
-    source: 'Tradier',
-    lastUpdated: now,
-  };
+  return { contracts, source: 'Tradier', lastUpdated: now };
 }
