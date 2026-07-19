@@ -89,7 +89,18 @@ export async function GET(req: Request) {
       .sort((a, b) => b!.gap - a!.gap)
       .slice(0, 50);
 
-    return NextResponse.json({ count: results.length, min_gap: minGap, markets: results });
+    // Debug: show first market's raw keys so we can verify field names
+    const firstRaw = markets[0] ?? null;
+    return NextResponse.json({
+      count: results.length,
+      min_gap: minGap,
+      markets: results,
+      _debug: {
+        total_fetched: markets.length,
+        first_market_keys: firstRaw ? Object.keys(firstRaw) : [],
+        first_market_sample: firstRaw,
+      },
+    });
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error).message }, { status: 502 });
   }
