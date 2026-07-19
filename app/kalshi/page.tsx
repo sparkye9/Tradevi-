@@ -47,7 +47,7 @@ interface FairEntry {
   cents: string;
 }
 
-const BACKEND = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+const BACKEND = '';
 
 function formatClose(iso: string) {
   try {
@@ -64,7 +64,7 @@ export default function KalshiPage() {
   const [autoLoading, setAutoLoading] = useState(false);
   const [autoResult, setAutoResult] = useState<AutoScanResult | null>(null);
   const [autoError, setAutoError] = useState('');
-  const [minGap, setMinGap] = useState(3);
+  const [minGap, setMinGap] = useState<number>(3);
 
   // ── Manual scan state ──
   const [entries, setEntries] = useState<FairEntry[]>([{ ticker: '', cents: '' }]);
@@ -81,7 +81,7 @@ export default function KalshiPage() {
     setAutoResult(null);
     setAutoLoading(true);
     try {
-      const res = await fetch(`${BACKEND}/api/kalshi/auto-scan?min_gap=${minGap}`);
+      const res = await fetch(`/api/kalshi/auto-scan?min_gap=${minGap}`);
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error(d.detail ?? `HTTP ${res.status}`);
@@ -120,7 +120,7 @@ export default function KalshiPage() {
     }
     setScanning(true);
     try {
-      const res = await fetch(`${BACKEND}/api/kalshi/scan`, {
+      const res = await fetch(`/api/kalshi/scan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
