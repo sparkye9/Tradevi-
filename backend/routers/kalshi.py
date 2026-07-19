@@ -24,6 +24,7 @@ from services.kalshi_service import (
     PRICE_CEIL_CENTS,
     PRICE_FLOOR_CENTS,
     SERIES_TICKERS,
+    auto_scan_markets,
     fetch_candidate_markets,
     load_private_key,
     place_limit_order,
@@ -187,6 +188,29 @@ async def kalshi_status():
                 + ("" if key_ok else "KALSHI_KEY (PEM content) or KALSHI_KEY_PATH (file path)")
             ).strip(" and ")
         ),
+    }
+
+
+@router.get("/auto-scan")
+async def auto_scan(min_gap: int = Query(default=3, ge=1, le=30)):
+    """
+    Scan ALL open Kalshi markets for mathematical edges — no fair values needed.
+
+    Finds markets where yes_ask + no_ask < 100 (true arb) or close to it.
+    The 'gap' is how many cents below 100 the combined ask sits.
+    A gap of 5 means buying YES+NO together costs 95¢ and pays $1 — pure profit.
+    Results sorted by gap descending.
+    """
+    pk = _get_key()
+    import requests as _req
+    try:
+        results = auto_scan_markets(pk, min_gap=min_gap)
+    except _req.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Kalshi error: {e}")
+    return {
+        "count": len(results),
+        "min_gap": min_gap,
+        "markets": results,
     }
 
 

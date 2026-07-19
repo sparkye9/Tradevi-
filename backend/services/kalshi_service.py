@@ -125,6 +125,73 @@ def _api_post(private_key, path: str, body: dict) -> dict:
     r.raise_for_status()
     return r.json()
 
+# ── auto-scan (no fair values needed) ────────────────────────────────────────
+
+def fetch_all_open_markets(private_key, limit_pages: int = 10) -> list[dict]:
+    """
+    Fetch open markets across ALL series (paginated, up to limit_pages pages).
+    Used for the auto-scan which needs no fair values.
+    """
+    out: list[dict] = []
+    cursor = None
+    for _ in range(limit_pages):
+        params: dict = {"status": "open", "limit": 200}
+        if cursor:
+            params["cursor"] = cursor
+        try:
+            data = _api_get(private_key, "/trade-api/v2/markets", params)
+        except requests.HTTPError as e:
+            print(f"[kalshi] fetch_all_open_markets: {e}")
+            break
+        out.extend(data.get("markets", []))
+        cursor = data.get("cursor")
+        if not cursor:
+            break
+    return out
+
+
+def auto_scan_markets(private_key, min_gap: int = 3, max_gap: int = 30) -> list[dict]:
+    """
+    Scan all open markets for mathematical edges requiring NO fair values.
+
+    Two signals:
+      1. Arb gap: yes_ask + no_ask < 100  →  buy both sides, guaranteed profit
+         gap = 100 - (yes_ask + no_ask).  Net profit per contract pair = gap cents.
+      2. Near-arb: gap in [min_gap, max_gap] — worth flagging even if you only
+         buy the cheaper side and believe it's right.
+
+    Returns list sorted by gap descending (best edge first).
+    """
+    markets = fetch_all_open_markets(private_key)
+    results = []
+    for m in markets:
+        yes_ask = m.get("yes_ask")
+        no_ask = m.get("no_ask")
+        if yes_ask is None or no_ask is None:
+            continue
+        total = yes_ask + no_ask
+        gap = 100 - total
+        if gap < min_gap:
+            continue
+        # which side is cheaper
+        cheap_side = "yes" if yes_ask <= no_ask else "no"
+        cheap_ask = yes_ask if cheap_side == "yes" else no_ask
+        results.append({
+            "ticker": m.get("ticker", ""),
+            "title": m.get("title", ""),
+            "yes_ask": yes_ask,
+            "no_ask": no_ask,
+            "gap": round(gap, 1),
+            "is_arb": gap > 0,            # true arb: both sides together < 100
+            "cheap_side": cheap_side,
+            "cheap_ask": cheap_ask,
+            "close_time": m.get("close_time", ""),
+            "series_ticker": m.get("series_ticker", ""),
+        })
+    results.sort(key=lambda x: x["gap"], reverse=True)
+    return results[:50]  # top 50
+
+
 # ── scan ─────────────────────────────────────────────────────────────────────
 
 def _cutoff_ts_today(cutoff_hour: int = CUTOFF_HOUR_ET) -> int:
