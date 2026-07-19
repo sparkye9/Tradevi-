@@ -5,19 +5,31 @@ export const MARKET_TICKERS = [
   // Mega cap tech
   'AAPL','MSFT','NVDA','GOOGL','META','AMZN','TSLA','AMD','INTC','QCOM',
   // Finance
-  'JPM','BAC','GS','MS','WFC','BRK-B','V','MA','AXP','C',
+  'JPM','BAC','GS','MS','WFC','V','MA','AXP','C','SCHW',
   // Healthcare
-  'JNJ','UNH','PFE','ABBV','MRK','LLY','TMO','ABT','DHR','BMY',
+  'JNJ','UNH','PFE','ABBV','MRK','LLY','MRNA','BNTX','BIIB','GILD',
   // Consumer
-  'WMT','COST','HD','NKE','MCD','SBUX','TGT','LOW','TJX',
+  'WMT','COST','HD','NKE','MCD','SBUX','TGT','LOW','AMZN','ETSY',
   // Energy
-  'XOM','CVX','COP','SLB','EOG','PXD','MPC','VLO','HAL','OXY',
-  // ETFs
+  'XOM','CVX','COP','SLB','EOG','MPC','VLO','HAL','OXY','DVN',
+  // ETFs (kept for context, excluded from plays)
   'SPY','QQQ','IWM','DIA','XLK','XLF','XLV','XLE','XLY','GLD',
-  // High momentum names
+  // High momentum / growth
   'SHOP','PLTR','SNOW','CRWD','NET','DDOG','PANW','ZS','COIN','HOOD',
-  // Other popular
-  'NFLX','DIS','BA','CAT','DE','MMM','GE','F','GM','UBER',
+  // Entertainment / media
+  'NFLX','DIS','SPOT','RBLX','EA','TTWO','PARA',
+  // EV / clean energy
+  'RIVN','LCID','NIO','XPEV','LI','CHPT','BLNK','PLUG','FCEL',
+  // Crypto / fintech
+  'MARA','RIOT','CLSK','MSTR','HUT','SOFI','AFRM','UPST','SQ','PYPL',
+  // Biotech / speculative
+  'SAVA','NVAX','SRPT','ACAD','EXAS','RCUS','ARWR','FATE',
+  // Small/mid cap momentum
+  'DKNG','PENN','IONQ','SOUN','AI','BBAI','RCAT','SMCI','CLOV','FUTU',
+  // Other high-liquidity
+  'UBER','LYFT','SNAP','PINS','TWTR','BABA','JD','PDD','BILI',
+  // Industrial / macro
+  'BA','CAT','DE','GE','MMM','RTX','LMT','NOC','F','GM',
 ];
 
 export interface ManualCheck {

@@ -35,4 +35,6 @@
   .card-hover { @apply hover:bg-[#161616] hover:border-[#2a2a2a] transition-all; }
   .label { @apply text-xs font-semibold uppercase tracking-widest text-gray-500; }
   .value { @apply text-white font-mono font-semibold; }
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
 }

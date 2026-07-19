@@ -7,19 +7,58 @@ const NAV = [
   { href: '/trade-discovery', label: 'Trade Discovery', icon: '◎' },
   { href: '/swing', label: 'Swing', icon: '↗' },
   { href: '/intraday', label: 'Intraday', icon: '⚡' },
-  { href: '/opportunity-finder', label: 'Opportunity Finder', icon: '🎯' },
+  { href: '/opportunity-finder', label: 'Small Account Edge', icon: '🎯' },
   { href: '/options', label: 'Options', icon: '◈' },
-  { href: '/mini-futures', label: 'Mini Futures', icon: '▦' },
+  { href: '/mini-futures', label: 'Futures Guide', icon: '▦' },
   { href: '/power-hour', label: 'Power Hour', icon: '◉' },
-  { href: '/futures-bias', label: 'Futures Bias', icon: '◀' },
+  { href: '/kalshi', label: 'Kalshi Scanner', icon: '◆' },
 ];
 
-export default function Sidebar() {
+// Mobile bottom nav shows a subset of the most-used pages
+const MOBILE_NAV = [
+  { href: '/', label: 'Home', icon: '⬡' },
+  { href: '/intraday', label: 'Intraday', icon: '⚡' },
+  { href: '/mini-futures', label: 'Futures', icon: '▦' },
+  { href: '/power-hour', label: 'Power Hour', icon: '◉' },
+  { href: '/trade-discovery', label: 'Discover', icon: '◎' },
+];
+
+export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const pathname = usePathname();
 
+  // ── Mobile bottom nav ──
+  if (mobile) {
+    return (
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-50 md:hidden flex items-stretch border-t border-[#1a1a1a]"
+        style={{ background: '#090909' }}
+      >
+        {MOBILE_NAV.map(({ href, label, icon }) => {
+          const active = pathname === href;
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-center transition-colors ${
+                active ? 'text-emerald-400' : 'text-gray-600 hover:text-gray-300'
+              }`}
+            >
+              <span className="text-lg leading-none">{icon}</span>
+              <span className="text-[9px] font-semibold tracking-wide leading-none">{label}</span>
+              {active && (
+                <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-emerald-500 rounded-b-full" />
+              )}
+            </Link>
+          );
+        })}
+      </nav>
+    );
+  }
+
+  // ── Desktop sidebar ──
   return (
     <aside
-      className="w-56 min-h-screen flex flex-col py-5 px-3"
+      className="w-56 min-h-screen flex flex-col py-5 px-3 shrink-0"
       style={{
         background: '#090909',
         borderRight: '1px solid #1a1a1a',

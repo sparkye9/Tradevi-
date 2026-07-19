@@ -1,16 +1,19 @@
 import { NextResponse } from 'next/server';
-import { fetchFinvizFutures } from '@/lib/finviz';
 import { fetchYahooQuotes } from '@/lib/yahoo-screener';
 import type { FinvizFuture, FinvizResult } from '@/lib/finviz';
 
 export const runtime = 'nodejs';
 
 const FUTURES_MAP: { yahoo: string; symbol: string; name: string }[] = [
-  { yahoo: 'ES=F',  symbol: 'ES',  name: 'S&P 500 Futures' },
-  { yahoo: 'NQ=F',  symbol: 'NQ',  name: 'Nasdaq 100 Futures' },
-  { yahoo: 'YM=F',  symbol: 'YM',  name: 'Dow Jones Futures' },
-  { yahoo: 'RTY=F', symbol: 'RTY', name: 'Russell 2000 Futures' },
-  { yahoo: 'NKD=F', symbol: 'NKD', name: 'Nikkei 225 Futures' },
+  { yahoo: 'ES=F',      symbol: 'ES',  name: 'S&P 500 Futures' },
+  { yahoo: 'NQ=F',      symbol: 'NQ',  name: 'Nasdaq 100 Futures' },
+  { yahoo: 'YM=F',      symbol: 'YM',  name: 'Dow Jones Futures' },
+  { yahoo: 'RTY=F',     symbol: 'RTY', name: 'Russell 2000 Futures' },
+  { yahoo: '^VIX',      symbol: 'VIX', name: 'CBOE Volatility Index' },
+  { yahoo: 'GC=F',      symbol: 'GC',  name: 'Gold Futures' },
+  { yahoo: 'CL=F',      symbol: 'OIL', name: 'Crude Oil Futures' },
+  { yahoo: '^TNX',      symbol: 'TNX', name: '10-Year Treasury Yield' },
+  { yahoo: 'DX=F',      symbol: 'DXY', name: 'US Dollar Index' },
 ];
 
 // Last successful result — serves stale data if all live fetches fail
@@ -19,11 +22,11 @@ let lastGoodResult: FinvizResult<FinvizFuture> | null = null;
 async function fetchYahooFutures(): Promise<FinvizResult<FinvizFuture>> {
   const now = new Date().toISOString();
   try {
-    // Uses the same proven crumb-auth path as the screener (shared module)
     const quotes = await fetchYahooQuotes(FUTURES_MAP.map((f) => f.yahoo));
 
     if (quotes.length === 0) throw new Error('Empty response');
 
+    // Yahoo returns ^VIX as "^VIX" — build a map by yahoo symbol
     const quoteMap: Record<string, typeof quotes[0]> = {};
     for (const q of quotes) quoteMap[q.symbol] = q;
 
@@ -51,7 +54,6 @@ async function fetchYahooFutures(): Promise<FinvizResult<FinvizFuture>> {
     if (lastGoodResult) {
       return { ...lastGoodResult, sourceError: `Stale data — ${String(err)}` };
     }
-    // Absolute fallback: return all symbols with null so the bar always renders
     return {
       data: FUTURES_MAP.map((f) => ({
         symbol: f.symbol, name: f.name, price: null, changePercent: null, direction: null, lastUpdated: now,
@@ -64,10 +66,5 @@ async function fetchYahooFutures(): Promise<FinvizResult<FinvizFuture>> {
 }
 
 export async function GET() {
-  const finviz = await fetchFinvizFutures();
-  if (!finviz.sourceError) {
-    lastGoodResult = finviz;
-    return NextResponse.json(finviz);
-  }
   return NextResponse.json(await fetchYahooFutures());
 }

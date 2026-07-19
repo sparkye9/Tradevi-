@@ -121,13 +121,12 @@ function PositionSizing({ price, capital, contracts }: { price: number | null; c
   const shares = Math.floor(capital / price);
   const stockCost = +(shares * price).toFixed(2);
 
-  // Option sizing (cheapest qualifying call contract)
-  const cheapestCall = contracts?.filter(c => c.type === 'call' && c.bid !== null && c.ask !== null)
-    .sort((a, b) => {
-      const midA = (a.bid! + a.ask!) / 2;
-      const midB = (b.bid! + b.ask!) / 2;
-      return midA - midB;
-    })[0] ?? null;
+  // Option sizing — prefer cheap contracts ($10–$50), fall back to cheapest available
+  const cheapContracts = contracts?.filter(c => c.bid !== null && c.ask !== null && (c.bid + c.ask) / 2 <= 0.50 && (c.bid + c.ask) / 2 >= 0.10 && Math.abs(c.delta ?? 0) >= 0.29) ?? [];
+  const callPool = cheapContracts.filter(c => c.type === 'call').length > 0
+    ? cheapContracts.filter(c => c.type === 'call')
+    : (contracts?.filter(c => c.type === 'call' && c.bid !== null && c.ask !== null) ?? []);
+  const cheapestCall = callPool.sort((a, b) => (a.bid! + a.ask!) / 2 - (b.bid! + b.ask!) / 2)[0] ?? null;
 
   const optionContracts = cheapestCall && cheapestCall.bid !== null && cheapestCall.ask !== null
     ? Math.floor(capital / (((cheapestCall.bid + cheapestCall.ask) / 2) * 100))
@@ -296,7 +295,7 @@ function IntradayCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: 
     setLoadingContracts(true);
     setShowSizing(true);
     try {
-      const res = await fetch(`/api/tradier/options?symbol=${q.symbol}`);
+      const res = await fetch(`/api/tradier/options?symbol=${q.symbol}&cheap=true`);
       const json: TradierOptionsResult = await res.json();
       setContracts(json.contracts ?? []);
     } catch {
@@ -546,6 +545,188 @@ function SwingCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: num
   );
 }
 
+// ─── Penny Options Scanner ────────────────────────────────────────────────────
+
+interface PennyContract {
+  ticker: string;
+  tickerPrice: number | null;
+  contract: TradierContract;
+  costPerContract: number;
+  estGain5pct: number;
+  estGain10pct: number;
+}
+
+function PennyRow({ p }: { p: PennyContract }) {
+  const mid = p.costPerContract;
+  const isCall = p.contract.type === 'call';
+  const color = isCall ? 'text-emerald-400' : 'text-red-400';
+  const bg = isCall ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20';
+  const daysUntilExpiry = Math.max(0, Math.round(
+    (new Date(p.contract.expiration).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+  ));
+
+  return (
+    <div className={`border rounded-xl p-3 flex flex-col gap-2 ${bg}`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-white font-bold font-mono text-sm">{p.ticker}</span>
+          <span className={`text-xs font-bold uppercase px-1.5 py-0.5 rounded ${color} bg-black/30`}>{p.contract.type}</span>
+          <span className="text-gray-400 font-mono text-xs">${p.contract.strike}</span>
+        </div>
+        <div className="text-right">
+          <div className="text-white font-mono font-bold text-sm">${mid.toFixed(2)}<span className="text-gray-600 text-xs font-normal">/share</span></div>
+          <div className="text-gray-600 text-xs">${(mid * 100).toFixed(0)}/contract</div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 text-xs font-mono flex-wrap">
+        <span className="text-gray-600">{p.contract.expiration}</span>
+        <span className={daysUntilExpiry <= 2 ? 'text-red-400' : 'text-amber-400'}>{daysUntilExpiry}d to exp</span>
+        {p.contract.delta !== null && <span className={color}>Δ{p.contract.delta.toFixed(2)}</span>}
+        {p.contract.iv !== null && <span className="text-gray-600">IV {(p.contract.iv * 100).toFixed(0)}%</span>}
+        {p.tickerPrice !== null && <span className="text-gray-500">stock ${p.tickerPrice.toFixed(2)}</span>}
+      </div>
+
+      <div className="grid grid-cols-2 gap-1.5 text-xs">
+        <div className="bg-black/30 rounded-lg p-1.5 text-center">
+          <div className="text-gray-600 text-[10px]">stock +5%</div>
+          <div className="text-emerald-400 font-mono font-semibold">+{p.estGain5pct.toFixed(0)}%</div>
+        </div>
+        <div className="bg-black/30 rounded-lg p-1.5 text-center">
+          <div className="text-gray-600 text-[10px]">stock +10%</div>
+          <div className="text-emerald-400 font-mono font-semibold">+{p.estGain10pct.toFixed(0)}%</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PennyScanner({ quotes }: { quotes: FinvizQuote[] }) {
+  const [pennies, setPennies] = useState<PennyContract[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [scanned, setScanned] = useState(false);
+  const [scanType, setScanType] = useState<'calls' | 'puts'>('calls');
+
+  const scanPennies = useCallback(async (type: 'calls' | 'puts') => {
+    setLoading(true);
+    setScanned(false);
+    setScanType(type);
+
+    const INDEX_ETFS = ['SPY', 'QQQ', 'IWM', 'DIA', 'XLK', 'XLF', 'XLV', 'XLE', 'XLY', 'GLD'];
+    const sorted = [...quotes]
+      .filter(q => !INDEX_ETFS.includes(q.symbol) && q.price !== null && q.price > 0)
+      .sort((a, b) =>
+        type === 'calls'
+          ? (b.changePercent ?? 0) - (a.changePercent ?? 0)
+          : (a.changePercent ?? 0) - (b.changePercent ?? 0)
+      )
+      .slice(0, 12);
+
+    const results: PennyContract[] = [];
+
+    await Promise.all(sorted.map(async (q) => {
+      try {
+        const res = await fetch(`/api/tradier/options?symbol=${q.symbol}&penny=true`);
+        const json: TradierOptionsResult = await res.json();
+        const contracts = (json.contracts ?? [])
+          .filter(c => c.type === (type === 'calls' ? 'call' : 'put'))
+          .filter(c => c.bid !== null && c.ask !== null);
+
+        for (const c of contracts) {
+          const mid = ((c.bid ?? 0) + (c.ask ?? 0)) / 2;
+          if (mid < 0.05 || mid > 0.50) continue;
+          const delta = Math.abs(c.delta ?? 0);
+          const stockMove5 = (q.price ?? 0) * 0.05;
+          const stockMove10 = (q.price ?? 0) * 0.10;
+          results.push({
+            ticker: q.symbol,
+            tickerPrice: q.price,
+            contract: c,
+            costPerContract: mid,
+            estGain5pct: mid > 0 ? (delta * stockMove5 / mid) * 100 : 0,
+            estGain10pct: mid > 0 ? (delta * stockMove10 / mid) * 100 : 0,
+          });
+        }
+      } catch {
+        // skip this ticker silently
+      }
+    }));
+
+    // Sort by best estimated gain on a 5% move
+    results.sort((a, b) => b.estGain5pct - a.estGain5pct);
+    setPennies(results.slice(0, 20));
+    setLoading(false);
+    setScanned(true);
+  }, [quotes]);
+
+  return (
+    <div className="bg-[#0d0d0d] border border-purple-500/20 rounded-2xl p-4 space-y-4">
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-lg">💎</span>
+            <h2 className="text-white font-bold text-base">Penny Options Scanner</h2>
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Finds options priced $0.05–$0.50/share ($5–$50/contract) · delta 0.10–0.35 · near expiry.
+            Same type as AAPL at $0.27 — scans today&apos;s top movers.
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <button
+            onClick={() => scanPennies('calls')}
+            disabled={loading}
+            className="px-3 py-1.5 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full hover:bg-emerald-500/30 transition-all disabled:opacity-50"
+          >
+            {loading && scanType === 'calls' ? 'Scanning...' : '⚡ Scan Calls'}
+          </button>
+          <button
+            onClick={() => scanPennies('puts')}
+            disabled={loading}
+            className="px-3 py-1.5 text-xs font-semibold bg-red-500/20 text-red-300 border border-red-500/30 rounded-full hover:bg-red-500/30 transition-all disabled:opacity-50"
+          >
+            {loading && scanType === 'puts' ? 'Scanning...' : '🔻 Scan Puts'}
+          </button>
+        </div>
+      </div>
+
+      {!scanned && !loading && (
+        <div className="text-center py-6 text-gray-600 text-sm">
+          Hit &quot;Scan Calls&quot; or &quot;Scan Puts&quot; to find penny options on today&apos;s top movers
+        </div>
+      )}
+
+      {loading && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {[1,2,3,4].map(i => (
+            <div key={i} className="bg-[#111111] border border-[#1e1e1e] rounded-xl p-3 h-24 animate-pulse" />
+          ))}
+        </div>
+      )}
+
+      {scanned && !loading && pennies.length === 0 && (
+        <div className="text-center py-6 text-gray-600 text-sm">
+          No penny options found right now. Try the other direction, or check back during market hours.
+        </div>
+      )}
+
+      {scanned && !loading && pennies.length > 0 && (
+        <>
+          <p className="text-xs text-gray-600">
+            Found <span className="text-white font-semibold">{pennies.length}</span> penny {scanType} · sorted by estimated gain on a +5% stock move
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {pennies.map((p, i) => <PennyRow key={`${p.ticker}-${p.contract.symbol}-${i}`} p={p} />)}
+          </div>
+          <p className="text-[10px] text-gray-700">
+            Gains estimated using delta × price move ÷ option cost. Actual gains vary — gamma, IV crush, and theta all affect outcome. Never risk more than you can afford to lose on penny options.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function OpportunityFinderPage() {
@@ -593,24 +774,49 @@ export default function OpportunityFinderPage() {
     .map(q => ({ q, score: computeScore(q, rvolThreshold) }))
     .sort((a, b) => b.score - a.score);
 
-  // Intraday: prefer RVOL/unusual volume hits; fallback to top movers by % change
-  const intradayScored = scored.filter(({ q }) => (q.rvol ?? 0) >= rvolThreshold || q.newHighDay || q.unusualVolume);
-  const intradayFallback = [...candidates]
-    .sort((a, b) => Math.abs(b.changePercent ?? 0) - Math.abs(a.changePercent ?? 0));
-  const intraday = (intradayScored.length >= 3 ? intradayScored : scored)
-    .slice(0, 10)
-    .map(({ q }) => q);
-  // If still empty use raw fallback
-  const intradayFinal = intraday.length > 0 ? intraday : intradayFallback.slice(0, 10);
+  // Intraday BULLISH: RVOL, new highs, positive momentum
+  const intradayBullish = scored
+    .filter(({ q }) => (q.rvol ?? 0) >= rvolThreshold || q.newHighDay || q.unusualVolume)
+    .filter(({ q }) => (q.changePercent ?? 0) >= -1) // not crashing hard
+    .slice(0, 15).map(({ q }) => q);
 
-  // Swing: above both SMAs + positive momentum; fallback to any above SMA50
-  const swingScored = scored.filter(({ q }) =>
-    q.sma50rel === 'above' && q.sma200rel === 'above'
-  );
-  const swingFallback = scored.filter(({ q }) => q.sma50rel === 'above');
-  const swing = (swingScored.length >= 2 ? swingScored : swingFallback)
-    .slice(0, 5)
-    .map(({ q }) => q);
+  // Intraday BEARISH: dropping with volume — put plays
+  const intradayBearish = [...candidates]
+    .filter(q => (q.changePercent ?? 0) <= -1.5)
+    .sort((a, b) => {
+      // prioritize: RVOL desc, then % change (most negative first)
+      const rvolScore = ((b.rvol ?? 0) - (a.rvol ?? 0)) * 10;
+      const chgScore = (a.changePercent ?? 0) - (b.changePercent ?? 0);
+      return rvolScore + chgScore;
+    })
+    .slice(0, 10);
+
+  // Fallback: if both empty use top movers by absolute % change
+  const intradayFallback = [...candidates]
+    .sort((a, b) => Math.abs(b.changePercent ?? 0) - Math.abs(a.changePercent ?? 0))
+    .slice(0, 15);
+  const intradayFinal = (intradayBullish.length + intradayBearish.length >= 3)
+    ? intradayBullish
+    : intradayFallback;
+
+  // Swing LONG: above SMA50+200, sector strength
+  const swingLong = scored
+    .filter(({ q }) => q.sma50rel === 'above' && q.sma200rel === 'above')
+    .slice(0, 8).map(({ q }) => q);
+  const swingLongFallback = scored
+    .filter(({ q }) => q.sma50rel === 'above')
+    .slice(0, 8).map(({ q }) => q);
+  const swing = swingLong.length >= 2 ? swingLong : swingLongFallback;
+
+  // Swing SHORT: below SMA50+200, sector weak — put plays
+  const swingShort = candidates
+    .filter(q => q.sma50rel === 'below' && q.sma200rel === 'below')
+    .sort((a, b) => {
+      const aScore = ((a.rvol ?? 0) >= rvolThreshold ? 10 : 0) + (a.groupStrength === 'weak' ? 8 : 0) + Math.abs(a.changePercent ?? 0);
+      const bScore = ((b.rvol ?? 0) >= rvolThreshold ? 10 : 0) + (b.groupStrength === 'weak' ? 8 : 0) + Math.abs(b.changePercent ?? 0);
+      return bScore - aScore;
+    })
+    .slice(0, 8);
 
   const cond = marketCondition(ctx);
 
@@ -619,7 +825,7 @@ export default function OpportunityFinderPage() {
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">Opportunity Finder</h1>
+          <h1 className="text-2xl font-bold text-white">Small Account Edge</h1>
           <p className="text-sm text-gray-500 mt-1">
             Highest-probability setups for small accounts · scores based on real signals
           </p>
@@ -666,12 +872,15 @@ export default function OpportunityFinderPage() {
 
       {data?.sourceError && <DataUnavailable reason={data.sourceError} />}
 
-      {/* ── INTRADAY OPPORTUNITIES ── */}
+      {/* ── PENNY OPTIONS SCANNER ── */}
+      {!loading && <PennyScanner quotes={allQuotes} />}
+
+      {/* ── INTRADAY CALL PLAYS ── */}
       <section className="space-y-4">
         <div className="flex items-center gap-3 pb-1 border-b border-[#1e1e1e]">
           <div>
-            <h2 className="text-white font-bold text-base">⚡ Intraday Opportunities</h2>
-            <p className="text-xs text-gray-600 mt-0.5">High RVOL · unusual volume · momentum — moves happening today</p>
+            <h2 className="text-white font-bold text-base">⚡ Intraday — Call Plays</h2>
+            <p className="text-xs text-gray-600 mt-0.5">High RVOL · unusual volume · upside momentum · options $10–$50</p>
           </div>
           <div className={`ml-auto flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold ${
             cond.light === 'green' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
@@ -685,16 +894,14 @@ export default function OpportunityFinderPage() {
 
         {loading && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {[1,2,3].map(i => (
+            {[1,2,3,4,5,6].map(i => (
               <div key={i} className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-4 h-48 animate-pulse" />
             ))}
           </div>
         )}
 
         {!loading && intradayFinal.length === 0 && (
-          <div className="text-center py-10 text-gray-600">
-            No data returned. Check data source status above.
-          </div>
+          <div className="text-center py-10 text-gray-600">No data returned. Check data source status above.</div>
         )}
 
         {!loading && intradayFinal.length > 0 && (
@@ -706,25 +913,38 @@ export default function OpportunityFinderPage() {
         )}
       </section>
 
-      {/* ── SWING OPPORTUNITIES ── */}
+      {/* ── INTRADAY PUT PLAYS ── */}
+      {!loading && intradayBearish.length > 0 && (
+        <section className="space-y-4">
+          <div className="pb-1 border-b border-red-500/20">
+            <h2 className="text-red-400 font-bold text-base">🔻 Intraday — Put Plays</h2>
+            <p className="text-xs text-gray-600 mt-0.5">Dropping with volume · bearish structure · put options $10–$50</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {intradayBearish.map(q => (
+              <IntradayCard key={q.symbol} q={q} capital={capitalAmount} rvolThreshold={rvolThreshold} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── SWING LONG PLAYS ── */}
       <section className="space-y-4">
         <div className="pb-1 border-b border-[#1e1e1e]">
-          <h2 className="text-white font-bold text-base">📈 Swing Opportunities</h2>
-          <p className="text-xs text-gray-600 mt-0.5">Trend-aligned · above SMA 50 & 200 · sector strength — holds 2–14 days</p>
+          <h2 className="text-white font-bold text-base">📈 Swing — Call Plays</h2>
+          <p className="text-xs text-gray-600 mt-0.5">Above SMA 50 &amp; 200 · sector strength · hold 2–14 days</p>
         </div>
 
         {loading && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {[1,2].map(i => (
+            {[1,2,3].map(i => (
               <div key={i} className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-4 h-48 animate-pulse" />
             ))}
           </div>
         )}
 
         {!loading && swing.length === 0 && (
-          <div className="text-center py-10 text-gray-600">
-            No swing setups with full trend alignment right now.
-          </div>
+          <div className="text-center py-10 text-gray-600">No swing call setups with trend alignment right now.</div>
         )}
 
         {!loading && swing.length > 0 && (
@@ -736,9 +956,24 @@ export default function OpportunityFinderPage() {
         )}
       </section>
 
+      {/* ── SWING SHORT / PUT PLAYS ── */}
+      {!loading && swingShort.length > 0 && (
+        <section className="space-y-4">
+          <div className="pb-1 border-b border-red-500/20">
+            <h2 className="text-red-400 font-bold text-base">📉 Swing — Put Plays</h2>
+            <p className="text-xs text-gray-600 mt-0.5">Below SMA 50 &amp; 200 · sector weakness · hold 3–14 days</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {swingShort.map(q => (
+              <SwingCard key={q.symbol} q={q} capital={capitalAmount} rvolThreshold={rvolThreshold} />
+            ))}
+          </div>
+        </section>
+      )}
+
       <p className="text-xs text-gray-700 pb-4">
-        Scores computed from: RVOL, unusual volume, new highs, SMA alignment, sector strength, gap.
-        Entry / stop / target levels are <span className="text-amber-400/70">estimated</span> — always verify structure on TradingView before entering.
+        Options filtered: Δ ≥ 0.29 · contract cost $10–$50 · Δ 0.70–0.85 max.
+        Entry / stop / target levels are <span className="text-amber-400/70">estimated</span> — verify structure on TradingView before entering.
       </p>
     </div>
   );

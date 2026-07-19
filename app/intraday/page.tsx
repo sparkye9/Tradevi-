@@ -128,7 +128,7 @@ function OptionsPanel({ symbol }: { symbol: string }) {
 // ─── Candidate card ──────────────────────────────────────────────────────────
 
 function CandidateCard({ q, rvolThreshold }: { q: FinvizQuote; rvolThreshold: number }) {
-  const [showOptions, setShowOptions] = useState(false);
+  const [showOptions, setShowOptions] = useState(true);
   const isUnusual = (q.rvol ?? 0) >= 2;
   const borderClass = isUnusual
     ? 'border-amber-500/40 hover:border-amber-500/70'
@@ -248,9 +248,9 @@ export default function IntradayPage() {
   return (
     <div className="space-y-6 max-w-6xl">
       <div>
-        <h1 className="text-2xl font-bold text-white">Intraday</h1>
+        <h1 className="text-2xl font-bold text-white">Intraday Options</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Market scan · unusual volume · option contracts — all in one place
+          Unusual volume scan · same-day option contracts · calls &amp; puts
         </p>
       </div>
 
@@ -350,7 +350,7 @@ export default function IntradayPage() {
       )}
 
       <p className="text-xs text-gray-700">
-        Opening range, VWAP, and structure confirmed live on TradingView. Option contracts filtered Δ 0.20–0.70.
+        Opening range, VWAP, and structure confirmed live on TradingView. Option contracts filtered Δ 0.20–0.70. All plays are options, not shares.
       </p>
     </div>
   );
