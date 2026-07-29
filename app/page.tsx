@@ -7,8 +7,10 @@ import OpportunityCard from '@/components/scan/OpportunityCard';
 import { computeOpportunityScore, deriveDirection, deriveTimeframe, generateReason, generateBeginnerReason } from '@/lib/opportunityScore';
 import { computeFuturesBias, deriveMarketMood } from '@/lib/futuresBias';
 import { isBeginner, volumeLabel } from '@/lib/labels';
+import { diffOpportunityScores } from '@/lib/notifications';
 import type { FinvizQuote, FinvizFuture, FinvizResult } from '@/lib/finviz';
 import { useTradeviStore } from '@/store/tradeviStore';
+import { useNotificationsStore } from '@/store/notificationsStore';
 
 const INDEX_TICKERS = ['SPY', 'QQQ', 'IWM', 'GLD'];
 const RANK_MEDALS = ['🥇', '🥈', '🥉', '4', '5'];
@@ -109,6 +111,7 @@ function RankRow({
 
 export default function DashboardPage() {
   const { watchlist, rvolThreshold, experienceMode } = useTradeviStore();
+  const { lastScores, setLastScores, push: pushNotification } = useNotificationsStore();
   const beginner = isBeginner(experienceMode);
   const [indexData, setIndexData] = useState<FinvizResult<FinvizQuote> | null>(null);
   const [watchlistData, setWatchlistData] = useState<FinvizResult<FinvizQuote> | null>(null);
@@ -131,6 +134,22 @@ export default function DashboardPage() {
     }
     load();
   }, [watchlist]);
+
+  // Turn this refresh's rankings into notifications — new top entrants,
+  // crossings into high-confidence territory, and weakening momentum.
+  useEffect(() => {
+    if (!watchlistData || watchlistData.sourceError) return;
+    const topRanked = (watchlistData.data ?? [])
+      .filter((q) => q.price !== null)
+      .map((q) => ({ symbol: q.symbol, score: computeOpportunityScore(q, rvolThreshold) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+    const { toPush, nextScores } = diffOpportunityScores(lastScores, topRanked);
+    toPush.forEach((n) => pushNotification(n));
+    setLastScores(nextScores);
+    // Only re-run when a fresh fetch lands, not on every notification-store change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchlistData]);
 
   const indexQuotes = indexData?.data ?? [];
   const wlQuotes = watchlistData?.data ?? [];

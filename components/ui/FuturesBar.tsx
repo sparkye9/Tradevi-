@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import NotificationBell from '@/components/ui/NotificationBell';
 
 interface Future {
   symbol: string;
@@ -94,7 +95,7 @@ export default function FuturesBar() {
 
   return (
     <div
-      className="w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 border-b border-[#1a1a1a] overflow-x-auto scrollbar-none"
+      className="w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 border-b border-[#1a1a1a]"
       style={{ background: '#090909', minHeight: 38 }}
     >
       {/* Status dot + ET time */}
@@ -103,41 +104,49 @@ export default function FuturesBar() {
         <span className="text-gray-600 font-mono text-xs whitespace-nowrap">{etTime} ET</span>
       </div>
 
-      <span className="text-[#222] text-xs shrink-0">|</span>
+      {/*
+        Scrolls horizontally on narrow screens — isolated in its own overflow
+        container so it doesn't clip the notification dropdown below, which
+        needs to render outside any ancestor's overflow box.
+      */}
+      <div className="flex items-center gap-2 md:gap-3 overflow-x-auto scrollbar-none min-w-0">
+        <span className="text-[#222] text-xs shrink-0">|</span>
 
-      {/* Futures chips */}
-      {futures.map((f) => {
-        const isUp = f.direction === 'up';
-        const isDown = f.direction === 'down';
-        // VIX: rising is bearish (red), falling is bullish (green)
-        const chgColor = f.symbol === 'VIX'
-          ? (isUp ? 'text-red-400' : isDown ? 'text-emerald-400' : 'text-gray-500')
-          : (isUp ? 'text-emerald-400' : isDown ? 'text-red-400' : 'text-gray-500');
-        const chgArrow = isUp ? '▲' : isDown ? '▼' : '';
-        const isPlaceholder = !loaded || f.price === null;
-        const label = f.symbol === 'GC' ? 'Gold' : f.symbol;
-        return (
-          <div
-            key={f.symbol}
-            className="flex items-center gap-1.5 whitespace-nowrap shrink-0"
-          >
-            <span className="text-gray-500 font-mono text-xs">{label}</span>
-            {!isPlaceholder ? (
-              <>
-                <span className="text-white font-mono text-xs">{f.price!.toLocaleString()}</span>
-                <span className={`font-mono text-xs ${chgColor}`}>
-                  {chgArrow}{f.changePercent !== null ? `${f.changePercent >= 0 ? '+' : ''}${f.changePercent.toFixed(2)}%` : '--'}
-                </span>
-              </>
-            ) : (
-              <span className="text-gray-600 font-mono text-xs">--</span>
-            )}
-          </div>
-        );
-      })}
+        {/* Futures chips */}
+        {futures.map((f) => {
+          const isUp = f.direction === 'up';
+          const isDown = f.direction === 'down';
+          // VIX: rising is bearish (red), falling is bullish (green)
+          const chgColor = f.symbol === 'VIX'
+            ? (isUp ? 'text-red-400' : isDown ? 'text-emerald-400' : 'text-gray-500')
+            : (isUp ? 'text-emerald-400' : isDown ? 'text-red-400' : 'text-gray-500');
+          const chgArrow = isUp ? '▲' : isDown ? '▼' : '';
+          const isPlaceholder = !loaded || f.price === null;
+          const label = f.symbol === 'GC' ? 'Gold' : f.symbol;
+          return (
+            <div
+              key={f.symbol}
+              className="flex items-center gap-1.5 whitespace-nowrap shrink-0"
+            >
+              <span className="text-gray-500 font-mono text-xs">{label}</span>
+              {!isPlaceholder ? (
+                <>
+                  <span className="text-white font-mono text-xs">{f.price!.toLocaleString()}</span>
+                  <span className={`font-mono text-xs ${chgColor}`}>
+                    {chgArrow}{f.changePercent !== null ? `${f.changePercent >= 0 ? '+' : ''}${f.changePercent.toFixed(2)}%` : '--'}
+                  </span>
+                </>
+              ) : (
+                <span className="text-gray-600 font-mono text-xs">--</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
 
-      {/* Right side branding */}
-      <div className="ml-auto flex items-center shrink-0">
+      {/* Right side: notifications + branding */}
+      <div className="ml-auto flex items-center gap-3 shrink-0">
+        <NotificationBell />
         <span className="text-[10px] text-gray-700 font-bold tracking-widest">TRADEVI</span>
       </div>
     </div>
