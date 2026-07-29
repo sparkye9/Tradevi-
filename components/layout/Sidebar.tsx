@@ -5,23 +5,26 @@ import ModeToggle from '@/components/ui/ModeToggle';
 
 const NAV = [
   { href: '/', label: 'Dashboard', icon: '⬡' },
-  { href: '/trade-discovery', label: 'Trade Discovery', icon: '◎' },
-  { href: '/swing', label: 'Swing', icon: '↗' },
-  { href: '/intraday', label: 'Intraday', icon: '⚡' },
+  { href: '/scanner', label: 'Scanner', icon: '⚡' },
   { href: '/opportunity-finder', label: 'Small Account Edge', icon: '🎯' },
   { href: '/options', label: 'Options', icon: '◈' },
+  { href: '/journal', label: 'Journal', icon: '✎' },
+];
+
+// Markets — a different asset class / read than the equity scanner, kept
+// visually separate so it doesn't compete for "what should I trade today."
+const MARKETS_NAV = [
   { href: '/mini-futures', label: 'Futures Guide', icon: '▦' },
-  { href: '/power-hour', label: 'Power Hour', icon: '◉' },
   { href: '/kalshi', label: 'Kalshi Scanner', icon: '◆' },
 ];
 
 // Mobile bottom nav shows a subset of the most-used pages
 const MOBILE_NAV = [
   { href: '/', label: 'Home', icon: '⬡' },
-  { href: '/intraday', label: 'Intraday', icon: '⚡' },
+  { href: '/scanner', label: 'Scanner', icon: '⚡' },
+  { href: '/opportunity-finder', label: 'Discover', icon: '🎯' },
+  { href: '/journal', label: 'Journal', icon: '✎' },
   { href: '/mini-futures', label: 'Futures', icon: '▦' },
-  { href: '/power-hour', label: 'Power Hour', icon: '◉' },
-  { href: '/trade-discovery', label: 'Discover', icon: '◎' },
 ];
 
 export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
@@ -77,6 +80,27 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
       {/* Nav */}
       <nav className="flex flex-col gap-0.5 flex-1">
         {NAV.map(({ href, label, icon }) => {
+          const active = pathname === href;
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all ${
+                active
+                  ? 'bg-emerald-500/10 text-emerald-400 border-l-2 border-emerald-500'
+                  : 'text-gray-500 hover:text-gray-200 hover:bg-white/5 border-l-2 border-transparent'
+              }`}
+            >
+              <span className={`text-base leading-none ${active ? 'text-emerald-400' : 'text-gray-600'}`}>
+                {icon}
+              </span>
+              <span>{label}</span>
+            </Link>
+          );
+        })}
+
+        <p className="px-3 pt-4 pb-1 text-[10px] text-gray-700 uppercase tracking-widest">Markets</p>
+        {MARKETS_NAV.map(({ href, label, icon }) => {
           const active = pathname === href;
           return (
             <Link

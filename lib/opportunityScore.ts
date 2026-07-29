@@ -158,6 +158,16 @@ export function computeSwingLevels(price: number, dir: Direction): SwingLevels |
   return null;
 }
 
+/** Is this ticker better framed as a same-day play or a multi-day one? */
+export function deriveTimeframe(q: FinvizQuote, rvolThreshold: number): 'intraday' | 'swing' {
+  const trending = q.sma50rel === 'above' && q.sma200rel === 'above' && q.groupStrength === 'strong';
+  const trendingDown = q.sma50rel === 'below' && q.sma200rel === 'below' && q.groupStrength === 'weak';
+  const hot = (q.rvol ?? 0) >= rvolThreshold || q.newHighDay || q.unusualVolume;
+  if (hot && !trending && !trendingDown) return 'intraday';
+  if (trending || trendingDown) return 'swing';
+  return 'intraday';
+}
+
 export interface ScoredQuote {
   q: FinvizQuote;
   score: number;

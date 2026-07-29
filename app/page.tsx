@@ -3,84 +3,15 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
-import TradingViewButton from '@/components/ui/TradingViewButton';
-import { computeOpportunityScore } from '@/lib/opportunityScore';
-import { volumeLabel, trendLabel } from '@/lib/labels';
+import OpportunityCard from '@/components/scan/OpportunityCard';
+import { computeOpportunityScore, deriveDirection, deriveTimeframe, generateReason, generateBeginnerReason } from '@/lib/opportunityScore';
+import { computeFuturesBias, deriveMarketMood } from '@/lib/futuresBias';
+import { isBeginner, volumeLabel } from '@/lib/labels';
 import type { FinvizQuote, FinvizFuture, FinvizResult } from '@/lib/finviz';
 import { useTradeviStore } from '@/store/tradeviStore';
 
 const INDEX_TICKERS = ['SPY', 'QQQ', 'IWM', 'GLD'];
-
-interface ScreenerResult extends FinvizResult<FinvizQuote> {}
-interface FuturesResult extends FinvizResult<FinvizFuture> {}
-
-function deriveMarketPosture(quotes: FinvizQuote[]): {
-  posture: 'Risk-On' | 'Risk-Off' | 'Mixed';
-  icon: string;
-  conditions: string[];
-} {
-  const aboveSma20 = quotes.filter((q) => q.sma20rel === 'above').length;
-  const strongGroup = quotes.filter((q) => q.groupStrength === 'strong').length;
-  const conditions: string[] = [];
-  conditions.push(`${aboveSma20} of ${quotes.length} above SMA 20`);
-  conditions.push(`${strongGroup} of ${quotes.length} with strong group`);
-
-  if (aboveSma20 >= Math.ceil(quotes.length * 0.75)) {
-    return { posture: 'Risk-On', icon: '▲', conditions };
-  }
-  if (aboveSma20 <= Math.floor(quotes.length * 0.25)) {
-    return { posture: 'Risk-Off', icon: '▼', conditions };
-  }
-  return { posture: 'Mixed', icon: '◆', conditions };
-}
-
-function CandidateCard({ q, rvolThreshold }: { q: FinvizQuote; rvolThreshold: number }) {
-  const { experienceMode } = useTradeviStore();
-  const chgColor = (q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400';
-  const isUnusual = q.unusualVolume === true && (q.rvol ?? 0) >= 2;
-  const isNewHigh = q.newHighDay === true;
-  const score = computeOpportunityScore(q, rvolThreshold);
-  const scoreColor = score >= 75 ? 'text-emerald-400' : score >= 60 ? 'text-amber-400' : 'text-gray-500';
-  return (
-    <div className="card card-hover flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <span className="text-white font-mono font-bold text-lg">{q.symbol}</span>
-        <div className="flex gap-1.5 flex-wrap justify-end items-center">
-          {isUnusual && (
-            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              {volumeLabel(q, experienceMode)}
-            </span>
-          )}
-          {isNewHigh && (
-            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              NEW HIGH
-            </span>
-          )}
-          <span className={`text-xs font-bold font-mono ${scoreColor}`}>{score}</span>
-        </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <span className="text-white font-mono font-semibold text-base">
-          {q.price !== null ? `$${q.price.toFixed(2)}` : '--'}
-        </span>
-        <span className={`font-mono font-semibold text-sm ${chgColor}`}>
-          {q.changePercent !== null ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%` : '--'}
-        </span>
-      </div>
-      <div className="flex items-center gap-3 text-xs font-mono">
-        <span className={q.sma50rel === 'above' ? 'text-emerald-400' : q.sma50rel === 'below' ? 'text-red-400' : 'text-gray-600'}>
-          {trendLabel(q, experienceMode)}
-        </span>
-        {!isUnusual && q.rvol !== null && (
-          <span className="text-gray-600">{volumeLabel(q, experienceMode)}</span>
-        )}
-      </div>
-      <div className="flex items-center justify-between mt-1">
-        <TradingViewButton symbol={q.symbol} label="View Setup" />
-      </div>
-    </div>
-  );
-}
+const RANK_MEDALS = ['🥇', '🥈', '🥉', '4', '5'];
 
 function IndexStatCard({ q, sym }: { q: FinvizQuote | undefined; sym: string }) {
   if (!q) {
@@ -103,12 +34,87 @@ function IndexStatCard({ q, sym }: { q: FinvizQuote | undefined; sym: string }) 
   );
 }
 
+function MoodCard({ read, loading }: { read: ReturnType<typeof computeFuturesBias> | null; loading: boolean }) {
+  if (loading || !read) {
+    return (
+      <div className="card">
+        <div className="text-xs text-gray-600 animate-pulse">Reading today&apos;s market mood...</div>
+      </div>
+    );
+  }
+  const mood = deriveMarketMood(read);
+  const color = read.bias === 'BULLISH' ? 'text-emerald-400' : read.bias === 'BEARISH' ? 'text-red-400' : 'text-amber-400';
+  const border = read.bias === 'BULLISH' ? 'border-emerald-500/30' : read.bias === 'BEARISH' ? 'border-red-500/30' : 'border-amber-500/20';
+  return (
+    <div className={`card border ${border} flex items-center justify-between gap-4 flex-wrap`}>
+      <div>
+        <span className="label">Today&apos;s Market Mood</span>
+        <div className={`text-xl font-bold font-mono mt-1 ${color}`}>{mood}</div>
+        <p className="text-xs text-gray-500 mt-1 max-w-md">{read.playbook[0]}</p>
+      </div>
+      <div className="text-right shrink-0">
+        <div className={`text-2xl font-black font-mono ${color}`}>{read.confidence}%</div>
+        <div className="text-[10px] text-gray-600 uppercase tracking-wider">Confidence</div>
+      </div>
+    </div>
+  );
+}
+
+function RankRow({
+  rank,
+  q,
+  rvolThreshold,
+  expanded,
+  onToggle,
+}: {
+  rank: number;
+  q: FinvizQuote;
+  rvolThreshold: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const { experienceMode } = useTradeviStore();
+  const beginner = isBeginner(experienceMode);
+  const score = computeOpportunityScore(q, rvolThreshold);
+  const direction = deriveDirection(q);
+  const scoreColor = score >= 75 ? 'text-emerald-400' : score >= 60 ? 'text-amber-400' : 'text-gray-500';
+  const dirColor = direction === 'BULLISH' ? 'text-emerald-400' : direction === 'BEARISH' ? 'text-red-400' : 'text-amber-400';
+
+  return (
+    <div className="rounded-2xl border border-[#1e1e1e] overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-3 p-3.5 hover:bg-[#161616] transition-colors text-left"
+      >
+        <span className="text-lg w-6 text-center shrink-0">{RANK_MEDALS[rank] ?? rank + 1}</span>
+        <span className="text-white font-mono font-bold text-base w-16 shrink-0">{q.symbol}</span>
+        <span className="text-gray-400 font-mono text-sm w-20 shrink-0">
+          {q.price !== null ? `$${q.price.toFixed(2)}` : '--'}
+        </span>
+        <span className={`font-mono text-xs font-bold w-14 shrink-0 ${dirColor}`}>
+          {beginner ? (direction === 'BULLISH' ? 'BUY' : direction === 'BEARISH' ? 'SELL' : 'WATCH') : direction}
+        </span>
+        <span className="text-xs text-gray-600 flex-1 truncate hidden sm:block">{volumeLabel(q, experienceMode)}</span>
+        <span className={`font-mono font-bold text-sm shrink-0 ${scoreColor}`}>{score}</span>
+        <span className="text-gray-600 text-xs shrink-0">{expanded ? '▲' : '▼'}</span>
+      </button>
+      {expanded && (
+        <div className="p-3 pt-0">
+          <OpportunityCard q={q} rvolThreshold={rvolThreshold} timeframe={deriveTimeframe(q, rvolThreshold)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
-  const { watchlist, rvolThreshold } = useTradeviStore();
-  const [indexData, setIndexData] = useState<ScreenerResult | null>(null);
-  const [watchlistData, setWatchlistData] = useState<ScreenerResult | null>(null);
-  const [futuresData, setFuturesData] = useState<FuturesResult | null>(null);
+  const { watchlist, rvolThreshold, experienceMode } = useTradeviStore();
+  const beginner = isBeginner(experienceMode);
+  const [indexData, setIndexData] = useState<FinvizResult<FinvizQuote> | null>(null);
+  const [watchlistData, setWatchlistData] = useState<FinvizResult<FinvizQuote> | null>(null);
+  const [futuresData, setFuturesData] = useState<FinvizResult<FinvizFuture> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [expandedRank, setExpandedRank] = useState<number | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -135,39 +141,30 @@ export default function DashboardPage() {
   const iwm = indexQuotes.find((q) => q.symbol === 'IWM');
   const gld = indexQuotes.find((q) => q.symbol === 'GLD');
 
-  const posture = indexQuotes.length > 0 ? deriveMarketPosture(indexQuotes) : null;
+  const biasRead = futures.length > 0 ? computeFuturesBias(futures) : null;
 
-  const swingCandidates = [...wlQuotes]
-    .filter((q) => q.sma50rel === 'above' && q.sma200rel === 'above')
+  const ranked = [...wlQuotes]
+    .filter((q) => q.price !== null)
     .sort((a, b) => computeOpportunityScore(b, rvolThreshold) - computeOpportunityScore(a, rvolThreshold))
-    .slice(0, 3);
+    .slice(0, 5);
 
-  const intradayCandidates = [...wlQuotes]
-    .filter((q) => (q.rvol ?? 0) > rvolThreshold || q.newHighDay)
-    .sort((a, b) => (b.rvol ?? 0) - (a.rvol ?? 0))
-    .slice(0, 3);
-
-  const esFuture = futures.find((f) => f.symbol === 'ES');
-  const nqFuture = futures.find((f) => f.symbol === 'NQ');
-
-  const postureColor =
-    posture?.posture === 'Risk-On' ? 'text-emerald-400' :
-    posture?.posture === 'Risk-Off' ? 'text-red-400' : 'text-amber-400';
-  const postureBorder =
-    posture?.posture === 'Risk-On' ? 'border-emerald-500/20' :
-    posture?.posture === 'Risk-Off' ? 'border-red-500/20' : 'border-amber-500/20';
+  const top = ranked[0] ?? null;
+  const topScore = top ? computeOpportunityScore(top, rvolThreshold) : 0;
+  const topDirection = top ? deriveDirection(top) : 'WATCH';
+  const topTimeframe = top ? deriveTimeframe(top, rvolThreshold) : 'intraday';
+  const topReason = top ? (beginner ? generateBeginnerReason(top) : generateReason(top)) : '';
 
   return (
     <div className="space-y-6 max-w-5xl">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-1">What should I focus on right now?</p>
+        <p className="text-sm text-gray-500 mt-1">What should I trade today?</p>
       </div>
 
       {loading && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[0,1,2,3].map((i) => (
+          {[0, 1, 2, 3].map((i) => (
             <div key={i} className="card animate-pulse">
               <div className="h-3 w-12 bg-[#222] rounded mb-3" />
               <div className="h-7 w-24 bg-[#222] rounded mb-2" />
@@ -187,105 +184,58 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Market posture + Futures row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Market posture */}
-        <div className={`card border ${postureBorder}`}>
-          <div className="flex items-center justify-between mb-3">
-            <span className="label">Market Posture</span>
-            {indexData && (
-              <SourceTag source={indexData.source ?? 'Yahoo Finance'} lastUpdated={indexData.lastUpdated} />
-            )}
-          </div>
-          {indexData?.sourceError ? (
-            <DataUnavailable reason={indexData.sourceError} />
-          ) : posture ? (
-            <div>
-              <div className={`text-xl font-bold font-mono mb-2 flex items-center gap-2 ${postureColor}`}>
-                <span>{posture.icon}</span>
-                <span>{posture.posture}</span>
-              </div>
-              <div className="space-y-1">
-                {posture.conditions.map((c) => (
-                  <div key={c} className="text-xs text-gray-500">{c}</div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="text-gray-600 text-sm">Verifying data...</div>
-          )}
-        </div>
+      {/* Today's Market Mood */}
+      <MoodCard read={biasRead} loading={loading && futures.length === 0} />
+      {futuresData?.sourceError && <DataUnavailable reason={futuresData.sourceError} />}
 
-        {/* Futures bias */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-3">
-            <span className="label">Futures Bias</span>
-            {futuresData && (
-              <SourceTag source={futuresData.source ?? 'Finviz'} lastUpdated={futuresData.lastUpdated} />
-            )}
-          </div>
-          {futuresData?.sourceError ? (
-            <DataUnavailable reason={futuresData.sourceError} />
-          ) : (
-            <div className="flex gap-4 flex-wrap">
-              {[esFuture, nqFuture].map((f) => f ? (
-                <div key={f.symbol} className="flex items-center gap-2">
-                  <span className="text-gray-500 font-mono text-sm">{f.symbol}</span>
-                  <span className={`font-mono font-semibold text-base ${
-                    f.direction === 'up' ? 'text-emerald-400' :
-                    f.direction === 'down' ? 'text-red-400' : 'text-gray-500'
-                  }`}>
-                    {f.direction === 'up' ? '▲' : f.direction === 'down' ? '▼' : '--'}
-                    {f.changePercent !== null ? ` ${f.changePercent >= 0 ? '+' : ''}${f.changePercent.toFixed(2)}%` : ''}
-                  </span>
-                </div>
-              ) : null)}
-              {!esFuture && !nqFuture && (
-                <span className="text-gray-600 text-sm">Verifying data...</span>
-              )}
+      {/* Today's Best Trade */}
+      <section>
+        <span className="label">Today&apos;s Best Trade</span>
+        {watchlistData?.sourceError ? (
+          <div className="mt-2"><DataUnavailable reason={watchlistData.sourceError} /></div>
+        ) : loading ? (
+          <div className="card animate-pulse h-48 mt-2" />
+        ) : !top ? (
+          <div className="card text-gray-600 text-sm mt-2">No qualifying setups on your watchlist right now.</div>
+        ) : (
+          <div className="mt-2 space-y-2">
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <span className={`font-bold ${topScore >= 75 ? 'text-emerald-400' : 'text-amber-400'}`}>Score {topScore}</span>
+              <span>·</span>
+              <span>{topDirection === 'BULLISH' ? (beginner ? 'Buy' : 'Bullish') : topDirection === 'BEARISH' ? (beginner ? 'Sell' : 'Bearish') : 'Watch'}</span>
+              <span>·</span>
+              <span>{topReason}</span>
             </div>
-          )}
-        </div>
-      </div>
+            <OpportunityCard q={top} rvolThreshold={rvolThreshold} timeframe={topTimeframe} defaultOptionsOpen />
+          </div>
+        )}
+      </section>
 
-      {/* Candidate columns */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <span className="label">Top Swing Candidates</span>
-            <Link href="/swing" className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors">View all →</Link>
-          </div>
-          {watchlistData?.sourceError ? (
-            <DataUnavailable reason={watchlistData.sourceError} />
-          ) : swingCandidates.length === 0 ? (
-            <div className="card text-gray-600 text-sm">No swing candidates</div>
-          ) : (
-            <div className="space-y-2">
-              {swingCandidates.map((q) => (
-                <CandidateCard key={q.symbol} q={q} rvolThreshold={rvolThreshold} />
-              ))}
-            </div>
-          )}
+      {/* Top 5 ranked */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <span className="label">Today&apos;s Best Opportunities</span>
+          <Link href="/scanner" className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors">Full scanner →</Link>
         </div>
-
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <span className="label">Top Intraday Candidates</span>
-            <Link href="/intraday" className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors">View all →</Link>
+        {watchlistData?.sourceError ? (
+          <DataUnavailable reason={watchlistData.sourceError} />
+        ) : ranked.length === 0 && !loading ? (
+          <div className="card text-gray-600 text-sm">No candidates yet.</div>
+        ) : (
+          <div className="space-y-2">
+            {ranked.map((q, i) => (
+              <RankRow
+                key={q.symbol}
+                rank={i}
+                q={q}
+                rvolThreshold={rvolThreshold}
+                expanded={expandedRank === i}
+                onToggle={() => setExpandedRank((p) => (p === i ? null : i))}
+              />
+            ))}
           </div>
-          {watchlistData?.sourceError ? (
-            <DataUnavailable reason={watchlistData.sourceError} />
-          ) : intradayCandidates.length === 0 ? (
-            <div className="card text-gray-600 text-sm">No intraday candidates</div>
-          ) : (
-            <div className="space-y-2">
-              {intradayCandidates.map((q) => (
-                <CandidateCard key={q.symbol} q={q} rvolThreshold={rvolThreshold} />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+        )}
+      </section>
 
       <p className="text-xs text-gray-700 text-center pt-2">
         Structure confirmed on TradingView only — CHOCH, BOS, FVG, VWAP not computed here.
