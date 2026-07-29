@@ -4,6 +4,8 @@ import Link from 'next/link';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
+import { computeOpportunityScore } from '@/lib/opportunityScore';
+import { volumeLabel, trendLabel } from '@/lib/labels';
 import type { FinvizQuote, FinvizFuture, FinvizResult } from '@/lib/finviz';
 import { useTradeviStore } from '@/store/tradeviStore';
 
@@ -32,34 +34,21 @@ function deriveMarketPosture(quotes: FinvizQuote[]): {
   return { posture: 'Mixed', icon: '◆', conditions };
 }
 
-function autoCount(q: FinvizQuote, threshold: number): number {
-  let n = 0;
-  if (q.rvol !== null && q.rvol >= threshold) n++;
-  if (q.unusualVolume) n++;
-  if (q.newHighDay) n++;
-  if (q.sma50rel === 'above') n++;
-  if (q.sma200rel === 'above') n++;
-  return n;
-}
-
-function SmaArrow({ rel }: { rel: 'above' | 'below' | null }) {
-  if (rel === 'above') return <span className="text-emerald-400">▲</span>;
-  if (rel === 'below') return <span className="text-red-400">▼</span>;
-  return <span className="text-gray-600">?</span>;
-}
-
 function CandidateCard({ q, rvolThreshold }: { q: FinvizQuote; rvolThreshold: number }) {
+  const { experienceMode } = useTradeviStore();
   const chgColor = (q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400';
   const isUnusual = q.unusualVolume === true && (q.rvol ?? 0) >= 2;
   const isNewHigh = q.newHighDay === true;
+  const score = computeOpportunityScore(q, rvolThreshold);
+  const scoreColor = score >= 75 ? 'text-emerald-400' : score >= 60 ? 'text-amber-400' : 'text-gray-500';
   return (
     <div className="card card-hover flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <span className="text-white font-mono font-bold text-lg">{q.symbol}</span>
-        <div className="flex gap-1.5 flex-wrap justify-end">
+        <div className="flex gap-1.5 flex-wrap justify-end items-center">
           {isUnusual && (
             <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              RVOL {q.rvol!.toFixed(2)}
+              {volumeLabel(q, experienceMode)}
             </span>
           )}
           {isNewHigh && (
@@ -67,6 +56,7 @@ function CandidateCard({ q, rvolThreshold }: { q: FinvizQuote; rvolThreshold: nu
               NEW HIGH
             </span>
           )}
+          <span className={`text-xs font-bold font-mono ${scoreColor}`}>{score}</span>
         </div>
       </div>
       <div className="flex items-center gap-3">
@@ -78,10 +68,11 @@ function CandidateCard({ q, rvolThreshold }: { q: FinvizQuote; rvolThreshold: nu
         </span>
       </div>
       <div className="flex items-center gap-3 text-xs font-mono">
-        <span className="text-gray-500">SMA50 <SmaArrow rel={q.sma50rel} /></span>
-        <span className="text-gray-500">SMA200 <SmaArrow rel={q.sma200rel} /></span>
+        <span className={q.sma50rel === 'above' ? 'text-emerald-400' : q.sma50rel === 'below' ? 'text-red-400' : 'text-gray-600'}>
+          {trendLabel(q, experienceMode)}
+        </span>
         {!isUnusual && q.rvol !== null && (
-          <span className="text-gray-600">RVOL {q.rvol.toFixed(2)}</span>
+          <span className="text-gray-600">{volumeLabel(q, experienceMode)}</span>
         )}
       </div>
       <div className="flex items-center justify-between mt-1">
@@ -148,7 +139,7 @@ export default function DashboardPage() {
 
   const swingCandidates = [...wlQuotes]
     .filter((q) => q.sma50rel === 'above' && q.sma200rel === 'above')
-    .sort((a, b) => autoCount(b, rvolThreshold) - autoCount(a, rvolThreshold))
+    .sort((a, b) => computeOpportunityScore(b, rvolThreshold) - computeOpportunityScore(a, rvolThreshold))
     .slice(0, 3);
 
   const intradayCandidates = [...wlQuotes]

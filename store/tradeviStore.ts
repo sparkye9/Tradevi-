@@ -40,11 +40,19 @@ export interface ManualCheck {
   marketAligned: boolean;
 }
 
+export type ExperienceMode = 'beginner' | 'intermediate' | 'advanced';
+
 export interface TradeviStore {
   // Watchlist
   watchlist: string[];
   addTicker: (s: string) => void;
   removeTicker: (s: string) => void;
+
+  // Experience mode — gates jargon (CHOCH/BOS/FVG, raw RVOL/SMA) and which
+  // panels are expanded by default. Beginner sees plain-English labels only;
+  // Advanced restores the manual structure checklist and full contract tables.
+  experienceMode: ExperienceMode;
+  setExperienceMode: (m: ExperienceMode) => void;
 
   // Thresholds
   rvolThreshold: number;
@@ -102,6 +110,9 @@ export const useTradeviStore = create<TradeviStore>()(
       },
       removeTicker: (s: string) =>
         set((state) => ({ watchlist: state.watchlist.filter((t) => t !== s) })),
+
+      experienceMode: 'intermediate',
+      setExperienceMode: (m) => set({ experienceMode: m }),
 
       rvolThreshold: 1.5,
       setRvolThreshold: (n) => set({ rvolThreshold: n }),

@@ -4,111 +4,18 @@ import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
 import ManualChecklist from '@/components/ui/ManualChecklist';
+import OptionsPanel from '@/components/options/OptionsPanel';
 import { useTradeviStore, MARKET_TICKERS } from '@/store/tradeviStore';
+import { computeOpportunityScore, generateReason, generateBeginnerReason } from '@/lib/opportunityScore';
+import { isBeginner, isAdvanced, volumeLabel, trendLabel, sectorLabel } from '@/lib/labels';
 import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
-import type { TradierContract, TradierOptionsResult } from '@/lib/tradier';
 
-function ContractRow({ c }: { c: TradierContract }) {
-  const mid = c.bid !== null && c.ask !== null ? ((c.bid + c.ask) / 2).toFixed(2) : '--';
+function ScoreBadge({ score }: { score: number }) {
+  const color = score >= 75 ? 'text-emerald-400' : score >= 60 ? 'text-amber-400' : 'text-gray-500';
   return (
-    <div className="flex items-center justify-between py-1.5 border-b border-[#1e1e1e] last:border-0 text-xs font-mono">
-      <div className="flex items-center gap-2">
-        <span className={`font-semibold uppercase ${c.type === 'call' ? 'text-emerald-400' : 'text-red-400'}`}>
-          {c.type.toUpperCase()}
-        </span>
-        <span className="text-gray-300">${c.strike}</span>
-        <span className="text-gray-600">{c.expiration}</span>
-      </div>
-      <div className="flex items-center gap-3">
-        {c.delta !== null && (
-          <span className={c.type === 'call' ? 'text-emerald-400' : 'text-red-400'}>Δ{c.delta.toFixed(2)}</span>
-        )}
-        {c.iv !== null && (
-          <span className="text-gray-500">IV {(c.iv * 100).toFixed(0)}%</span>
-        )}
-        <span className="text-white font-semibold">${mid}</span>
-        {c.openInterest !== null && (
-          <span className="text-gray-600">OI {c.openInterest.toLocaleString()}</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function OptionsPanel({ symbol }: { symbol: string }) {
-  const [result, setResult] = useState<TradierOptionsResult | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/tradier/options?symbol=${symbol}`);
-        const json = await res.json();
-        if (!cancelled) setResult(json);
-      } catch {
-        if (!cancelled) setResult({ contracts: [], sourceError: 'Fetch failed', source: 'Tradier', lastUpdated: new Date().toISOString() });
-      }
-      if (!cancelled) setLoading(false);
-    }
-    load();
-    return () => { cancelled = true; };
-  }, [symbol]);
-
-  if (loading) return <p className="text-xs text-gray-600 animate-pulse">Loading contracts...</p>;
-  if (result?.sourceError) return <p className="text-xs text-red-500/70">{result.sourceError}</p>;
-
-  const calls = (result?.contracts ?? []).filter((c) => c.type === 'call').slice(0, 4);
-  const puts = (result?.contracts ?? []).filter((c) => c.type === 'put').slice(0, 4);
-
-  if (calls.length === 0 && puts.length === 0) {
-    return <p className="text-xs text-gray-600">No qualifying contracts found</p>;
-  }
-
-  return (
-    <div className="space-y-3">
-      {calls.length > 0 && (
-        <div>
-          <p className="text-xs text-emerald-400 font-semibold uppercase tracking-wider mb-1">Calls</p>
-          {calls.map((c) => <ContractRow key={c.symbol} c={c} />)}
-        </div>
-      )}
-      {puts.length > 0 && (
-        <div>
-          <p className="text-xs text-red-400 font-semibold uppercase tracking-wider mb-1">Puts</p>
-          {puts.map((c) => <ContractRow key={c.symbol} c={c} />)}
-        </div>
-      )}
-      <p className="text-xs text-gray-700">{result?.source} · Δ 0.20–0.70 filter</p>
-    </div>
-  );
-}
-
-function SmaArrow({ rel }: { rel: 'above' | 'below' | null }) {
-  if (rel === 'above') return <span className="text-emerald-400">▲</span>;
-  if (rel === 'below') return <span className="text-red-400">▼</span>;
-  return <span className="text-gray-600">?</span>;
-}
-
-function autoScore(q: FinvizQuote, threshold: number): number {
-  let n = 0;
-  if ((q.rvol ?? 0) >= threshold) n++;
-  if (q.unusualVolume) n++;
-  if (q.newHighDay) n++;
-  if (q.sma50rel === 'above') n++;
-  if (q.sma200rel === 'above') n++;
-  return n;
-}
-
-function ScoreBar({ score }: { score: number }) {
-  const colors = ['bg-gray-700', 'bg-red-500', 'bg-amber-500', 'bg-yellow-400', 'bg-emerald-400', 'bg-green-500'];
-  return (
-    <div className="flex gap-0.5 items-center">
-      {[1, 2, 3, 4, 5].map((i) => (
-        <div key={i} className={`h-1.5 w-4 rounded-sm ${i <= score ? colors[score] : 'bg-[#2a2a2a]'}`} />
-      ))}
-      <span className="ml-1.5 text-gray-600 text-xs">{score}/5</span>
+    <div className="flex items-center gap-1">
+      <span className="text-[10px] text-gray-600 uppercase tracking-wider">Score</span>
+      <span className={`text-sm font-bold font-mono ${color}`}>{score}</span>
     </div>
   );
 }
@@ -122,12 +29,14 @@ function SwingCard({
   direction: 'LONG' | 'SHORT';
   rvolThreshold: number;
 }) {
+  const { experienceMode } = useTradeviStore();
+  const beginner = isBeginner(experienceMode);
+  const advanced = isAdvanced(experienceMode);
   const [expanded, setExpanded] = useState(false);
   const [showOptions, setShowOptions] = useState(true);
-  const score = autoScore(q, rvolThreshold);
+  const score = computeOpportunityScore(q, rvolThreshold);
+  const reason = beginner ? generateBeginnerReason(q) : generateReason(q);
   const chgColor = (q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400';
-  const isUnusual = q.unusualVolume === true && (q.rvol ?? 0) >= 2;
-  const isNewHigh = q.newHighDay === true;
 
   return (
     <div className="card card-hover flex flex-col gap-3">
@@ -142,28 +51,17 @@ function SwingCard({
           }`}>
             {direction}
           </span>
-          {q.groupStrength && (
+          {sectorLabel(q, experienceMode) && (
             <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold border ${
               q.groupStrength === 'strong'
                 ? 'bg-emerald-900/30 text-emerald-400 border-emerald-900'
                 : 'bg-red-900/30 text-red-400 border-red-900'
             }`}>
-              {q.groupStrength}
+              {sectorLabel(q, experienceMode)}
             </span>
           )}
         </div>
-        <div className="flex gap-1.5">
-          {isUnusual && (
-            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              RVOL {q.rvol!.toFixed(2)}
-            </span>
-          )}
-          {isNewHigh && (
-            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              NEW HIGH
-            </span>
-          )}
-        </div>
+        <ScoreBadge score={score} />
       </div>
 
       {/* Price + change */}
@@ -174,35 +72,43 @@ function SwingCard({
         <span className={`font-mono font-semibold text-base ${chgColor}`}>
           {q.changePercent !== null ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%` : '--'}
         </span>
+        {q.unusualVolume && (
+          <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+            {beginner ? 'Heavy volume' : `RVOL ${q.rvol!.toFixed(2)}`}
+          </span>
+        )}
       </div>
 
-      {/* SMA row */}
+      {/* Trend row */}
       <div className="flex items-center gap-4 text-xs font-mono">
-        <span className="text-gray-500">SMA50 <SmaArrow rel={q.sma50rel} /></span>
-        <span className="text-gray-500">SMA200 <SmaArrow rel={q.sma200rel} /></span>
-        {!isUnusual && q.rvol !== null && (
-          <span className="text-gray-600">RVOL {q.rvol.toFixed(2)}</span>
+        <span className={q.sma50rel === 'above' ? 'text-emerald-400' : q.sma50rel === 'below' ? 'text-red-400' : 'text-gray-600'}>
+          {trendLabel(q, experienceMode)}
+        </span>
+        {!q.unusualVolume && q.rvol !== null && (
+          <span className="text-gray-600">{volumeLabel(q, experienceMode)}</span>
         )}
       </div>
 
-      {/* Auto score */}
-      <ScoreBar score={score} />
+      {/* Why it ranked here */}
+      <p className="text-xs text-gray-500 leading-relaxed">{reason}</p>
 
-      {/* Manual checklist collapsed */}
-      <div>
-        <button
-          onClick={() => setExpanded((p) => !p)}
-          className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1 transition-colors"
-        >
-          <span>{expanded ? '▼' : '▶'}</span>
-          <span>Manual Checklist</span>
-        </button>
-        {expanded && (
-          <div className="mt-2">
-            <ManualChecklist symbol={q.symbol} />
-          </div>
-        )}
-      </div>
+      {/* Manual structure checklist — Advanced mode only */}
+      {advanced && (
+        <div>
+          <button
+            onClick={() => setExpanded((p) => !p)}
+            className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1 transition-colors"
+          >
+            <span>{expanded ? '▼' : '▶'}</span>
+            <span>Manual Structure Checklist</span>
+          </button>
+          {expanded && (
+            <div className="mt-2">
+              <ManualChecklist symbol={q.symbol} />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Options panel */}
       <div className="pt-1 border-t border-[#1e1e1e]">
@@ -216,7 +122,7 @@ function SwingCard({
         >
           {showOptions ? '▼ Contracts' : '▶ Contracts'}
         </button>
-        {showOptions && <OptionsPanel symbol={q.symbol} />}
+        {showOptions && <OptionsPanel symbol={q.symbol} bordered={false} />}
       </div>
 
       {/* Footer */}
@@ -228,12 +134,13 @@ function SwingCard({
 }
 
 function UnusualVolumeCard({ q }: { q: FinvizQuote }) {
+  const { experienceMode } = useTradeviStore();
   return (
     <div className="bg-[#111111] border border-amber-500/30 rounded-2xl p-4 flex flex-col gap-2 hover:bg-[#161616] hover:border-amber-500/50 transition-all">
       <div className="flex items-center justify-between">
         <span className="text-white font-bold font-mono text-xl">{q.symbol}</span>
         <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-          RVOL {q.rvol !== null ? q.rvol.toFixed(2) : '--'}
+          {volumeLabel(q, experienceMode)}
         </span>
       </div>
       <div className="flex items-center gap-3 text-sm">
@@ -250,10 +157,9 @@ function UnusualVolumeCard({ q }: { q: FinvizQuote }) {
         )}
       </div>
       <div className="flex items-center justify-between mt-1">
-        <div className="flex gap-2 text-xs font-mono">
-          <span className="text-gray-500">SMA50 <SmaArrow rel={q.sma50rel} /></span>
-          <span className="text-gray-500">SMA200 <SmaArrow rel={q.sma200rel} /></span>
-        </div>
+        <span className={`text-xs font-mono ${q.sma50rel === 'above' ? 'text-emerald-400' : 'text-red-400'}`}>
+          {trendLabel(q, experienceMode)}
+        </span>
         <TradingViewButton symbol={q.symbol} label="Chart" />
       </div>
     </div>

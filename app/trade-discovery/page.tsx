@@ -4,6 +4,8 @@ import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
 import { useTradeviStore, MARKET_TICKERS } from '@/store/tradeviStore';
+import { computeOpportunityScore } from '@/lib/opportunityScore';
+import { volumeLabel, trendLabel, isAdvanced } from '@/lib/labels';
 import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
 
 type Tag = 'INTRADAY' | 'SWING' | 'BOTH';
@@ -14,16 +16,6 @@ function deriveTag(q: FinvizQuote, threshold: number): Tag {
   if (intraday && swing) return 'BOTH';
   if (swing) return 'SWING';
   return 'INTRADAY';
-}
-
-function autoScore(q: FinvizQuote, threshold: number): number {
-  let n = 0;
-  if ((q.rvol ?? 0) >= threshold) n++;
-  if (q.unusualVolume) n++;
-  if (q.newHighDay) n++;
-  if (q.sma50rel === 'above') n++;
-  if (q.sma200rel === 'above') n++;
-  return n;
 }
 
 function TagBadge({ tag }: { tag: Tag }) {
@@ -38,19 +30,9 @@ function TagBadge({ tag }: { tag: Tag }) {
   );
 }
 
-function ScoreBar({ score }: { score: number }) {
-  const colors = ['bg-gray-700', 'bg-red-500', 'bg-amber-500', 'bg-yellow-400', 'bg-emerald-400', 'bg-green-500'];
-  return (
-    <div className="flex gap-0.5 items-center">
-      {[1, 2, 3, 4, 5].map((i) => (
-        <div
-          key={i}
-          className={`h-2 w-3 rounded-sm ${i <= score ? colors[score] : 'bg-[#2a2a2a]'}`}
-        />
-      ))}
-      <span className="ml-1 text-gray-500 text-xs">{score}/5</span>
-    </div>
-  );
+function ScoreBadge({ score }: { score: number }) {
+  const color = score >= 75 ? 'text-emerald-400' : score >= 60 ? 'text-amber-400' : 'text-gray-500';
+  return <span className={`font-mono font-bold text-sm ${color}`}>{score}</span>;
 }
 
 function SmaLabel({ q }: { q: FinvizQuote }) {
@@ -69,15 +51,16 @@ function SmaLabel({ q }: { q: FinvizQuote }) {
 }
 
 function UnusualVolumeCard({ q }: { q: FinvizQuote }) {
+  const { experienceMode } = useTradeviStore();
   return (
     <div className="bg-[#111111] border border-amber-500/30 rounded-2xl p-4 flex flex-col gap-2 hover:bg-[#161616] hover:border-amber-500/50 transition-all">
       <div className="flex items-center justify-between">
-        <span className="text-white font-bold font-mono text-xl">{q.symbol}</span>
+        <span className="text-white font-bold font-mono text-lg">{q.symbol}</span>
         <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-          RVOL {q.rvol !== null ? q.rvol.toFixed(2) : '--'}
+          {volumeLabel(q, experienceMode)}
         </span>
       </div>
-      <div className="flex items-center gap-3 text-sm">
+      <div className="flex items-center gap-3">
         <span className="text-white font-mono font-semibold">
           {q.price !== null ? `$${q.price.toFixed(2)}` : '--'}
         </span>
@@ -91,7 +74,9 @@ function UnusualVolumeCard({ q }: { q: FinvizQuote }) {
         )}
       </div>
       <div className="flex items-center justify-between mt-1">
-        <SmaLabel q={q} />
+        <span className={`text-xs font-mono ${q.sma50rel === 'above' ? 'text-emerald-400' : 'text-red-400'}`}>
+          {trendLabel(q, experienceMode)}
+        </span>
         <TradingViewButton symbol={q.symbol} label="Chart" />
       </div>
     </div>
@@ -99,9 +84,10 @@ function UnusualVolumeCard({ q }: { q: FinvizQuote }) {
 }
 
 export default function TradeDiscoveryPage() {
-  const { watchlist, rvolThreshold, setRvolThreshold, scanMode, setScanMode } = useTradeviStore();
+  const { watchlist, rvolThreshold, setRvolThreshold, scanMode, setScanMode, experienceMode } = useTradeviStore();
   const [data, setData] = useState<FinvizResult<FinvizQuote> | null>(null);
   const [loading, setLoading] = useState(true);
+  const advanced = isAdvanced(experienceMode);
 
   const tickers = scanMode === 'market' ? MARKET_TICKERS : watchlist;
 
@@ -137,11 +123,9 @@ export default function TradeDiscoveryPage() {
     .sort((a, b) => (b.rvol ?? 0) - (a.rvol ?? 0))
     .slice(0, 12);
 
-  const sorted = [...(data?.data ?? [])].sort((a, b) => {
-    const scoreDiff = autoScore(b, rvolThreshold) - autoScore(a, rvolThreshold);
-    if (scoreDiff !== 0) return scoreDiff;
-    return (b.rvol ?? 0) - (a.rvol ?? 0);
-  });
+  const sorted = [...(data?.data ?? [])].sort(
+    (a, b) => computeOpportunityScore(b, rvolThreshold) - computeOpportunityScore(a, rvolThreshold)
+  );
 
   return (
     <div className="space-y-5 max-w-6xl">
@@ -223,9 +207,6 @@ export default function TradeDiscoveryPage() {
               <UnusualVolumeCard key={q.symbol} q={q} />
             ))}
           </div>
-          {unusualVolumeItems.length === 0 && (
-            <p className="text-gray-600 text-sm">No unusual volume detected</p>
-          )}
           <div className="border-t border-[#1e1e1e] pt-4 mt-4" />
         </section>
       )}
@@ -254,7 +235,7 @@ export default function TradeDiscoveryPage() {
                 <div className="flex items-start justify-between">
                   <span className="text-white font-bold font-mono text-xl">{q.symbol}</span>
                   <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                    RVOL {q.rvol!.toFixed(2)}
+                    {volumeLabel(q, experienceMode)}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -269,8 +250,7 @@ export default function TradeDiscoveryPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-1 text-xs font-mono">
-                  {q.sma50rel === 'above' ? <span className="text-emerald-400">50▲</span> : <span className="text-red-400">50▼</span>}
-                  {q.sma200rel === 'above' ? <span className="text-emerald-400">200▲</span> : <span className="text-red-400">200▼</span>}
+                  <span className={q.sma50rel === 'above' ? 'text-emerald-400' : 'text-red-400'}>{trendLabel(q, experienceMode)}</span>
                   {q.sector && <span className="text-gray-600 ml-1">{q.sector}</span>}
                 </div>
                 <div className="flex justify-between items-center pt-1 border-t border-[#1e1e1e]">
@@ -284,12 +264,12 @@ export default function TradeDiscoveryPage() {
         </section>
       )}
 
-      {/* Main candidates table */}
+      {/* Main candidates table — Advanced mode only; everyone else gets the cards above */}
       {!data?.sourceError && sorted.length === 0 && !loading && (
         <div className="text-gray-500 text-sm">No data yet.</div>
       )}
 
-      {sorted.length > 0 && (
+      {advanced && sorted.length > 0 && (
         <section>
           <h2 className="label mb-3">All Candidates</h2>
           <div className="overflow-x-auto rounded-2xl border border-[#1e1e1e]">
@@ -305,14 +285,14 @@ export default function TradeDiscoveryPage() {
                   <th className="py-2.5 px-3 label">SMA</th>
                   <th className="py-2.5 px-3 label">Group</th>
                   <th className="py-2.5 px-3 label">Tag</th>
-                  <th className="py-2.5 px-3 label">Auto</th>
+                  <th className="py-2.5 px-3 label">Score</th>
                   <th className="py-2.5 px-3"></th>
                 </tr>
               </thead>
               <tbody>
                 {sorted.map((q, idx) => {
                   const tag = deriveTag(q, rvolThreshold);
-                  const score = autoScore(q, rvolThreshold);
+                  const score = computeOpportunityScore(q, rvolThreshold);
                   const rowBg = idx % 2 === 0 ? 'bg-[#111111]' : 'bg-[#0d0d0d]';
                   return (
                     <tr
@@ -369,7 +349,7 @@ export default function TradeDiscoveryPage() {
                         <TagBadge tag={tag} />
                       </td>
                       <td className="py-2.5 px-3">
-                        <ScoreBar score={score} />
+                        <ScoreBadge score={score} />
                       </td>
                       <td className="py-2.5 px-3">
                         <TradingViewButton symbol={q.symbol} label="Chart" />
@@ -381,6 +361,12 @@ export default function TradeDiscoveryPage() {
             </table>
           </div>
         </section>
+      )}
+
+      {!advanced && sorted.length > 0 && (
+        <p className="text-xs text-gray-600">
+          Switch to Advanced mode (sidebar) to see the full sortable candidate table with raw SMA/RVOL data.
+        </p>
       )}
 
       <div className="text-xs text-gray-700 mt-4">

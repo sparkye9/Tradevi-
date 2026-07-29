@@ -3,7 +3,17 @@ import { useEffect, useState, useCallback } from 'react';
 import TradingViewButton from '@/components/ui/TradingViewButton';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
+import PositionSizing from '@/components/scan/PositionSizing';
 import { useTradeviStore, MARKET_TICKERS } from '@/store/tradeviStore';
+import {
+  computeOpportunityScore,
+  deriveDirection,
+  generateReason,
+  generateBeginnerReason,
+  computeIntradayLevels,
+  computeSwingLevels,
+} from '@/lib/opportunityScore';
+import { isBeginner, volumeLabel, trendLabel, sectorLabel } from '@/lib/labels';
 import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
 import type { TradierContract, TradierOptionsResult } from '@/lib/tradier';
 
@@ -11,183 +21,11 @@ import type { TradierContract, TradierOptionsResult } from '@/lib/tradier';
 
 const CAPITAL_OPTIONS = [10, 25, 50, 75, 100, 250, 500, 1000];
 
-// ─── Scoring ─────────────────────────────────────────────────────────────────
-
-function computeScore(q: FinvizQuote, rvolThreshold: number): number {
-  let score = 0;
-
-  // RVOL — most weight (0–40 pts)
-  const rvol = q.rvol ?? 0;
-  score += Math.min((rvol / 5) * 40, 40);
-
-  // Unusual volume flag (+15)
-  if (q.unusualVolume) score += 15;
-
-  // New day high (+12)
-  if (q.newHighDay) score += 12;
-
-  // SMA alignment (+8 each)
-  if (q.sma50rel === 'above') score += 8;
-  if (q.sma200rel === 'above') score += 8;
-
-  // Sector strength (+7)
-  if (q.groupStrength === 'strong') score += 7;
-
-  // Gap momentum (+5 for gap > 1%, up or down)
-  if (q.gap !== null && Math.abs(q.gap) >= 1) score += 5;
-
-  // RVOL at or above threshold bonus (+5)
-  if (rvol >= rvolThreshold) score += 5;
-
-  return Math.min(Math.round(score), 100);
-}
-
-function deriveDirection(q: FinvizQuote): 'BULLISH' | 'BEARISH' | 'WATCH' {
-  const chg = q.changePercent ?? 0;
-  if (chg >= 0.5 && (q.sma50rel === 'above' || (q.gap ?? 0) > 0)) return 'BULLISH';
-  if (chg <= -0.5 && (q.sma50rel === 'below' || (q.gap ?? 0) < 0)) return 'BEARISH';
-  return 'WATCH';
-}
-
-function generateReason(q: FinvizQuote): string {
-  const parts: string[] = [];
-  if ((q.rvol ?? 0) >= 3) parts.push(`${q.rvol!.toFixed(1)}x relative volume`);
-  else if ((q.rvol ?? 0) >= 1.5) parts.push(`elevated volume (${q.rvol!.toFixed(1)}x avg)`);
-  if (q.unusualVolume) parts.push('unusual volume spike');
-  if (q.newHighDay) parts.push('new session high');
-  if (q.gap !== null && q.gap >= 1) parts.push(`+${q.gap.toFixed(1)}% gap up`);
-  if (q.gap !== null && q.gap <= -1) parts.push(`${q.gap.toFixed(1)}% gap down`);
-  if (q.sma50rel === 'above' && q.sma200rel === 'above') parts.push('price above SMA 50 & 200');
-  else if (q.sma50rel === 'above') parts.push('above SMA 50');
-  if (q.groupStrength === 'strong') parts.push('sector showing strength');
-  if (q.groupStrength === 'weak') parts.push('sector showing weakness');
-  if (parts.length === 0) parts.push('elevated momentum relative to peers');
-  return parts.join(', ') + '.';
-}
-
-// Estimated levels — based on fixed risk tiers, labeled as estimates
-function computeLevels(price: number, dir: 'BULLISH' | 'BEARISH' | 'WATCH') {
-  if (price <= 0) return null;
-  if (dir === 'BULLISH') {
-    const stop = +(price * 0.97).toFixed(2);
-    const t1 = +(price * 1.05).toFixed(2);
-    const t2 = +(price * 1.10).toFixed(2);
-    const t3 = +(price * 1.20).toFixed(2);
-    const rr = +((t1 - price) / (price - stop)).toFixed(1);
-    return { entry: price, stop, t1, t2, t3, rr, holdTime: '30 min – 2 hrs' };
-  }
-  if (dir === 'BEARISH') {
-    const stop = +(price * 1.03).toFixed(2);
-    const t1 = +(price * 0.95).toFixed(2);
-    const t2 = +(price * 0.90).toFixed(2);
-    const t3 = +(price * 0.80).toFixed(2);
-    const rr = +((price - t1) / (stop - price)).toFixed(1);
-    return { entry: price, stop, t1, t2, t3, rr, holdTime: '30 min – 2 hrs' };
-  }
-  return null;
-}
-
-function computeSwingLevels(price: number, dir: 'BULLISH' | 'BEARISH' | 'WATCH') {
-  if (price <= 0) return null;
-  if (dir === 'BULLISH') {
-    const stop = +(price * 0.94).toFixed(2);
-    const entryLow = +(price * 0.99).toFixed(2);
-    const entryHigh = +(price * 1.01).toFixed(2);
-    const t1 = +(price * 1.10).toFixed(2);
-    const t2 = +(price * 1.20).toFixed(2);
-    const t3 = +(price * 1.35).toFixed(2);
-    const rr = +((t1 - price) / (price - stop)).toFixed(1);
-    return { entryZone: `$${entryLow}–$${entryHigh}`, support: `$${stop}`, invalidation: `$${stop}`, t1, t2, t3, rr, holdTime: '2–10 days' };
-  }
-  if (dir === 'BEARISH') {
-    const stop = +(price * 1.06).toFixed(2);
-    const entryLow = +(price * 0.99).toFixed(2);
-    const entryHigh = +(price * 1.01).toFixed(2);
-    const t1 = +(price * 0.90).toFixed(2);
-    const t2 = +(price * 0.82).toFixed(2);
-    const t3 = +(price * 0.72).toFixed(2);
-    const rr = +((price - t1) / (stop - price)).toFixed(1);
-    return { entryZone: `$${entryLow}–$${entryHigh}`, support: `$${stop}`, invalidation: `$${stop}`, t1, t2, t3, rr, holdTime: '3–14 days' };
-  }
-  return null;
-}
-
-// ─── Position sizing ─────────────────────────────────────────────────────────
-
-function PositionSizing({ price, capital, contracts }: { price: number | null; capital: number; contracts?: TradierContract[] }) {
-  if (!price || price <= 0) return null;
-
-  // Stock sizing
-  const shares = Math.floor(capital / price);
-  const stockCost = +(shares * price).toFixed(2);
-
-  // Option sizing — prefer cheap contracts ($10–$50), fall back to cheapest available
-  const cheapContracts = contracts?.filter(c => c.bid !== null && c.ask !== null && (c.bid + c.ask) / 2 <= 0.50 && (c.bid + c.ask) / 2 >= 0.10 && Math.abs(c.delta ?? 0) >= 0.29) ?? [];
-  const callPool = cheapContracts.filter(c => c.type === 'call').length > 0
-    ? cheapContracts.filter(c => c.type === 'call')
-    : (contracts?.filter(c => c.type === 'call' && c.bid !== null && c.ask !== null) ?? []);
-  const cheapestCall = callPool.sort((a, b) => (a.bid! + a.ask!) / 2 - (b.bid! + b.ask!) / 2)[0] ?? null;
-
-  const optionContracts = cheapestCall && cheapestCall.bid !== null && cheapestCall.ask !== null
-    ? Math.floor(capital / (((cheapestCall.bid + cheapestCall.ask) / 2) * 100))
-    : 0;
-  const optionCost = cheapestCall && cheapestCall.bid !== null && cheapestCall.ask !== null
-    ? +(optionContracts * ((cheapestCall.bid + cheapestCall.ask) / 2) * 100).toFixed(2)
-    : 0;
-
-  const dir = cheapestCall ? 'BULLISH' : null;
-  const lvl = dir ? computeLevels(price, 'BULLISH') : null;
-
-  return (
-    <div className="bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl p-3 space-y-2">
-      <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">With ${capital.toLocaleString()}</p>
-
-      {shares > 0 && (
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-gray-400">Shares</span>
-          <span className="text-white font-mono font-semibold">{shares} @ ${price.toFixed(2)} = <span className="text-gray-300">${stockCost}</span></span>
-        </div>
-      )}
-      {shares === 0 && (
-        <p className="text-xs text-red-400/70">Stock price exceeds capital</p>
-      )}
-
-      {cheapestCall && optionContracts > 0 && (
-        <>
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-400">Call option</span>
-            <span className="text-white font-mono font-semibold">
-              {optionContracts} contract{optionContracts > 1 ? 's' : ''} · ${optionCost}
-            </span>
-          </div>
-          <div className="text-xs text-gray-600 font-mono">
-            {cheapestCall.strike} strike · {cheapestCall.expiration} · Δ{cheapestCall.delta?.toFixed(2) ?? '--'}
-          </div>
-          {lvl && (
-            <div className="grid grid-cols-4 gap-1 pt-1 text-xs font-mono">
-              <div className="text-center">
-                <div className="text-gray-600 text-[10px]">STOP</div>
-                <div className="text-red-400">-${(+(optionContracts * ((cheapestCall.bid! + cheapestCall.ask!) / 2) * 100 * 0.3).toFixed(0))}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-gray-600 text-[10px]">T1</div>
-                <div className="text-emerald-400">+${(+(optionContracts * ((cheapestCall.bid! + cheapestCall.ask!) / 2) * 100 * 0.5).toFixed(0))}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-gray-600 text-[10px]">T2</div>
-                <div className="text-emerald-400">+${(+(optionContracts * ((cheapestCall.bid! + cheapestCall.ask!) / 2) * 100 * 1.0).toFixed(0))}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-gray-600 text-[10px]">T3</div>
-                <div className="text-emerald-400">+${(+(optionContracts * ((cheapestCall.bid! + cheapestCall.ask!) / 2) * 100 * 2.0).toFixed(0))}</div>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
+// Scoring, direction, reasons, and entry/exit levels all come from the one
+// shared engine in lib/opportunityScore.ts — every screen in the app scores
+// a ticker the same way now.
+const computeScore = computeOpportunityScore;
+const computeLevels = computeIntradayLevels;
 
 // ─── Market context banner ───────────────────────────────────────────────────
 
@@ -281,6 +119,8 @@ function MarketContextBanner({ ctx, loading }: { ctx: MarketCtx | null; loading:
 // ─── Intraday opportunity card ────────────────────────────────────────────────
 
 function IntradayCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: number; rvolThreshold: number }) {
+  const { experienceMode } = useTradeviStore();
+  const beginner = isBeginner(experienceMode);
   const [showSizing, setShowSizing] = useState(false);
   const [contracts, setContracts] = useState<TradierContract[] | null>(null);
   const [loadingContracts, setLoadingContracts] = useState(false);
@@ -288,7 +128,7 @@ function IntradayCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: 
   const score = computeScore(q, rvolThreshold);
   const dir = deriveDirection(q);
   const lvl = q.price ? computeLevels(q.price, dir) : null;
-  const reason = generateReason(q);
+  const reason = beginner ? generateBeginnerReason(q) : generateReason(q);
 
   async function loadContracts() {
     if (contracts !== null) { setShowSizing(p => !p); return; }
@@ -337,29 +177,25 @@ function IntradayCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: 
 
       {/* Badges */}
       <div className="flex flex-wrap gap-1.5">
-        {q.unusualVolume && (
-          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-            🔥 RVOL {q.rvol?.toFixed(2)}
-          </span>
-        )}
-        {!q.unusualVolume && q.rvol !== null && (
-          <span className="px-2 py-0.5 rounded-full text-xs font-mono text-amber-400 border border-amber-500/20">
-            RVOL {q.rvol.toFixed(2)}
+        {q.rvol !== null && (
+          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${
+            q.unusualVolume ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'font-mono text-amber-400 border-amber-500/20'
+          }`}>
+            {q.unusualVolume && !beginner ? '🔥 ' : ''}{volumeLabel(q, experienceMode)}
           </span>
         )}
         {q.newHighDay && (
           <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-            NEW HIGH
+            {beginner ? 'NEW SESSION HIGH' : 'NEW HIGH'}
           </span>
         )}
-        {q.groupStrength === 'strong' && (
-          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-900/40 text-emerald-400 border border-emerald-900">
-            Sector ▲
-          </span>
-        )}
-        {q.groupStrength === 'weak' && (
-          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-900/40 text-red-400 border border-red-900">
-            Sector ▼
+        {sectorLabel(q, experienceMode) && (
+          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${
+            q.groupStrength === 'strong'
+              ? 'bg-emerald-900/40 text-emerald-400 border-emerald-900'
+              : 'bg-red-900/40 text-red-400 border-red-900'
+          }`}>
+            {sectorLabel(q, experienceMode)}
           </span>
         )}
       </div>
@@ -395,21 +231,14 @@ function IntradayCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: 
         <p className="text-xs text-gray-500 leading-relaxed">{reason}</p>
       </div>
 
-      {/* SMA row */}
+      {/* Trend row */}
       <div className="flex items-center gap-3 text-xs font-mono">
-        <span className="text-gray-600">SMA50
-          <span className={q.sma50rel === 'above' ? ' text-emerald-400' : ' text-red-400'}>
-            {q.sma50rel === 'above' ? ' ▲' : q.sma50rel === 'below' ? ' ▼' : ' ?'}
-          </span>
-        </span>
-        <span className="text-gray-600">SMA200
-          <span className={q.sma200rel === 'above' ? ' text-emerald-400' : ' text-red-400'}>
-            {q.sma200rel === 'above' ? ' ▲' : q.sma200rel === 'below' ? ' ▼' : ' ?'}
-          </span>
+        <span className={q.sma50rel === 'above' ? 'text-emerald-400' : q.sma50rel === 'below' ? 'text-red-400' : 'text-gray-600'}>
+          {trendLabel(q, experienceMode)}
         </span>
         {q.gap !== null && Math.abs(q.gap) > 0.5 && (
           <span className={q.gap > 0 ? 'text-emerald-400' : 'text-red-400'}>
-            Gap {q.gap > 0 ? '+' : ''}{q.gap.toFixed(1)}%
+            {beginner ? (q.gap > 0 ? 'Opened higher' : 'Opened lower') : `Gap ${q.gap > 0 ? '+' : ''}${q.gap.toFixed(1)}%`}
           </span>
         )}
       </div>
@@ -441,10 +270,12 @@ function IntradayCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: 
 // ─── Swing opportunity card ───────────────────────────────────────────────────
 
 function SwingCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: number; rvolThreshold: number }) {
+  const { experienceMode } = useTradeviStore();
+  const beginner = isBeginner(experienceMode);
   const score = computeScore(q, rvolThreshold);
   const dir = deriveDirection(q);
   const lvl = q.price ? computeSwingLevels(q.price, dir) : null;
-  const reason = generateReason(q);
+  const reason = beginner ? generateBeginnerReason(q) : generateReason(q);
 
   const dirColor = dir === 'BULLISH' ? 'text-emerald-400' : dir === 'BEARISH' ? 'text-red-400' : 'text-amber-400';
   const dirBg = dir === 'BULLISH' ? 'bg-emerald-500/10 border-emerald-500/30' : dir === 'BEARISH' ? 'bg-red-500/10 border-red-500/30' : 'bg-amber-500/10 border-amber-500/30';
@@ -477,19 +308,21 @@ function SwingCard({ q, capital, rvolThreshold }: { q: FinvizQuote; capital: num
 
       {/* Badges */}
       <div className="flex flex-wrap gap-1.5">
-        {q.unusualVolume && (
-          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-            🔥 RVOL {q.rvol?.toFixed(2)}
+        {q.rvol !== null && (
+          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${
+            q.unusualVolume ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'font-mono text-amber-400 border-amber-500/20'
+          }`}>
+            {q.unusualVolume && !beginner ? '🔥 ' : ''}{volumeLabel(q, experienceMode)}
           </span>
         )}
         {q.newHighDay && (
           <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-            NEW HIGH
+            {beginner ? 'NEW SESSION HIGH' : 'NEW HIGH'}
           </span>
         )}
-        {q.groupStrength === 'strong' && (
+        {sectorLabel(q, experienceMode) && (
           <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-900/40 text-emerald-400 border border-emerald-900">
-            Sector ▲
+            {sectorLabel(q, experienceMode)}
           </span>
         )}
       </div>

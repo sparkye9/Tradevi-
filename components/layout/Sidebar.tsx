@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import ModeToggle from '@/components/ui/ModeToggle';
 
 const NAV = [
   { href: '/', label: 'Dashboard', icon: '⬡' },
@@ -97,9 +98,15 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
       </nav>
 
       {/* Footer */}
-      <div className="px-3 pt-4 border-t border-[#1a1a1a]">
-        <p className="text-[10px] text-gray-600 leading-relaxed">Real data only</p>
-        <p className="text-[10px] text-gray-700">Finviz · Yahoo Finance</p>
+      <div className="px-3 pt-4 border-t border-[#1a1a1a] space-y-3">
+        <div>
+          <p className="text-[10px] text-gray-600 mb-1.5 uppercase tracking-wider">Experience</p>
+          <ModeToggle compact />
+        </div>
+        <div>
+          <p className="text-[10px] text-gray-600 leading-relaxed">Real data only</p>
+          <p className="text-[10px] text-gray-700">Finviz · Yahoo Finance</p>
+        </div>
       </div>
     </aside>
   );

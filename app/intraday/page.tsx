@@ -3,133 +3,20 @@ import { useEffect, useState } from 'react';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
+import OptionsPanel from '@/components/options/OptionsPanel';
 import { useTradeviStore, MARKET_TICKERS } from '@/store/tradeviStore';
+import { computeOpportunityScore } from '@/lib/opportunityScore';
+import { volumeLabel, trendLabel, sectorLabel } from '@/lib/labels';
 import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
-import type { TradierContract, TradierOptionsResult } from '@/lib/tradier';
 
-// ─── SMA arrows ─────────────────────────────────────────────────────────────
-
-function SmaLabel({ q }: { q: FinvizQuote }) {
-  const fmt = (rel: 'above' | 'below' | null, label: string) => {
-    if (rel === 'above') return <span key={label} className="text-emerald-400">{label}▲</span>;
-    if (rel === 'below') return <span key={label} className="text-red-400">{label}▼</span>;
-    return <span key={label} className="text-gray-600">{label}?</span>;
-  };
-  return (
-    <div className="flex gap-1 text-xs font-mono">
-      {fmt(q.sma20rel, '20')}
-      {fmt(q.sma50rel, '50')}
-      {fmt(q.sma200rel, '200')}
-    </div>
-  );
-}
-
-// ─── Options panel ────────────────────────────────────────────────────────────
-
-function ContractRow({ c }: { c: TradierContract }) {
-  const mid = c.bid !== null && c.ask !== null ? ((c.bid + c.ask) / 2).toFixed(2) : '--';
-  const deltaColor = c.delta !== null
-    ? c.type === 'call' ? 'text-emerald-400' : 'text-red-400'
-    : 'text-gray-500';
-  return (
-    <div className="flex items-center justify-between py-1.5 border-b border-[#1e1e1e] last:border-0 text-xs font-mono">
-      <div className="flex items-center gap-2">
-        <span className={`font-semibold uppercase ${c.type === 'call' ? 'text-emerald-400' : 'text-red-400'}`}>
-          {c.type.toUpperCase()}
-        </span>
-        <span className="text-gray-300">${c.strike}</span>
-        <span className="text-gray-600">{c.expiration}</span>
-      </div>
-      <div className="flex items-center gap-3">
-        {c.delta !== null && (
-          <span className={deltaColor}>Δ{c.delta.toFixed(2)}</span>
-        )}
-        {c.iv !== null && (
-          <span className="text-gray-500">IV {(c.iv * 100).toFixed(0)}%</span>
-        )}
-        <span className="text-white font-semibold">${mid}</span>
-        {c.openInterest !== null && (
-          <span className="text-gray-600">OI {c.openInterest.toLocaleString()}</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function OptionsPanel({ symbol }: { symbol: string }) {
-  const [result, setResult] = useState<TradierOptionsResult | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/tradier/options?symbol=${symbol}`);
-        const json = await res.json();
-        if (!cancelled) setResult(json);
-      } catch {
-        if (!cancelled) setResult({ contracts: [], sourceError: 'Fetch failed', source: 'Tradier', lastUpdated: new Date().toISOString() });
-      }
-      if (!cancelled) setLoading(false);
-    }
-    load();
-    return () => { cancelled = true; };
-  }, [symbol]);
-
-  if (loading) {
-    return (
-      <div className="mt-3 pt-3 border-t border-[#1e1e1e]">
-        <p className="text-xs text-gray-600 animate-pulse">Loading contracts...</p>
-      </div>
-    );
-  }
-
-  if (result?.sourceError) {
-    return (
-      <div className="mt-3 pt-3 border-t border-[#1e1e1e]">
-        <p className="text-xs text-red-500/70">{result.sourceError}</p>
-      </div>
-    );
-  }
-
-  const calls = (result?.contracts ?? []).filter((c) => c.type === 'call').slice(0, 4);
-  const puts = (result?.contracts ?? []).filter((c) => c.type === 'put').slice(0, 4);
-
-  if (calls.length === 0 && puts.length === 0) {
-    return (
-      <div className="mt-3 pt-3 border-t border-[#1e1e1e]">
-        <p className="text-xs text-gray-600">No qualifying contracts found</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-3 pt-3 border-t border-[#1e1e1e] space-y-3">
-      {calls.length > 0 && (
-        <div>
-          <p className="text-xs text-emerald-400 font-semibold uppercase tracking-wider mb-1">Calls</p>
-          {calls.map((c) => <ContractRow key={c.symbol} c={c} />)}
-        </div>
-      )}
-      {puts.length > 0 && (
-        <div>
-          <p className="text-xs text-red-400 font-semibold uppercase tracking-wider mb-1">Puts</p>
-          {puts.map((c) => <ContractRow key={c.symbol} c={c} />)}
-        </div>
-      )}
-      <p className="text-xs text-gray-700">
-        {result?.source} · Δ 0.20–0.70 filter
-      </p>
-    </div>
-  );
-}
-
-// ─── Candidate card ──────────────────────────────────────────────────────────
+// ─── Candidate card ───────────────────────────────────────────────────────────
 
 function CandidateCard({ q, rvolThreshold }: { q: FinvizQuote; rvolThreshold: number }) {
+  const { experienceMode } = useTradeviStore();
   const [showOptions, setShowOptions] = useState(true);
   const isUnusual = (q.rvol ?? 0) >= 2;
+  const score = computeOpportunityScore(q, rvolThreshold);
+  const scoreColor = score >= 75 ? 'text-emerald-400' : score >= 60 ? 'text-amber-400' : 'text-gray-500';
   const borderClass = isUnusual
     ? 'border-amber-500/40 hover:border-amber-500/70'
     : 'border-[#1e1e1e] hover:border-[#2a2a2a]';
@@ -155,12 +42,12 @@ function CandidateCard({ q, rvolThreshold }: { q: FinvizQuote; rvolThreshold: nu
         <div className="flex flex-col items-end gap-1">
           {isUnusual ? (
             <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              🔥 RVOL {q.rvol!.toFixed(2)}
+              {volumeLabel(q, experienceMode)}
             </span>
           ) : (
             q.rvol !== null && (
               <span className={`text-xs font-mono ${(q.rvol ?? 0) >= rvolThreshold ? 'text-amber-400' : 'text-gray-500'}`}>
-                RVOL {q.rvol.toFixed(2)}
+                {volumeLabel(q, experienceMode)}
               </span>
             )
           )}
@@ -169,24 +56,24 @@ function CandidateCard({ q, rvolThreshold }: { q: FinvizQuote; rvolThreshold: nu
               NEW HIGH
             </span>
           )}
+          <span className={`text-xs font-bold font-mono ${scoreColor}`}>Score {score}</span>
         </div>
       </div>
 
-      {/* SMA + gap + group */}
+      {/* Trend + gap + sector */}
       <div className="flex items-center justify-between">
-        <SmaLabel q={q} />
+        <span className={`text-xs font-mono ${q.sma50rel === 'above' ? 'text-emerald-400' : q.sma50rel === 'below' ? 'text-red-400' : 'text-gray-600'}`}>
+          {trendLabel(q, experienceMode)}
+        </span>
         <div className="flex items-center gap-2">
           {q.gap !== null && Math.abs(q.gap) > 0.5 && (
             <span className={`text-xs font-mono ${q.gap > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
               Gap {q.gap > 0 ? '+' : ''}{q.gap.toFixed(2)}%
             </span>
           )}
-          {q.groupStrength && (
-            <span className={`text-xs font-semibold ${
-              q.groupStrength === 'strong' ? 'text-emerald-400' :
-              q.groupStrength === 'weak' ? 'text-red-400' : 'text-gray-600'
-            }`}>
-              {q.groupStrength}
+          {sectorLabel(q, experienceMode) && (
+            <span className={`text-xs font-semibold ${q.groupStrength === 'strong' ? 'text-emerald-400' : 'text-red-400'}`}>
+              {sectorLabel(q, experienceMode)}
             </span>
           )}
         </div>
@@ -240,7 +127,7 @@ export default function IntradayPage() {
 
   const intraday = [...allQuotes]
     .filter((q) => (q.rvol ?? 0) >= rvolThreshold || q.newHighDay)
-    .sort((a, b) => (b.rvol ?? 0) - (a.rvol ?? 0));
+    .sort((a, b) => computeOpportunityScore(b, rvolThreshold) - computeOpportunityScore(a, rvolThreshold));
 
   const unusual = intraday.filter((q) => (q.rvol ?? 0) >= 2);
   const regular = intraday.filter((q) => (q.rvol ?? 0) < 2);
