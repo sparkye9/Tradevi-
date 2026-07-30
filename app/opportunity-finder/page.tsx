@@ -4,7 +4,7 @@ import TradingViewButton from '@/components/ui/TradingViewButton';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import PositionSizing from '@/components/scan/PositionSizing';
-import { useTradeviStore, MARKET_TICKERS } from '@/store/tradeviStore';
+import { useTradeviStore } from '@/store/tradeviStore';
 import {
   computeOpportunityScore,
   deriveDirection,
@@ -14,8 +14,9 @@ import {
   computeSwingLevels,
 } from '@/lib/opportunityScore';
 import { isBeginner, volumeLabel, trendLabel, sectorLabel } from '@/lib/labels';
-import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
+import type { FinvizQuote, FinvizFuture } from '@/lib/finviz';
 import type { TradierContract, TradierOptionsResult } from '@/lib/tradier';
+import type { UniverseScanResult } from '@/lib/universe';
 
 // ─── Capital amounts ─────────────────────────────────────────────────────────
 
@@ -33,8 +34,17 @@ interface MarketCtx {
   spy: FinvizQuote | null;
   qqq: FinvizQuote | null;
   iwm: FinvizQuote | null;
+  dia: FinvizQuote | null;
   esBias: number | null;  // from futures
   nqBias: number | null;
+  rtyBias: number | null;
+  clBias: number | null;
+  gcBias: number | null;
+  vix: FinvizFuture | null;
+  bonds: FinvizQuote | null; // TLT proxy
+  dollar: FinvizQuote | null; // UUP proxy
+  btc: FinvizFuture | null;
+  eth: FinvizFuture | null;
 }
 
 function marketCondition(ctx: MarketCtx): { label: string; color: string; light: 'green' | 'yellow' | 'red'; advice: string } {
@@ -91,9 +101,20 @@ function MarketContextBanner({ ctx, loading }: { ctx: MarketCtx | null; loading:
           <BiasChip label="SPY" chg={ctx.spy?.changePercent ?? null} />
           <BiasChip label="QQQ" chg={ctx.qqq?.changePercent ?? null} />
           <BiasChip label="IWM" chg={ctx.iwm?.changePercent ?? null} />
+          <BiasChip label="DIA" chg={ctx.dia?.changePercent ?? null} />
           {ctx.esBias !== null && <BiasChip label="ES" chg={ctx.esBias} />}
           {ctx.nqBias !== null && <BiasChip label="NQ" chg={ctx.nqBias} />}
+          {ctx.rtyBias !== null && <BiasChip label="RTY" chg={ctx.rtyBias} />}
         </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <BiasChip label="VIX" chg={ctx.vix?.changePercent ?? null} />
+        {ctx.clBias !== null && <BiasChip label="CL" chg={ctx.clBias} />}
+        {ctx.gcBias !== null && <BiasChip label="GC" chg={ctx.gcBias} />}
+        <BiasChip label="Bonds (TLT)" chg={ctx.bonds?.changePercent ?? null} />
+        <BiasChip label="Dollar (UUP)" chg={ctx.dollar?.changePercent ?? null} />
+        <BiasChip label="BTC" chg={ctx.btc?.changePercent ?? null} />
+        <BiasChip label="ETH" chg={ctx.eth?.changePercent ?? null} />
       </div>
       <div className="flex flex-wrap gap-4 text-xs font-mono text-gray-600">
         {ctx.spy && (
@@ -564,48 +585,52 @@ function PennyScanner({ quotes }: { quotes: FinvizQuote[] }) {
 
 export default function OpportunityFinderPage() {
   const { rvolThreshold, capitalAmount, setCapitalAmount } = useTradeviStore();
-  const [data, setData] = useState<FinvizResult<FinvizQuote> | null>(null);
+  const [scan, setScan] = useState<UniverseScanResult | null>(null);
   const [loading, setLoading] = useState(true);
-  const [futuresData, setFuturesData] = useState<{ changePercent: number; symbol: string }[]>([]);
   const [marketLoading, setMarketLoading] = useState(true);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setMarketLoading(true);
+    setScanError(null);
     try {
-      const [screenerRes, futuresRes] = await Promise.all([
-        fetch(`/api/finviz/screener?tickers=${MARKET_TICKERS.join(',')}`),
-        fetch('/api/finviz/futures'),
-      ]);
-      const screener = await screenerRes.json();
-      const futures = await futuresRes.json();
-      setData(screener);
-      setFuturesData(futures?.data ?? []);
+      const res = await fetch(`/api/scan/universe?rvolThreshold=${rvolThreshold}`);
+      const json: UniverseScanResult = await res.json();
+      setScan(json);
+      if (json.meta?.sourceError) setScanError(json.meta.sourceError);
     } catch {
-      setData({ data: [], sourceError: 'Fetch failed', lastUpdated: new Date().toISOString() });
+      setScan(null);
+      setScanError('Full market scan failed — check Finviz Elite credentials.');
     }
     setLoading(false);
     setMarketLoading(false);
-  }, []);
+  }, [rvolThreshold]);
 
   useEffect(() => { load(); }, [load]);
 
-  const allQuotes = data?.data ?? [];
+  // The full NYSE + NASDAQ + AMEX scan, already scored by the shared engine.
+  const candidates = (scan?.opportunities ?? []).map(({ q }) => q);
 
-  // Market context
-  const spy = allQuotes.find(q => q.symbol === 'SPY') ?? null;
-  const qqq = allQuotes.find(q => q.symbol === 'QQQ') ?? null;
-  const iwm = allQuotes.find(q => q.symbol === 'IWM') ?? null;
-  const es = futuresData.find(f => f.symbol === 'ES');
-  const nq = futuresData.find(f => f.symbol === 'NQ');
-  const ctx: MarketCtx = { spy, qqq, iwm, esBias: es?.changePercent ?? null, nqBias: nq?.changePercent ?? null };
+  // Market context — SPY/QQQ/IWM/DIA, sector ETFs, futures, VIX, bonds, dollar, crypto
+  const ctx: MarketCtx = {
+    spy: scan?.context.indexes.find(q => q.symbol === 'SPY') ?? null,
+    qqq: scan?.context.indexes.find(q => q.symbol === 'QQQ') ?? null,
+    iwm: scan?.context.indexes.find(q => q.symbol === 'IWM') ?? null,
+    dia: scan?.context.indexes.find(q => q.symbol === 'DIA') ?? null,
+    esBias: scan?.context.futures.find(f => f.symbol === 'ES')?.changePercent ?? null,
+    nqBias: scan?.context.futures.find(f => f.symbol === 'NQ')?.changePercent ?? null,
+    rtyBias: scan?.context.futures.find(f => f.symbol === 'RTY')?.changePercent ?? null,
+    clBias: scan?.context.futures.find(f => f.symbol === 'CL')?.changePercent ?? null,
+    gcBias: scan?.context.futures.find(f => f.symbol === 'GC')?.changePercent ?? null,
+    vix: scan?.context.macro.find(f => f.symbol === 'VIX') ?? null,
+    bonds: scan?.context.bonds.find(q => q.symbol === 'TLT') ?? null,
+    dollar: scan?.context.dollar.find(q => q.symbol === 'UUP') ?? null,
+    btc: scan?.context.macro.find(f => f.symbol === 'BTC') ?? null,
+    eth: scan?.context.macro.find(f => f.symbol === 'ETH') ?? null,
+  };
 
-  // Score and filter — exclude index ETFs from opportunity list
-  const INDEX_ETFS = ['SPY', 'QQQ', 'IWM', 'DIA', 'XLK', 'XLF', 'XLV', 'XLE', 'XLY', 'GLD'];
-  const candidates = allQuotes.filter(q => !INDEX_ETFS.includes(q.symbol));
-  const scored = candidates
-    .map(q => ({ q, score: computeScore(q, rvolThreshold) }))
-    .sort((a, b) => b.score - a.score);
+  const scored = (scan?.opportunities ?? []).map(({ q, score }) => ({ q, score }));
 
   // Intraday BULLISH: RVOL, new highs, positive momentum
   const intradayBullish = scored
@@ -660,8 +685,14 @@ export default function OpportunityFinderPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Small Account Edge</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Highest-probability setups for small accounts · scores based on real signals
+            Full NYSE + NASDAQ + AMEX scan · scores based on real signals
           </p>
+          {scan && (
+            <p className="text-xs text-gray-600 mt-1 font-mono">
+              Scanned {scan.meta.scannedCount.toLocaleString()} names across {scan.meta.exchangesCovered.join(', ').toUpperCase() || '--'}
+              {scan.meta.cappedByPageLimit ? ' (capped — raise FINVIZ_UNIVERSE_PAGES_PER_EXCHANGE for deeper coverage)' : ''}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -671,7 +702,7 @@ export default function OpportunityFinderPage() {
           >
             {loading ? 'Scanning...' : '↻ Refresh'}
           </button>
-          {data && <SourceTag source={data.source ?? ''} lastUpdated={data.lastUpdated} />}
+          {scan && <SourceTag source="Finviz Elite (full universe scan)" lastUpdated={scan.meta.asOf} />}
         </div>
       </div>
 
@@ -703,10 +734,10 @@ export default function OpportunityFinderPage() {
         </div>
       </div>
 
-      {data?.sourceError && <DataUnavailable reason={data.sourceError} />}
+      {scanError && <DataUnavailable reason={scanError} />}
 
       {/* ── PENNY OPTIONS SCANNER ── */}
-      {!loading && <PennyScanner quotes={allQuotes} />}
+      {!loading && <PennyScanner quotes={candidates} />}
 
       {/* ── INTRADAY CALL PLAYS ── */}
       <section className="space-y-4">

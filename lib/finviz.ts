@@ -317,13 +317,217 @@ export async function fetchFinvizScreener(
   return result;
 }
 
-const FUTURES_SYMBOLS = ['ES', 'NQ', 'YM', 'RTY', 'NKD'];
+// ─── Full-market universe scan (STEP 1) ──────────────────────────────────────
+// Pulls tradeable NYSE/NASDAQ/AMEX names directly from the Finviz Elite
+// screener (not a hardcoded ticker list). Paginates the same v=152 view used
+// above, `PAGES_PER_EXCHANGE` pages at a time (20 rows/page), filtered to a
+// liquid/tradeable universe (price > $1, avg volume > 100K) so the scan stays
+// inside a serverless function's time budget instead of trying to pull every
+// one of the ~8,000 listed US tickers (most of which are illiquid/untradeable
+// anyway). Override the page cap with FINVIZ_UNIVERSE_PAGES_PER_EXCHANGE.
+const UNIVERSE_TTL = 5 * 60_000;
+const universeCache = new Map<string, { data: UniverseResult; ts: number }>();
+
+const EXCHANGE_FILTERS: Record<'nyse' | 'nasd' | 'amex', string> = {
+  nyse: 'exch_nyse',
+  nasd: 'exch_nasd',
+  amex: 'exch_amex',
+};
+
+function rowsPerPage(): number {
+  return 20;
+}
+
+async function fetchFinvizUniversePage(
+  cookie: string,
+  exchangeFilter: string,
+  offset: number
+): Promise<{ rows: string[][]; headerIdx: number; headers: string[] } | null> {
+  const url =
+    `https://elite.finviz.com/screener.ashx?v=152&f=${exchangeFilter},sh_price_o1,sh_avgvol_o100` +
+    `&o=-avgvol&r=${offset}`;
+  try {
+    const resp = await fetch(url, { headers: makeHeaders(cookie), cache: 'no-store' });
+    if (!resp.ok) return null;
+    const html = await resp.text();
+    const rows = extractTableCells(html);
+    let headerIdx = -1;
+    for (let i = 0; i < rows.length; i++) {
+      const lower = rows[i].map((c) => c.toLowerCase());
+      if (lower.includes('ticker') || lower.includes('no.')) {
+        headerIdx = i;
+        break;
+      }
+    }
+    if (headerIdx === -1) return null;
+    return { rows, headerIdx, headers: rows[headerIdx].map((h) => h.toLowerCase().trim()) };
+  } catch {
+    return null;
+  }
+}
+
+function parseUniverseRow(row: string[], headers: string[], now: string): FinvizQuote | null {
+  const col = (name: string): number => {
+    const exact = headers.indexOf(name);
+    if (exact >= 0) return exact;
+    return headers.findIndex((h) => h.includes(name));
+  };
+  const iTicker = col('ticker') >= 0 ? col('ticker') : 1;
+  const symbol = (row[iTicker] ?? '').toUpperCase().trim();
+  if (!symbol || row.length < 5) return null;
+
+  const iPrice = col('price');
+  const iChange = col('change');
+  const iVolume = col('volume');
+  const iAvgVol = col('avg volume') >= 0 ? col('avg volume') : col('avg vol');
+  const iRvol = col('rel volume') >= 0 ? col('rel volume') : col('rel vol');
+  const iFloat = col('float');
+  const iSma20 = col('sma20');
+  const iSma50 = col('sma50');
+  const iSma200 = col('sma200');
+  const iGap = col('gap');
+  const iSector = col('sector');
+  const iIndustry = col('industry');
+  const iPerfWeek = col('perf week') >= 0 ? col('perf week') : col('perf');
+  const iHighCol = headers.findIndex((h) => h === '52w high' || h === '52w h');
+
+  const price = iPrice >= 0 ? parseFinvizNumber(row[iPrice]) : null;
+  const changePercent = iChange >= 0 ? parsePercent(row[iChange]) : null;
+  const volume = iVolume >= 0 ? parseFinvizNumber(row[iVolume]) : null;
+  const avgVolume = iAvgVol >= 0 ? parseFinvizNumber(row[iAvgVol]) : null;
+  const rvolRaw = iRvol >= 0 ? parseFinvizNumber(row[iRvol]) : null;
+  const rvol = rvolRaw ?? (volume && avgVolume && avgVolume > 0 ? volume / avgVolume : null);
+  const floatVal = iFloat >= 0 ? parseFinvizNumber(row[iFloat]) : null;
+  const gap = iGap >= 0 ? parsePercent(row[iGap]) : null;
+  const sma20pct = iSma20 >= 0 ? parsePercent(row[iSma20]) : null;
+  const sma50pct = iSma50 >= 0 ? parsePercent(row[iSma50]) : null;
+  const sma200pct = iSma200 >= 0 ? parsePercent(row[iSma200]) : null;
+  const sma20rel = sma20pct === null ? null : sma20pct >= 0 ? ('above' as const) : ('below' as const);
+  const sma50rel = sma50pct === null ? null : sma50pct >= 0 ? ('above' as const) : ('below' as const);
+  const sma200rel = sma200pct === null ? null : sma200pct >= 0 ? ('above' as const) : ('below' as const);
+  const sector = iSector >= 0 ? row[iSector] || null : null;
+  const industry = iIndustry >= 0 ? row[iIndustry] || null : null;
+
+  let groupStrength: FinvizQuote['groupStrength'] = null;
+  if (iPerfWeek >= 0) {
+    const perf = parsePercent(row[iPerfWeek]);
+    if (perf !== null) groupStrength = perf >= 1 ? 'strong' : perf <= -1 ? 'weak' : 'neutral';
+  }
+
+  let newHighDay = false;
+  if (iHighCol >= 0) {
+    const val = row[iHighCol]?.trim() ?? '';
+    newHighDay = val === '0.00%' || val === '0%';
+  }
+
+  return {
+    symbol,
+    rvol,
+    unusualVolume: rvol !== null && rvol >= 2,
+    newHighDay,
+    changePercent,
+    gap,
+    sma20rel,
+    sma50rel,
+    sma200rel,
+    avgVolume,
+    float: floatVal,
+    sector,
+    industry,
+    groupStrength,
+    price,
+    lastUpdated: now,
+  };
+}
+
+export interface UniverseResult extends FinvizResult<FinvizQuote> {
+  exchangesCovered: string[];
+  scannedCount: number;
+  cappedByPageLimit: boolean;
+}
+
+/** Full NYSE + NASDAQ + AMEX liquid-universe scan — the STEP 1 data source. */
+export async function fetchFinvizUniverse(
+  exchanges: Array<'nyse' | 'nasd' | 'amex'> = ['nyse', 'nasd', 'amex']
+): Promise<UniverseResult> {
+  const now = new Date().toISOString();
+  const cacheKey = `universe:${exchanges.join(',')}`;
+  const cached = universeCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < UNIVERSE_TTL) {
+    return cached.data;
+  }
+
+  const { cookie, error: sessionError } = await getSessionCookie();
+  if (!cookie) {
+    return {
+      data: [],
+      sourceError: sessionError ?? 'Finviz credentials not configured',
+      lastUpdated: now,
+      exchangesCovered: [],
+      scannedCount: 0,
+      cappedByPageLimit: false,
+    };
+  }
+
+  const pagesPerExchange = Number(process.env.FINVIZ_UNIVERSE_PAGES_PER_EXCHANGE ?? 15);
+  const perPage = rowsPerPage();
+  const CONCURRENCY = 4;
+
+  const all = new Map<string, FinvizQuote>();
+  let cappedByPageLimit = false;
+
+  for (const ex of exchanges) {
+    const filter = EXCHANGE_FILTERS[ex];
+    const offsets = Array.from({ length: pagesPerExchange }, (_, i) => 1 + i * perPage);
+
+    let exhausted = false;
+    for (let batchStart = 0; batchStart < offsets.length && !exhausted; batchStart += CONCURRENCY) {
+      const batch = offsets.slice(batchStart, batchStart + CONCURRENCY);
+      const pages = await Promise.all(batch.map((offset) => fetchFinvizUniversePage(cookie, filter, offset)));
+
+      for (const page of pages) {
+        if (!page) continue;
+        const { rows, headerIdx, headers } = page;
+        const dataRows = rows.slice(headerIdx + 1);
+        if (dataRows.length === 0) {
+          exhausted = true;
+          continue;
+        }
+        for (const row of dataRows) {
+          const q = parseUniverseRow(row, headers, now);
+          if (q) all.set(q.symbol, q);
+        }
+        if (dataRows.length < perPage) exhausted = true;
+      }
+    }
+    if (!exhausted) cappedByPageLimit = true;
+  }
+
+  const data = Array.from(all.values());
+  const result: UniverseResult = {
+    data,
+    lastUpdated: now,
+    source: 'Finviz Elite (full universe scan)',
+    exchangesCovered: exchanges,
+    scannedCount: data.length,
+    cappedByPageLimit,
+  };
+  universeCache.set(cacheKey, { data: result, ts: Date.now() });
+  return result;
+}
+
+const FUTURES_SYMBOLS = ['ES', 'NQ', 'YM', 'RTY', 'NKD', 'CL', 'GC', 'ZB', 'ZN', 'DX'];
 const FUTURES_NAMES: Record<string, string> = {
   ES: 'S&P 500 Futures',
   NQ: 'Nasdaq 100 Futures',
   YM: 'Dow Jones Futures',
   RTY: 'Russell 2000 Futures',
   NKD: 'Nikkei 225 Futures',
+  CL: 'Crude Oil Futures',
+  GC: 'Gold Futures',
+  ZB: '30Y Treasury Bond Futures',
+  ZN: '10Y Treasury Note Futures',
+  DX: 'US Dollar Index Futures',
 };
 
 export async function fetchFinvizFutures(): Promise<FinvizResult<FinvizFuture>> {
