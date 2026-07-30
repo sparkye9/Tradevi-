@@ -16,6 +16,7 @@
 import { fetchFinvizUniverse, fetchFinvizScreener, fetchFinvizFutures } from './finviz';
 import { fetchMacroInstruments } from './macroInstruments';
 import { rankByOpportunity, type ScoredQuote } from './opportunityScore';
+import { loadUniverseScan, saveUniverseScan, isPersistenceConfigured } from './scanStore';
 import type { FinvizQuote, FinvizFuture } from './finviz';
 
 export const SECTOR_ETFS = ['XLK', 'XLF', 'XLV', 'XLE', 'XLY', 'XLI', 'XLB', 'XLU', 'XLP', 'XLC', 'XLRE'];
@@ -42,10 +43,40 @@ export interface UniverseScanResult {
     cappedByPageLimit: boolean;
     asOf: string;
     sourceError?: string;
+    /** 'cache' = served from the persisted daily scan; 'live' = computed this request. */
+    servedFrom?: 'cache' | 'live';
+    persistenceConfigured?: boolean;
   };
 }
 
-/** The full STEP 1 scan: universe + context, scored and ranked. */
+/**
+ * The read path every page load hits: serve the persisted daily scan if it's
+ * fresh enough, otherwise fall back to a live scan (and persist that result
+ * for the next request). This is what makes the 4 AM cron actually useful —
+ * without it, every page load would re-run the full screener scan itself.
+ */
+export async function getUniverseScan(
+  rvolThreshold: number,
+  opts: { maxAgeMinutes?: number } = {}
+): Promise<UniverseScanResult> {
+  const maxAgeMinutes = opts.maxAgeMinutes ?? 240; // 4h — generous for a once-daily scan
+  const cached = await loadUniverseScan();
+  if (cached) {
+    const ageMinutes = (Date.now() - new Date(cached.meta.asOf).getTime()) / 60_000;
+    if (ageMinutes <= maxAgeMinutes) {
+      return { ...cached, meta: { ...cached.meta, servedFrom: 'cache', persistenceConfigured: isPersistenceConfigured() } };
+    }
+  }
+  const fresh = await runUniverseScan(rvolThreshold);
+  const withMeta: UniverseScanResult = {
+    ...fresh,
+    meta: { ...fresh.meta, servedFrom: 'live', persistenceConfigured: isPersistenceConfigured() },
+  };
+  await saveUniverseScan(withMeta);
+  return withMeta;
+}
+
+/** The full STEP 1 scan: universe + context, scored and ranked. Always live. */
 export async function runUniverseScan(rvolThreshold: number): Promise<UniverseScanResult> {
   const [universe, contextQuotes, futures, macro] = await Promise.all([
     fetchFinvizUniverse(['nyse', 'nasd', 'amex']),

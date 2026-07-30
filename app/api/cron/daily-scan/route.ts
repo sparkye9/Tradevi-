@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runUniverseScan } from '@/lib/universe';
+import { saveUniverseScan, isPersistenceConfigured } from '@/lib/scanStore';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -33,8 +34,13 @@ export async function GET(req: NextRequest) {
   }
 
   const result = await runUniverseScan(1.5);
+  result.meta.servedFrom = 'live';
+  result.meta.persistenceConfigured = isPersistenceConfigured();
+  await saveUniverseScan(result);
+
   return NextResponse.json({
     skipped: false,
+    persisted: result.meta.persistenceConfigured,
     scannedCount: result.meta.scannedCount,
     exchangesCovered: result.meta.exchangesCovered,
     asOf: result.meta.asOf,

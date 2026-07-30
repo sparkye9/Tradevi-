@@ -590,12 +590,12 @@ export default function OpportunityFinderPage() {
   const [marketLoading, setMarketLoading] = useState(true);
   const [scanError, setScanError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (forceFresh = false) => {
     setLoading(true);
     setMarketLoading(true);
     setScanError(null);
     try {
-      const res = await fetch(`/api/scan/universe?rvolThreshold=${rvolThreshold}`);
+      const res = await fetch(`/api/scan/universe?rvolThreshold=${rvolThreshold}${forceFresh ? '&fresh=true' : ''}`);
       const json: UniverseScanResult = await res.json();
       setScan(json);
       if (json.meta?.sourceError) setScanError(json.meta.sourceError);
@@ -607,7 +607,9 @@ export default function OpportunityFinderPage() {
     setMarketLoading(false);
   }, [rvolThreshold]);
 
-  useEffect(() => { load(); }, [load]);
+  // Initial load reads whatever the daily cron already scanned (instant);
+  // the Refresh button forces a live re-scan.
+  useEffect(() => { load(false); }, [load]);
 
   // The full NYSE + NASDAQ + AMEX scan, already scored by the shared engine.
   const candidates = (scan?.opportunities ?? []).map(({ q }) => q);
@@ -691,12 +693,15 @@ export default function OpportunityFinderPage() {
             <p className="text-xs text-gray-600 mt-1 font-mono">
               Scanned {scan.meta.scannedCount.toLocaleString()} names across {scan.meta.exchangesCovered.join(', ').toUpperCase() || '--'}
               {scan.meta.cappedByPageLimit ? ' (capped — raise FINVIZ_UNIVERSE_PAGES_PER_EXCHANGE for deeper coverage)' : ''}
+              {' · '}
+              {scan.meta.servedFrom === 'cache' ? "from today's 4 AM ET scan" : 'live scan'}
+              {scan.meta.persistenceConfigured === false && ' (no KV connected — not persisted between requests)'}
             </p>
           )}
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={load}
+            onClick={() => load(true)}
             disabled={loading}
             className="px-4 py-1.5 text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] rounded-full text-gray-300 hover:border-emerald-500/30 hover:text-white transition-all disabled:opacity-50"
           >
