@@ -3,8 +3,11 @@ import { useEffect, useState } from 'react';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import StocksSubnav from '@/components/stocks/StocksSubnav';
-import { useTradeviStore } from '@/store/tradeviStore';
-import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
+import ScanControls from '@/components/stocks/ScanControls';
+import NoTradeEmpty from '@/components/stocks/NoTradeEmpty';
+import VerdictBadge from '@/components/stocks/VerdictBadge';
+import { useFinvizScan } from '@/hooks/useFinvizScan';
+import { STOCK_HONEST_GAPS } from '@/lib/stockQuality';
 import type { TradierOptionsResult, TradierContract } from '@/lib/tradier';
 import type { YahooOptionsResult } from '@/lib/yahoo-fallback';
 
@@ -15,7 +18,10 @@ function fmtGreek(n: number | null): string {
   return n.toFixed(3);
 }
 
-function ContractsTable({ contracts, isTradier }: {
+function ContractsTable({
+  contracts,
+  isTradier,
+}: {
   contracts: TradierContract[];
   isTradier: boolean;
 }) {
@@ -46,7 +52,11 @@ function ContractsTable({ contracts, isTradier }: {
   }
 
   if (contracts.length === 0) {
-    return <div className="text-gray-500 text-sm">No contracts meet filter criteria (delta 0.20-0.70, vol &gt; 50, OI &gt; 100).</div>;
+    return (
+      <div className="text-gray-500 text-sm">
+        No contracts meet filter criteria (delta 0.20-0.70, vol &gt; 50, OI &gt; 100).
+      </div>
+    );
   }
 
   return (
@@ -60,7 +70,12 @@ function ContractsTable({ contracts, isTradier }: {
                 <th className="py-1 pr-3">Strike</th>
                 <th className="py-1 pr-3">Exp</th>
                 <th className="py-1 pr-3">Delta</th>
-                {isTradier && <><th className="py-1 pr-3">Gamma</th><th className="py-1 pr-3">Theta</th></>}
+                {isTradier && (
+                  <>
+                    <th className="py-1 pr-3">Gamma</th>
+                    <th className="py-1 pr-3">Theta</th>
+                  </>
+                )}
                 <th className="py-1 pr-3">IV</th>
                 <th className="py-1 pr-3">Vol</th>
                 <th className="py-1 pr-3">OI</th>
@@ -68,7 +83,11 @@ function ContractsTable({ contracts, isTradier }: {
                 <th className="py-1">Ask</th>
               </tr>
             </thead>
-            <tbody>{calls.map((c) => <Row key={c.symbol} c={c} />)}</tbody>
+            <tbody>
+              {calls.map((c) => (
+                <Row key={c.symbol} c={c} />
+              ))}
+            </tbody>
           </table>
         </div>
       )}
@@ -81,7 +100,12 @@ function ContractsTable({ contracts, isTradier }: {
                 <th className="py-1 pr-3">Strike</th>
                 <th className="py-1 pr-3">Exp</th>
                 <th className="py-1 pr-3">Delta</th>
-                {isTradier && <><th className="py-1 pr-3">Gamma</th><th className="py-1 pr-3">Theta</th></>}
+                {isTradier && (
+                  <>
+                    <th className="py-1 pr-3">Gamma</th>
+                    <th className="py-1 pr-3">Theta</th>
+                  </>
+                )}
                 <th className="py-1 pr-3">IV</th>
                 <th className="py-1 pr-3">Vol</th>
                 <th className="py-1 pr-3">OI</th>
@@ -89,7 +113,11 @@ function ContractsTable({ contracts, isTradier }: {
                 <th className="py-1">Ask</th>
               </tr>
             </thead>
-            <tbody>{puts.map((c) => <Row key={c.symbol} c={c} />)}</tbody>
+            <tbody>
+              {puts.map((c) => (
+                <Row key={c.symbol} c={c} />
+              ))}
+            </tbody>
           </table>
         </div>
       )}
@@ -97,13 +125,27 @@ function ContractsTable({ contracts, isTradier }: {
   );
 }
 
-function SymbolOptionsPanel({ symbol }: { symbol: string }) {
+function SymbolOptionsPanel({
+  symbol,
+  headline,
+}: {
+  symbol: string;
+  headline: string;
+}) {
   const [result, setResult] = useState<OptionsResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
+  useEffect(() => {
+    setResult(null);
+    setExpanded(false);
+  }, [symbol]);
+
   async function load() {
-    if (result) { setExpanded(true); return; }
+    if (result) {
+      setExpanded(true);
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch(`/api/tradier/options?symbol=${symbol}`);
@@ -111,7 +153,12 @@ function SymbolOptionsPanel({ symbol }: { symbol: string }) {
       setResult(json);
       setExpanded(true);
     } catch {
-      setResult({ contracts: [], sourceError: 'Fetch failed', source: 'Tradier', lastUpdated: new Date().toISOString() });
+      setResult({
+        contracts: [],
+        sourceError: 'Fetch failed',
+        source: 'Tradier',
+        lastUpdated: new Date().toISOString(),
+      });
     }
     setLoading(false);
   }
@@ -120,12 +167,12 @@ function SymbolOptionsPanel({ symbol }: { symbol: string }) {
 
   return (
     <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-white font-bold">{symbol}</span>
-        <button
-          onClick={() => expanded ? setExpanded(false) : load()}
-          className="text-xs text-blue-400 hover:underline"
-        >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <span className="text-white font-bold font-mono">{symbol}</span>
+          <p className="text-[11px] text-gray-500 mt-0.5">{headline}</p>
+        </div>
+        <button onClick={() => (expanded ? setExpanded(false) : load())} className="text-xs text-blue-400 hover:underline">
           {loading ? 'Loading...' : expanded ? 'Collapse' : 'Load options'}
         </button>
       </div>
@@ -135,14 +182,10 @@ function SymbolOptionsPanel({ symbol }: { symbol: string }) {
           <div className="flex items-center gap-2">
             <SourceTag source={result.source} lastUpdated={result.lastUpdated} />
             {isTradier && (
-              <span className="text-xs text-gray-500">
-                Greeks updated ~hourly. Verify with your broker.
-              </span>
+              <span className="text-xs text-gray-500">Greeks updated ~hourly. Verify with your broker.</span>
             )}
             {!isTradier && (
-              <span className="text-xs text-yellow-500">
-                Delayed data. Greeks not available from Yahoo Finance.
-              </span>
+              <span className="text-xs text-yellow-500">Delayed data. Greeks not available from Yahoo Finance.</span>
             )}
           </div>
 
@@ -155,15 +198,10 @@ function SymbolOptionsPanel({ symbol }: { symbol: string }) {
           {result.sourceError ? (
             <div className="space-y-2">
               <DataUnavailable symbol={symbol} reason={result.sourceError} />
-              <div className="text-sm text-gray-500">
-                Read delta and gamma on your broker platform directly.
-              </div>
+              <div className="text-sm text-gray-500">Read delta and gamma on your broker platform directly.</div>
             </div>
           ) : (
-            <ContractsTable
-              contracts={result.contracts as TradierContract[]}
-              isTradier={isTradier}
-            />
+            <ContractsTable contracts={result.contracts as TradierContract[]} isTradier={isTradier} />
           )}
         </div>
       )}
@@ -172,63 +210,75 @@ function SymbolOptionsPanel({ symbol }: { symbol: string }) {
 }
 
 export default function OptionsPage() {
-  const { watchlist, rvolThreshold } = useTradeviStore();
-  const [data, setData] = useState<FinvizResult<FinvizQuote> | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/finviz/screener?tickers=${watchlist.join(',')}`);
-        const json = await res.json();
-        setData(json);
-      } catch {
-        setData({ data: [], sourceError: 'Fetch failed', lastUpdated: new Date().toISOString() });
-      }
-      setLoading(false);
-    }
-    load();
-  }, [watchlist]);
-
-  // Top candidates by auto score
-  const candidates = [...(data?.data ?? [])]
-    .filter((q) => {
-      const intraday = (q.rvol ?? 0) > rvolThreshold || q.newHighDay;
-      const swing = q.sma50rel === 'above' && q.sma200rel === 'above';
-      return intraday || swing;
-    })
-    .sort((a, b) => (b.rvol ?? 0) - (a.rvol ?? 0))
-    .slice(0, 10);
+  const {
+    data,
+    loading,
+    load,
+    watchlist,
+    rvolThreshold,
+    setRvolThreshold,
+    scanMode,
+    setScanMode,
+    looks,
+  } = useFinvizScan();
 
   return (
     <div className="space-y-6 max-w-5xl">
       <div className="space-y-3">
         <div>
           <h1 className="text-xl font-bold text-white">Options</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Which contracts are worth trading on today&apos;s candidates?</p>
+          <p className="text-gray-500 text-sm mt-0.5">
+            Chains only for LOOK names. Delta 0.20–0.70. No flow, no GEX, no fabricated greeks.
+          </p>
         </div>
         <StocksSubnav />
       </div>
 
-      <div className="text-xs text-gray-600 p-3 rounded bg-[#1a1a1a] border border-[#2a2a2a]">
-        Filters: delta 0.20-0.70, volume &gt; 50, OI &gt; 100. Greeks from Tradier refresh hourly.
-        If Tradier is not connected, IV, OI, volume, bid, ask from Yahoo Finance (delayed). No fabricated greeks.
-        No options flow. No GEX.
-      </div>
+      <ScanControls
+        watchlistLen={watchlist.length}
+        scanMode={scanMode}
+        setScanMode={setScanMode}
+        rvolThreshold={rvolThreshold}
+        setRvolThreshold={setRvolThreshold}
+        onRefresh={load}
+        loading={loading}
+        source={data?.source}
+        lastUpdated={data?.lastUpdated}
+      />
 
-      {loading && <div className="text-gray-500 text-sm">Loading candidates...</div>}
+      <div className="text-xs text-gray-600 p-3 rounded bg-[#1a1a1a] border border-[#2a2a2a]">
+        Filters: delta 0.20-0.70, volume &gt; 50, OI &gt; 100. Greeks from Tradier refresh hourly. If Tradier
+        is not connected, IV, OI, volume, bid, ask from Yahoo Finance (delayed).
+      </div>
 
       {data?.sourceError && <DataUnavailable reason={data.sourceError} />}
 
-      {candidates.length === 0 && !loading && !data?.sourceError && (
-        <div className="text-gray-500 text-sm">No candidates from current watchlist.</div>
+      {!loading && !data?.sourceError && looks.length === 0 && (
+        <NoTradeEmpty detail="No LOOK names on this scan, so there is no chain to load. Weak tape is a hard no-trade — not a cheaper contract." />
       )}
 
       <div className="space-y-3">
-        {candidates.map((q) => (
-          <SymbolOptionsPanel key={q.symbol} symbol={q.symbol} />
+        {looks.map(({ q, quality }) => (
+          <div key={q.symbol} className="space-y-1">
+            <div className="flex items-center gap-2 px-1">
+              <VerdictBadge quality={quality} />
+              <span className="text-xs text-gray-600 font-mono">
+                {q.price !== null ? `$${q.price.toFixed(2)}` : '--'}
+                {q.rvol !== null ? ` · RVOL ${q.rvol.toFixed(2)}` : ''}
+              </span>
+            </div>
+            <SymbolOptionsPanel symbol={q.symbol} headline={quality.headline} />
+          </div>
         ))}
+      </div>
+
+      <div className="text-xs text-gray-500 p-4 rounded-2xl bg-[#111111] border border-[#1e1e1e] space-y-2">
+        <div className="text-[10px] uppercase tracking-widest text-gray-600">What this page does not do</div>
+        <ul className="space-y-1">
+          {STOCK_HONEST_GAPS.map((line) => (
+            <li key={line}>• {line}</li>
+          ))}
+        </ul>
       </div>
     </div>
   );
