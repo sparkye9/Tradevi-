@@ -29,7 +29,8 @@ users).
 
 - `middleware.ts` runs on every request. It's the single place access is
   decided — no page has to remember to check anything itself.
-  - `/`, `/login`, `/signup` — open to anyone.
+  - `/`, `/login`, `/signup`, `/forgot-password`, `/reset-password` — open
+    to anyone.
   - `/api/finviz/screener`, `/api/finviz/futures` — also open, because the
     public home page and the futures ticker in the header need them.
   - `/api/paypal/webhook` — open, but self-verifies via PayPal's signature
@@ -73,6 +74,9 @@ from any device and the same account, same subscription, works.
    NEXT_PUBLIC_SUPABASE_ANON_KEY=...
    SUPABASE_SERVICE_ROLE_KEY=...
    ```
+6. Password reset works out of the box once these are set — `/forgot-password`
+   sends the email (Supabase's own low-volume sender, same as the signup
+   confirmation email) and `/reset-password` is where that link lands.
 
 ### 2. PayPal Subscriptions
 
@@ -119,6 +123,20 @@ from any device and the same account, same subscription, works.
 7. **Go live**: swap in your live Client ID/Secret/Webhook ID and set
    `PAYPAL_ENV=live`.
 
+### 3. Your own free access
+
+You shouldn't have to pay yourself $7.99/month to use your own app. Set:
+```
+OWNER_EMAILS=you@example.com
+```
+(comma-separated if you want more than one — e.g. a co-founder). Sign up
+through `/signup` with that exact email, same as any other user — no
+special flow. Once that env var is set, that account skips the PayPal step
+entirely: `middleware.ts` and `/subscribe` both check `OWNER_EMAILS` before
+they check the `subscriptions` table. There's nothing to configure in
+Supabase for this — it's a plain env var, checked directly, so comping an
+account never depends on the database being reachable.
+
 ## There's no way to take card payments with zero fees
 
 Every processor that can bill a card automatically every month — PayPal,
@@ -157,6 +175,8 @@ isn't guaranteed.
   PayPal account (Settings → automatic withdrawals).
 - **Chargebacks/disputes** are handled through PayPal's normal resolution
   process, same as any PayPal payment.
-- **Password reset / account recovery UI isn't built yet** — Supabase
-  supports it (`supabase.auth.resetPasswordForEmail`), but there's no page
-  wired up for it in this app yet. Worth adding before real users hit it.
+- **`OWNER_EMAILS` is a plain env var, not a role in the database** — anyone
+  with deploy access to change environment variables can add themselves.
+  That's normal for a solo-operator app; if you ever bring on other people
+  who shouldn't have that power, this would need to move to a real
+  `role` column with proper access control instead.

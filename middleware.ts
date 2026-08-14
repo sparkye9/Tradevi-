@@ -1,8 +1,12 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { isOwnerEmail } from '@/lib/ownerAccess';
 
-// Fully public — no login required.
-const PUBLIC_PATHS = new Set(['/', '/login', '/signup']);
+// Fully public — no login required. /reset-password must stay open even
+// though it establishes a session, because the recovery token it needs
+// arrives in the URL fragment (never sent to the server) and is only
+// parsed client-side after the page has already loaded.
+const PUBLIC_PATHS = new Set(['/', '/login', '/signup', '/forgot-password', '/reset-password']);
 
 // The home page (and the futures ticker shown in the header on every page)
 // depend on these two data endpoints, so they stay reachable by anonymous
@@ -76,6 +80,10 @@ export async function middleware(request: NextRequest) {
   }
 
   if (LOGIN_ONLY_PATHS.has(path)) {
+    return response;
+  }
+
+  if (isOwnerEmail(user.email)) {
     return response;
   }
 

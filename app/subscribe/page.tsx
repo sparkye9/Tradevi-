@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
+import { isOwnerEmail } from '@/lib/ownerAccess';
 import SubscribeButton from '@/components/premium/SubscribeButton';
 
 export default async function SubscribePage() {
@@ -23,13 +24,15 @@ export default async function SubscribePage() {
     );
   }
 
+  const isOwner = isOwnerEmail(user.email);
+
   const { data: sub } = await supabase
     .from('subscriptions')
     .select('status')
     .eq('user_id', user.id)
     .maybeSingle();
 
-  const isActive = sub?.status === 'ACTIVE';
+  const isActive = isOwner || sub?.status === 'ACTIVE';
 
   return (
     <div className="max-w-lg space-y-5">
@@ -40,7 +43,15 @@ export default async function SubscribePage() {
         </p>
       </div>
 
-      {isActive ? (
+      {isOwner ? (
+        <div className="text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4">
+          Owner account — free access, no subscription needed.{' '}
+          <Link href="/" className="underline">
+            Go to the dashboard
+          </Link>
+          .
+        </div>
+      ) : isActive ? (
         <div className="text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4">
           You&apos;re subscribed and active.{' '}
           <Link href="/" className="underline">
