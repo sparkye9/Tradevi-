@@ -6,7 +6,7 @@ import TradingViewButton from '@/components/ui/TradingViewButton';
 import VerdictBadge from '@/components/stocks/VerdictBadge';
 import { useTradeviStore, MARKET_TICKERS } from '@/store/tradeviStore';
 import { stockQuality, STOCK_HONEST_GAPS, type StockQuality } from '@/lib/stockQuality';
-import { marketClock } from '@/lib/powerHour';
+import { marketClock, SESSION_HOURS, type Venue } from '@/lib/powerHour';
 import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
 import type { TradierContract, TradierOptionsResult } from '@/lib/tradier';
 
@@ -325,7 +325,8 @@ export default function PowerHourPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Power Hour</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Looks stay live while the cash market is open (9:30 AM–4:00 PM ET). Power Hour is 3:00–4:00.
+          Globex runs about 23 hours a day, Sunday 6:00 PM through Friday 5:00 PM ET.
+          Asia, London, and New York stay live. Power Hour is 3:00–4:00 PM ET.
         </p>
       </div>
 
@@ -338,8 +339,38 @@ export default function PowerHourPage() {
             <div className="text-xs mt-2 opacity-70">
               {session.tradesOpen ? 'Trades open' : 'Trades closed'}
             </div>
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {(['Asia', 'London', 'New York'] as Venue[]).map((venue) => {
+                const on = session.venues.includes(venue);
+                return (
+                  <span
+                    key={venue}
+                    className={`text-[10px] font-bold tracking-widest uppercase px-2 py-0.5 rounded-full border ${
+                      on
+                        ? 'border-current bg-black/20'
+                        : 'border-white/10 text-white/30'
+                    }`}
+                  >
+                    {venue}
+                  </span>
+                );
+              })}
+              {session.powerHour && (
+                <span className="text-[10px] font-bold tracking-widest uppercase px-2 py-0.5 rounded-full border border-current bg-black/20">
+                  Power Hour
+                </span>
+              )}
+            </div>
           </div>
           <div className="text-right font-mono text-sm opacity-80">{session.clock}</div>
+        </div>
+        <div className="mt-4 pt-3 border-t border-white/10 grid sm:grid-cols-2 lg:grid-cols-4 gap-2 text-[11px] opacity-80">
+          {SESSION_HOURS.map((row) => (
+            <div key={row.venue}>
+              <span className="font-semibold">{row.venue}</span>
+              <span className="opacity-70"> · {row.hours}</span>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -430,7 +461,8 @@ export default function PowerHourPage() {
       <div className="text-xs text-gray-500 p-4 rounded-2xl bg-[#111111] border border-[#1e1e1e] space-y-2">
         <div className="text-[10px] uppercase tracking-widest text-gray-600">What this page does not do</div>
         <ul className="space-y-1">
-          <li>• This clock is America/New_York. It does not know holidays or early closes.</li>
+          <li>• This clock is America/New_York. Globex: Sunday 6:00 PM–Friday 5:00 PM ET, daily halt 5:00–6:00 PM ET (Mon–Thu). It does not know holidays.</li>
+          <li>• Equity-index futures also pause 4:15–4:30 PM ET. That 15-minute halt is not treated as a full close here.</li>
           {STOCK_HONEST_GAPS.map((line) => (
             <li key={line}>• {line}</li>
           ))}

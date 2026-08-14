@@ -233,8 +233,8 @@ export default function SessionBias() {
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-xl font-bold text-white">Overnight session bias</h2>
-        <p className="text-sm text-gray-500 mt-1">9-factor read — ES · NQ · YM · RTY · VIX · Gold · Oil · 10Y · DXY</p>
+        <h2 className="text-xl font-bold text-white">Session bias</h2>
+        <p className="text-sm text-gray-500 mt-1">Globex — Asia, London, New York. ES · NQ · YM · RTY · VIX · Gold · Oil · 10Y · DXY</p>
       </div>
 
       <div className="flex items-center gap-4">
@@ -335,7 +335,7 @@ export default function SessionBias() {
       )}
 
       <p className="text-xs text-gray-700">
-        Bias from overnight futures. Key levels and execution on your prop platform + TradingView.
+        Bias from Globex (Asia, London, New York). Key levels and execution on your prop platform + TradingView.
       </p>
     </div>
   );

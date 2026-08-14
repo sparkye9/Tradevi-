@@ -68,16 +68,12 @@ export default function FuturesBar() {
     ? 'bg-amber-400'
     : clock.tradesOpen
     ? 'bg-emerald-400'
-    : clock.session === 'Premarket' || clock.session === 'After hours'
-    ? 'bg-amber-400/70'
     : 'bg-red-400/60';
 
   const sessionColor = clock.powerHour
     ? 'text-amber-300'
     : clock.tradesOpen
     ? 'text-emerald-400'
-    : clock.session === 'Premarket' || clock.session === 'After hours'
-    ? 'text-amber-400/80'
     : 'text-gray-500';
 
   return (
