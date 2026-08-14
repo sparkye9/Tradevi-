@@ -3,7 +3,10 @@ import { useEffect, useState } from 'react';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
+import VerdictBadge from '@/components/stocks/VerdictBadge';
 import { useTradeviStore, MARKET_TICKERS } from '@/store/tradeviStore';
+import { stockQuality, STOCK_HONEST_GAPS, type StockQuality } from '@/lib/stockQuality';
+import { powerHourClock } from '@/lib/powerHour';
 import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
 import type { TradierContract, TradierOptionsResult } from '@/lib/tradier';
 
@@ -73,12 +76,12 @@ function OptionsPanel({ symbol }: { symbol: string }) {
 
 // ─── Candidate card ───────────────────────────────────────────────────────────
 
-function CandidateCard({ q, powerThreshold }: { q: FinvizQuote; powerThreshold: number }) {
+function CandidateCard({ q, quality }: { q: FinvizQuote; quality: StockQuality }) {
   const [showOptions, setShowOptions] = useState(false);
-  const isUnusual = (q.rvol ?? 0) >= 2;
   const chgColor = (q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400';
-  const borderClass = isUnusual
-    ? 'border-amber-500/40 hover:border-amber-500/70'
+  const look = quality.label === 'LOOK';
+  const borderClass = look
+    ? 'border-emerald-500/30 hover:border-emerald-500/50'
     : 'border-[#1e1e1e] hover:border-[#2a2a2a]';
 
   return (
@@ -96,19 +99,9 @@ function CandidateCard({ q, powerThreshold }: { q: FinvizQuote; powerThreshold: 
           </div>
         </div>
         <div className="flex flex-col items-end gap-1">
-          {isUnusual ? (
-            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              🔥 RVOL {q.rvol!.toFixed(2)}
-            </span>
-          ) : q.rvol !== null ? (
-            <span className={`text-xs font-mono ${(q.rvol ?? 0) >= powerThreshold ? 'text-amber-400' : 'text-gray-500'}`}>
-              RVOL {q.rvol.toFixed(2)}
-            </span>
-          ) : null}
-          {q.newHighDay && (
-            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              NEW HIGH
-            </span>
+          <VerdictBadge quality={quality} />
+          {q.rvol !== null && (
+            <span className="text-xs font-mono text-gray-500">RVOL {q.rvol.toFixed(2)}</span>
           )}
         </div>
       </div>
@@ -162,7 +155,7 @@ function TradingGuide() {
         onClick={() => setOpen((p) => !p)}
         className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-[#111111] transition-colors"
       >
-        <span className="text-sm font-bold text-gray-300">📖 Power Hour Trading Guide</span>
+        <span className="text-sm font-bold text-gray-300">How this hour works</span>
         <span className="text-gray-500 text-xs">{open ? '▲ hide' : '▼ show'}</span>
       </button>
 
@@ -267,6 +260,7 @@ export default function PowerHourPage() {
   const { watchlist, rvolThreshold, scanMode, setScanMode } = useTradeviStore();
   const [data, setData] = useState<FinvizResult<FinvizQuote> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState(() => powerHourClock());
 
   const tickers = scanMode === 'market' ? MARKET_TICKERS : watchlist;
 
@@ -282,25 +276,71 @@ export default function PowerHourPage() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, [scanMode, watchlist]); // eslint-disable-line
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanMode, watchlist]);
+
+  useEffect(() => {
+    const id = setInterval(() => setSession(powerHourClock()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   const powerThreshold = rvolThreshold * 1.2;
+  const open = session.status === 'OPEN';
 
-  const candidates = [...(data?.data ?? [])]
-    .filter((q) => q.newHighDay || (q.rvol ?? 0) >= powerThreshold || Math.abs(q.changePercent ?? 0) >= 2)
-    .sort((a, b) => (b.rvol ?? 0) - (a.rvol ?? 0));
+  const withQuality = [...(data?.data ?? [])]
+    .map((q) => {
+      const base = stockQuality(q, powerThreshold);
+      if (open) return { q, quality: base };
+      return {
+        q,
+        quality: {
+          ...base,
+          score: Math.min(base.score, 35),
+          label: 'NO_TRADE' as const,
+          side: 'none' as const,
+          headline: session.headline,
+          reasons: [...base.reasons, session.headline],
+        },
+      };
+    })
+    .sort((a, b) => b.quality.score - a.quality.score || (b.q.rvol ?? 0) - (a.q.rvol ?? 0));
 
-  const unusual = candidates.filter((q) => (q.rvol ?? 0) >= 2);
-  const regular = candidates.filter((q) => (q.rvol ?? 0) < 2);
+  const looks = withQuality.filter((row) => row.quality.label === 'LOOK');
+  const tape = withQuality.filter((row) => {
+    const hot =
+      row.q.newHighDay || (row.q.rvol ?? 0) >= powerThreshold || Math.abs(row.q.changePercent ?? 0) >= 2;
+    return hot && row.quality.label === 'NO_TRADE';
+  });
+
+  const sessionWrap =
+    session.status === 'OPEN'
+      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+      : 'border-gray-500/30 bg-[#141414] text-gray-200';
 
   return (
     <div className="space-y-6 max-w-6xl">
       <div>
         <h1 className="text-2xl font-bold text-white">Power Hour</h1>
-        <p className="text-sm text-gray-500 mt-1">3:00 – 4:00 PM ET · Quick scalps &amp; big wins into the close</p>
+        <p className="text-sm text-gray-500 mt-1">
+          3:00–4:00 PM ET. Quality score, then a hard no-trade outside the window or when the tape is weak.
+        </p>
       </div>
 
-      {/* Trading guide */}
+      <div className={`border rounded-2xl p-5 ${sessionWrap}`}>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div className="text-xs uppercase tracking-widest opacity-70 mb-1">Session</div>
+            <div className="text-2xl font-black tracking-tight">
+              {session.status === 'OPEN' ? 'OPEN' : 'NO TRADE'}
+            </div>
+            <div className="text-sm mt-1">{session.headline}</div>
+          </div>
+          <div className="text-right font-mono text-sm opacity-80">{session.clock}</div>
+        </div>
+      </div>
+
       <TradingGuide />
 
       {/* Controls */}
@@ -342,49 +382,58 @@ export default function PowerHourPage() {
       </div>
 
       <div className="text-xs text-gray-600 px-1">
-        Showing: new day high · RVOL &gt; {powerThreshold.toFixed(1)} · change &gt; 2% · expand for live contracts
+        Tape filter: new day high · RVOL &gt; {powerThreshold.toFixed(1)} · change &gt; 2%. VWAP is not computed here.
       </div>
 
       {data?.sourceError && <DataUnavailable reason={data.sourceError} />}
 
-      {unusual.length > 0 && (
+      {looks.length > 0 && (
         <section>
           <div className="flex items-center gap-2 mb-4">
-            <h2 className="text-amber-400 font-bold text-sm uppercase tracking-widest">🔥 Unusual Volume</h2>
-            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              {unusual.length}
-            </span>
-            <span className="text-xs text-gray-600">RVOL 2x+ — strongest conviction into close</span>
+            <h2 className="text-emerald-400 font-bold text-sm uppercase tracking-widest">Look board</h2>
+            <span className="text-xs text-gray-600">{looks.length} — still confirm on TradingView</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {unusual.map((q) => <CandidateCard key={q.symbol} q={q} powerThreshold={powerThreshold} />)}
+            {looks.map(({ q, quality }) => (
+              <CandidateCard key={q.symbol} q={q} quality={quality} />
+            ))}
           </div>
         </section>
       )}
 
-      {regular.length > 0 && (
+      {tape.length > 0 && (
         <section>
           <div className="flex items-center gap-2 mb-4">
-            <h2 className="text-white font-bold text-sm uppercase tracking-widest">All Candidates</h2>
-            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-[#1e1e1e] text-gray-400 border border-[#2a2a2a]">
-              {regular.length}
-            </span>
+            <h2 className="text-white font-bold text-sm uppercase tracking-widest">Tape</h2>
+            <span className="text-xs text-gray-600">{tape.length} marked no-trade</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {regular.map((q) => <CandidateCard key={q.symbol} q={q} powerThreshold={powerThreshold} />)}
+            {tape.map(({ q, quality }) => (
+              <CandidateCard key={q.symbol} q={q} quality={quality} />
+            ))}
           </div>
         </section>
       )}
 
-      {!loading && candidates.length === 0 && !data?.sourceError && (
-        <div className="text-center py-12 text-gray-600">
-          No power hour candidates yet. Try switching to Market Scan or check back closer to 3 PM ET.
+      {!loading && tape.length === 0 && looks.length === 0 && !data?.sourceError && (
+        <div className="border border-gray-500/30 bg-[#141414] rounded-2xl p-5">
+          <div className="text-2xl font-black text-gray-200">NO TRADE</div>
+          <p className="text-sm text-gray-400 mt-1">
+            Nothing on this scan has volume plus a directional lean
+            {open ? '.' : ', and Power Hour is not open.'}
+          </p>
         </div>
       )}
 
-      <p className="text-xs text-gray-700">
-        VWAP reclaim and structure confirmed on TradingView. Contracts filtered Δ 0.20–0.70 via Tradier.
-      </p>
+      <div className="text-xs text-gray-500 p-4 rounded-2xl bg-[#111111] border border-[#1e1e1e] space-y-2">
+        <div className="text-[10px] uppercase tracking-widest text-gray-600">What this page does not do</div>
+        <ul className="space-y-1">
+          <li>• This clock is America/New_York. It does not know holidays or early closes.</li>
+          {STOCK_HONEST_GAPS.map((line) => (
+            <li key={line}>• {line}</li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
