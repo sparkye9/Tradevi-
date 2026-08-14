@@ -74,13 +74,18 @@ from any device and the same account, same subscription, works.
    at low volume — fine for getting started. For real volume later,
    Authentication → Email Templates lets you plug in your own SMTP
    provider.
-5. Authentication → URL Configuration — set **Site URL** to your deployed
-   origin (e.g. `https://tradevi.vercel.app`) and add these **Redirect URLs**:
-   - `https://<your-domain>/auth/callback`
+5. Authentication → URL Configuration — set **Site URL** to
+   `https://tradevi.vercel.app` (**not** localhost — confirmation emails
+   open on phones, and a phone cannot reach your computer). Add these
+   **Redirect URLs**:
+   - `https://tradevi.vercel.app/auth/callback`
+   - `https://tradevi.vercel.app/**`
    - `http://localhost:3000/auth/callback`
+   If Site URL stays on localhost, signup emails send people to
+   `http://localhost:3000/?code=...` and they see “this site can’t be reached.”
    Signup confirmation and password-reset emails land on `/auth/callback`,
    which exchanges the PKCE `code` for a session. Without these URLs in the
-   allow-list, the emailed links fail.
+   allow-list, Supabase falls back to Site URL and the emailed links fail.
 6. Set the env vars from `.env.example`:
    ```
    NEXT_PUBLIC_SUPABASE_URL=...

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { authCallbackUrl } from '@/lib/siteUrl';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -31,8 +32,7 @@ export default function SignupPage() {
         email,
         password,
         options: {
-          emailRedirectTo:
-            typeof window !== 'undefined' ? `${window.location.origin}/auth/callback?next=/subscribe` : undefined,
+          emailRedirectTo: authCallbackUrl('/subscribe'),
         },
       });
       if (signUpError) {
@@ -58,8 +58,8 @@ export default function SignupPage() {
       <div className="max-w-sm mx-auto mt-12 space-y-4">
         <h1 className="text-2xl font-bold text-white">Check your email</h1>
         <div className="text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4">
-          We sent a confirmation link to <span className="font-semibold">{email}</span>. Click it, then come
-          back and sign in.
+          We sent a confirmation link to <span className="font-semibold">{email}</span>. Open it on
+          this phone or computer — it should go to tradevi.vercel.app, then you can subscribe.
         </div>
         <Link href="/login" className="text-emerald-400 underline text-sm">
           Go to sign in

@@ -42,6 +42,23 @@ function redirectTo(request: NextRequest, pathname: string, params?: Record<stri
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
+  const code = request.nextUrl.searchParams.get('code');
+  const tokenHash = request.nextUrl.searchParams.get('token_hash');
+
+  // Supabase falls back to Site URL (often "/") when the redirect allow-list
+  // doesn't include /auth/callback. PKCE still arrives as ?code= — send it
+  // to the exchange route so the session is created.
+  if (path !== '/auth/callback' && (code || tokenHash)) {
+    const params: Record<string, string> = {};
+    if (code) params.code = code;
+    if (tokenHash) params.token_hash = tokenHash;
+    const type = request.nextUrl.searchParams.get('type');
+    if (type) params.type = type;
+    params.next = request.nextUrl.searchParams.get('next') ?? '/subscribe';
+    const error = request.nextUrl.searchParams.get('error');
+    if (error) params.error = error;
+    return redirectTo(request, '/auth/callback', params);
+  }
 
   if (PUBLIC_PATHS.has(path) || PUBLIC_API_PREFIXES.some((p) => path.startsWith(p))) {
     return NextResponse.next();
