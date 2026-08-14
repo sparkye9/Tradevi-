@@ -67,7 +67,10 @@ from any device and the same account, same subscription, works.
 2. Project Settings → API — copy the **Project URL**, the **anon public**
    key, and the **service_role** key (keep this one secret).
 3. SQL Editor → New query → paste the contents of `supabase/schema.sql` →
-   Run. This creates the `subscriptions` table and its access policies.
+   Run. This creates the `subscriptions` table (PayPal) and the
+   `journal_entries` table (per-account trade journal, RLS so each user
+   only sees their own rows). If you already ran an older copy of this
+   file, run just the `journal_entries` section at the bottom.
 4. Optional but recommended: Authentication → Providers → Email — decide
    whether to require email confirmation before login (on by default). If
    you leave it on, Supabase sends the confirmation email itself, for free,

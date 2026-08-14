@@ -1,12 +1,11 @@
 'use client';
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { useJournalStore } from '@/store/journalStore';
+import { useAccountJournal } from '@/hooks/useAccountJournal';
 
 const EMOTIONS = ['calm', 'confident', 'anxious', 'revenge', 'fomo', 'disciplined'];
 
 export default function JournalPage() {
-  const { entries, addEntry, closeEntry, removeEntry, getStats } = useJournalStore();
-  const stats = getStats();
+  const { entries, loading, error, addEntry, closeEntry, removeEntry, stats } = useAccountJournal();
   const open = entries.filter((e) => e.status === 'open');
   const closed = entries.filter((e) => e.status === 'closed');
 
@@ -26,7 +25,7 @@ export default function JournalPage() {
     e.preventDefault();
     const price = parseFloat(entryPrice);
     if (!ticker.trim() || Number.isNaN(price)) return;
-    addEntry({
+    void addEntry({
       ticker: ticker.trim().toUpperCase(),
       contract: contract.trim() || ticker.trim().toUpperCase(),
       entryPrice: price,
@@ -47,7 +46,7 @@ export default function JournalPage() {
   function handleClose(id: string) {
     const price = parseFloat(exitPrice);
     if (Number.isNaN(price)) return;
-    closeEntry(id, price, lesson.trim() || undefined);
+    void closeEntry(id, price, lesson.trim() || undefined);
     setClosingId(null);
     setExitPrice('');
     setLesson('');
@@ -58,9 +57,14 @@ export default function JournalPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Journal</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Local to this browser. Tradevi does not place trades — you log what you did.
+          Saved to your account — only you can see these trades. Tradevi does not place trades.
         </p>
       </div>
+
+      {error && (
+        <div className="text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-2xl p-4">{error}</div>
+      )}
+      {loading && <p className="text-sm text-gray-500 animate-pulse">Loading your journal...</p>}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Stat label="Closed" value={String(stats.totalTrades)} />
@@ -148,7 +152,8 @@ export default function JournalPage() {
           </label>
           <button
             type="submit"
-            className="ml-auto px-4 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30"
+            disabled={loading}
+            className="ml-auto px-4 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 disabled:opacity-50"
           >
             Add entry
           </button>
@@ -167,8 +172,8 @@ export default function JournalPage() {
                   <div className="font-mono font-bold text-white">{e.ticker}</div>
                   <div className="text-xs text-gray-500">{e.contract} · entry {e.entryPrice}</div>
                 </div>
-                <button
-                  onClick={() => removeEntry(e.id)}
+                  <button
+                    onClick={() => void removeEntry(e.id)}
                   className="text-[11px] text-gray-600 hover:text-red-400"
                 >
                   Delete
