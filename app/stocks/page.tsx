@@ -4,55 +4,10 @@ import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
 import StocksSubnav from '@/components/stocks/StocksSubnav';
+import VerdictBadge from '@/components/stocks/VerdictBadge';
 import { useTradeviStore, MARKET_TICKERS } from '@/store/tradeviStore';
+import { STOCK_HONEST_GAPS, stockQuality } from '@/lib/stockQuality';
 import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
-
-type Tag = 'INTRADAY' | 'SWING' | 'BOTH';
-
-function deriveTag(q: FinvizQuote, threshold: number): Tag {
-  const intraday = (q.rvol ?? 0) > threshold || q.newHighDay;
-  const swing = q.sma50rel === 'above' && q.sma200rel === 'above' && q.groupStrength === 'strong';
-  if (intraday && swing) return 'BOTH';
-  if (swing) return 'SWING';
-  return 'INTRADAY';
-}
-
-function autoScore(q: FinvizQuote, threshold: number): number {
-  let n = 0;
-  if ((q.rvol ?? 0) >= threshold) n++;
-  if (q.unusualVolume) n++;
-  if (q.newHighDay) n++;
-  if (q.sma50rel === 'above') n++;
-  if (q.sma200rel === 'above') n++;
-  return n;
-}
-
-function TagBadge({ tag }: { tag: Tag }) {
-  const colors =
-    tag === 'INTRADAY' ? 'bg-blue-900/50 text-blue-300 border-blue-800' :
-    tag === 'SWING' ? 'bg-purple-900/50 text-purple-300 border-purple-800' :
-    'bg-emerald-900/50 text-emerald-300 border-emerald-800';
-  return (
-    <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${colors}`}>
-      {tag}
-    </span>
-  );
-}
-
-function ScoreBar({ score }: { score: number }) {
-  const colors = ['bg-gray-700', 'bg-red-500', 'bg-amber-500', 'bg-yellow-400', 'bg-emerald-400', 'bg-green-500'];
-  return (
-    <div className="flex gap-0.5 items-center">
-      {[1, 2, 3, 4, 5].map((i) => (
-        <div
-          key={i}
-          className={`h-2 w-3 rounded-sm ${i <= score ? colors[score] : 'bg-[#2a2a2a]'}`}
-        />
-      ))}
-      <span className="ml-1 text-gray-500 text-xs">{score}/5</span>
-    </div>
-  );
-}
 
 function SmaLabel({ q }: { q: FinvizQuote }) {
   const fmt = (rel: 'above' | 'below' | null, label: string) => {
@@ -69,37 +24,34 @@ function SmaLabel({ q }: { q: FinvizQuote }) {
   );
 }
 
-function UnusualVolumeCard({ q }: { q: FinvizQuote }) {
+function LookCard({ q, threshold }: { q: FinvizQuote; threshold: number }) {
+  const quality = stockQuality(q, threshold);
+  const chgColor = (q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400';
   return (
-    <div className="bg-[#111111] border border-amber-500/30 rounded-2xl p-4 flex flex-col gap-2 hover:bg-[#161616] hover:border-amber-500/50 transition-all">
-      <div className="flex items-center justify-between">
+    <div className="bg-[#111111] border border-emerald-500/20 rounded-2xl p-4 flex flex-col gap-2">
+      <div className="flex items-start justify-between gap-2">
         <span className="text-white font-bold font-mono text-xl">{q.symbol}</span>
-        <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-          RVOL {q.rvol !== null ? q.rvol.toFixed(2) : '--'}
-        </span>
+        <VerdictBadge quality={quality} />
       </div>
-      <div className="flex items-center gap-3 text-sm">
+      <div className="flex items-center gap-2 text-sm">
         <span className="text-white font-mono font-semibold">
           {q.price !== null ? `$${q.price.toFixed(2)}` : '--'}
         </span>
-        <span className={`font-mono font-semibold ${(q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+        <span className={`font-mono font-semibold ${chgColor}`}>
           {q.changePercent !== null ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%` : '--'}
         </span>
-        {q.newHighDay && (
-          <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-            NEW HIGH
-          </span>
-        )}
+        {q.rvol !== null && <span className="text-xs text-gray-500 font-mono">RVOL {q.rvol.toFixed(2)}</span>}
       </div>
-      <div className="flex items-center justify-between mt-1">
-        <SmaLabel q={q} />
-        <TradingViewButton symbol={q.symbol} label="Chart" />
+      <SmaLabel q={q} />
+      <p className="text-[11px] text-gray-500">{quality.headline}</p>
+      <div className="flex justify-end pt-1 border-t border-[#1e1e1e]">
+        <TradingViewButton symbol={q.symbol} label="Confirm on TradingView" />
       </div>
     </div>
   );
 }
 
-export default function TradeDiscoveryPage() {
+export default function StocksPage() {
   const { watchlist, rvolThreshold, setRvolThreshold, scanMode, setScanMode } = useTradeviStore();
   const [data, setData] = useState<FinvizResult<FinvizQuote> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -123,41 +75,29 @@ export default function TradeDiscoveryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanMode, watchlist]);
 
-  const unusualVolumeItems = [...(data?.data ?? [])]
-    .filter((q) => q.unusualVolume === true && (q.rvol ?? 0) >= 2)
-    .sort((a, b) => (b.rvol ?? 0) - (a.rvol ?? 0));
+  const quotes = data?.data ?? [];
+  const withQuality = quotes
+    .map((q) => ({ q, quality: stockQuality(q, rvolThreshold) }))
+    .sort((a, b) => b.quality.score - a.quality.score || (b.q.rvol ?? 0) - (a.q.rvol ?? 0));
 
-  // Hidden Gems: RVOL >= 3, not in the obvious mega-caps, strong momentum
-  const MEGA_CAPS = ['AAPL','MSFT','NVDA','GOOGL','META','AMZN','TSLA','SPY','QQQ','IWM','DIA'];
-  const hiddenGems = [...(data?.data ?? [])]
-    .filter((q) =>
-      (q.rvol ?? 0) >= 3 &&
-      !MEGA_CAPS.includes(q.symbol) &&
-      Math.abs(q.changePercent ?? 0) >= 1.5
-    )
-    .sort((a, b) => (b.rvol ?? 0) - (a.rvol ?? 0))
-    .slice(0, 12);
-
-  const sorted = [...(data?.data ?? [])].sort((a, b) => {
-    const scoreDiff = autoScore(b, rvolThreshold) - autoScore(a, rvolThreshold);
-    if (scoreDiff !== 0) return scoreDiff;
-    return (b.rvol ?? 0) - (a.rvol ?? 0);
-  });
+  const looks = withQuality.filter((row) => row.quality.label === 'LOOK');
+  const noTrades = withQuality.filter((row) => row.quality.label === 'NO_TRADE');
+  const unusual = withQuality.filter((row) => row.q.unusualVolume === true && (row.q.rvol ?? 0) >= 2);
 
   return (
     <div className="space-y-5 max-w-6xl">
-      {/* Header */}
       <div className="space-y-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Stocks</h1>
-          <p className="text-sm text-gray-500 mt-1">What is moving with conviction today?</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Volume and SMA tape. Quality score, then a hard no-trade when the tape is weak. SMA is not
+            structure — confirm CHOCH / BOS / FVG on TradingView.
+          </p>
         </div>
         <StocksSubnav />
       </div>
 
-      {/* Controls bar */}
       <div className="flex flex-wrap items-center gap-3 p-3 bg-[#111111] border border-[#1e1e1e] rounded-2xl">
-        {/* Scan mode toggle — pill style */}
         <div className="flex rounded-full overflow-hidden border border-[#2a2a2a] bg-[#0d0d0d]">
           <button
             onClick={() => setScanMode('watchlist')}
@@ -181,7 +121,6 @@ export default function TradeDiscoveryPage() {
           </button>
         </div>
 
-        {/* RVOL threshold */}
         <div className="flex items-center gap-2">
           <span className="label">RVOL &ge;</span>
           <input
@@ -195,7 +134,6 @@ export default function TradeDiscoveryPage() {
           />
         </div>
 
-        {/* Refresh */}
         <button
           onClick={load}
           disabled={loading}
@@ -211,169 +149,118 @@ export default function TradeDiscoveryPage() {
 
       {data?.sourceError && <DataUnavailable reason={data.sourceError} />}
 
-      {/* Unusual Volume Section */}
-      {unusualVolumeItems.length > 0 && (
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <h2 className="text-amber-400 font-bold text-sm uppercase tracking-widest">
-              🔥 UNUSUAL VOLUME
-            </h2>
-            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              {unusualVolumeItems.length} alerts
-            </span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-            {unusualVolumeItems.map((q) => (
-              <UnusualVolumeCard key={q.symbol} q={q} />
-            ))}
-          </div>
-          {unusualVolumeItems.length === 0 && (
-            <p className="text-gray-600 text-sm">No unusual volume detected</p>
-          )}
-          <div className="border-t border-[#1e1e1e] pt-4 mt-4" />
-        </section>
-      )}
-
-      {!data?.sourceError && unusualVolumeItems.length === 0 && !loading && (
-        <div className="flex items-center gap-2 text-gray-600 text-sm">
-          <span>🔥</span>
-          <span className="label">Unusual Volume</span>
-          <span className="text-gray-700">— No unusual volume detected</span>
+      {!data?.sourceError && !loading && looks.length === 0 && (
+        <div className="border border-gray-500/30 bg-[#141414] rounded-2xl p-5">
+          <div className="text-xs uppercase tracking-widest text-gray-500 mb-1">Workstation read</div>
+          <div className="text-2xl font-black text-gray-200">NO TRADE</div>
+          <p className="text-sm text-gray-400 mt-1">
+            Nothing on this scan has volume plus a directional lean. Sit out or wait for RVOL to show up.
+          </p>
         </div>
       )}
 
-      {/* Hidden Gems */}
-      {hiddenGems.length > 0 && (
+      {looks.length > 0 && (
         <section>
-          <div className="flex items-center gap-2 mb-4">
-            <h2 className="text-purple-400 font-bold text-sm uppercase tracking-widest">💎 Hidden Gems</h2>
-            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-              {hiddenGems.length}
-            </span>
-            <span className="text-xs text-gray-600">RVOL 3x+ — strong momentum, not the obvious names</span>
+          <div className="flex items-center gap-2 mb-3">
+            <h2 className="text-emerald-400 font-bold text-sm uppercase tracking-widest">Look board</h2>
+            <span className="text-xs text-gray-600">{looks.length} names — still confirm on TradingView</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-            {hiddenGems.map((q) => (
-              <div key={q.symbol} className="bg-[#111111] border border-purple-500/30 rounded-2xl p-4 flex flex-col gap-2 hover:bg-[#161616] hover:border-purple-500/50 transition-all">
-                <div className="flex items-start justify-between">
-                  <span className="text-white font-bold font-mono text-xl">{q.symbol}</span>
-                  <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                    RVOL {q.rvol!.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-white font-mono font-semibold">
-                    {q.price !== null ? `$${q.price.toFixed(2)}` : '--'}
-                  </span>
-                  <span className={`font-mono font-semibold ${(q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {q.changePercent !== null ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%` : '--'}
-                  </span>
-                  {q.newHighDay && (
-                    <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">HIGH</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-1 text-xs font-mono">
-                  {q.sma50rel === 'above' ? <span className="text-emerald-400">50▲</span> : <span className="text-red-400">50▼</span>}
-                  {q.sma200rel === 'above' ? <span className="text-emerald-400">200▲</span> : <span className="text-red-400">200▼</span>}
-                  {q.sector && <span className="text-gray-600 ml-1">{q.sector}</span>}
-                </div>
-                <div className="flex justify-between items-center pt-1 border-t border-[#1e1e1e]">
-                  <span className="text-xs text-gray-700">Verify structure on chart</span>
-                  <TradingViewButton symbol={q.symbol} label="Chart" />
-                </div>
-              </div>
+            {looks.slice(0, 8).map(({ q }) => (
+              <LookCard key={q.symbol} q={q} threshold={rvolThreshold} />
             ))}
           </div>
-          <div className="border-t border-[#1e1e1e] pt-4 mt-4" />
         </section>
       )}
 
-      {/* Main candidates table */}
-      {!data?.sourceError && sorted.length === 0 && !loading && (
-        <div className="text-gray-500 text-sm">No data yet.</div>
+      {unusual.length > 0 && (
+        <section>
+          <div className="flex items-center gap-2 mb-3">
+            <h2 className="text-amber-400 font-bold text-sm uppercase tracking-widest">Volume tape</h2>
+            <span className="text-xs text-gray-600">Unusual volume — verdict still applies</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+            {unusual.map(({ q, quality }) => (
+              <div key={q.symbol} className="bg-[#111111] border border-amber-500/20 rounded-2xl p-4 flex flex-col gap-2">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-white font-bold font-mono text-xl">{q.symbol}</span>
+                  <VerdictBadge quality={quality} />
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-white font-mono font-semibold">
+                    {q.price !== null ? `$${q.price.toFixed(2)}` : '--'}
+                  </span>
+                  <span className="text-xs text-amber-300 font-mono">RVOL {q.rvol !== null ? q.rvol.toFixed(2) : '--'}</span>
+                </div>
+                <TradingViewButton symbol={q.symbol} label="Chart" />
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
-      {sorted.length > 0 && (
+      {withQuality.length > 0 && (
         <section>
-          <h2 className="label mb-3">All Candidates</h2>
+          <h2 className="label mb-3">Full tape · {noTrades.length} marked no-trade</h2>
           <div className="overflow-x-auto rounded-2xl border border-[#1e1e1e]">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="text-left border-b border-[#2a2a2a] bg-[#0f0f0f]">
                   <th className="py-2.5 px-3 label">Symbol</th>
+                  <th className="py-2.5 px-3 label">Verdict</th>
+                  <th className="py-2.5 px-3 label">Quality</th>
                   <th className="py-2.5 px-3 label">Price</th>
                   <th className="py-2.5 px-3 label">% Chg</th>
                   <th className="py-2.5 px-3 label">RVOL</th>
-                  <th className="py-2.5 px-3 label">Vol</th>
-                  <th className="py-2.5 px-3 label">High</th>
                   <th className="py-2.5 px-3 label">SMA</th>
                   <th className="py-2.5 px-3 label">Group</th>
-                  <th className="py-2.5 px-3 label">Tag</th>
-                  <th className="py-2.5 px-3 label">Auto</th>
                   <th className="py-2.5 px-3"></th>
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((q, idx) => {
-                  const tag = deriveTag(q, rvolThreshold);
-                  const score = autoScore(q, rvolThreshold);
+                {withQuality.map(({ q, quality }, idx) => {
                   const rowBg = idx % 2 === 0 ? 'bg-[#111111]' : 'bg-[#0d0d0d]';
                   return (
-                    <tr
-                      key={q.symbol}
-                      className={`${rowBg} border-b border-[#1a1a1a] hover:bg-[#161616] transition-colors`}
-                    >
-                      <td className="py-2.5 px-3 font-mono font-bold text-white">
-                        {q.symbol}
-                        {q.newHighDay && (
-                          <span className="ml-1.5 inline-block w-2 h-2 rounded-full bg-emerald-400" title="New High" />
-                        )}
+                    <tr key={q.symbol} className={`${rowBg} border-b border-[#1a1a1a] hover:bg-[#161616] transition-colors`}>
+                      <td className="py-2.5 px-3 font-mono font-bold text-white">{q.symbol}</td>
+                      <td className="py-2.5 px-3">
+                        <VerdictBadge quality={quality} />
                       </td>
+                      <td className="py-2.5 px-3 font-mono text-gray-300">{quality.score}</td>
                       <td className="py-2.5 px-3 font-mono text-gray-200">
                         {q.price !== null ? `$${q.price.toFixed(2)}` : '--'}
                       </td>
-                      <td className={`py-2.5 px-3 font-mono font-semibold ${
-                        (q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'
-                      }`}>
+                      <td
+                        className={`py-2.5 px-3 font-mono font-semibold ${
+                          (q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'
+                        }`}
+                      >
                         {q.changePercent !== null
                           ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%`
                           : '--'}
                       </td>
-                      <td className={`py-2.5 px-3 font-mono font-semibold ${
-                        (q.rvol ?? 0) >= rvolThreshold ? 'text-amber-400' : 'text-gray-500'
-                      }`}>
+                      <td
+                        className={`py-2.5 px-3 font-mono font-semibold ${
+                          (q.rvol ?? 0) >= rvolThreshold ? 'text-amber-400' : 'text-gray-500'
+                        }`}
+                      >
                         {q.rvol !== null ? q.rvol.toFixed(2) : '--'}
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        {q.unusualVolume ? (
-                          <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">UV</span>
-                        ) : (
-                          <span className="text-gray-700 text-xs">—</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        {q.newHighDay ? (
-                          <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">NEW</span>
-                        ) : (
-                          <span className="text-gray-700 text-xs">—</span>
-                        )}
                       </td>
                       <td className="py-2.5 px-3">
                         <SmaLabel q={q} />
                       </td>
                       <td className="py-2.5 px-3">
-                        <span className={`text-xs font-semibold ${
-                          q.groupStrength === 'strong' ? 'text-emerald-400' :
-                          q.groupStrength === 'weak' ? 'text-red-400' : 'text-gray-600'
-                        }`}>
+                        <span
+                          className={`text-xs font-semibold ${
+                            q.groupStrength === 'strong'
+                              ? 'text-emerald-400'
+                              : q.groupStrength === 'weak'
+                              ? 'text-red-400'
+                              : 'text-gray-600'
+                          }`}
+                        >
                           {q.groupStrength ?? '--'}
                         </span>
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <TagBadge tag={tag} />
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <ScoreBar score={score} />
                       </td>
                       <td className="py-2.5 px-3">
                         <TradingViewButton symbol={q.symbol} label="Chart" />
@@ -387,8 +274,13 @@ export default function TradeDiscoveryPage() {
         </section>
       )}
 
-      <div className="text-xs text-gray-700 mt-4">
-        Structure (CHOCH, BOS, FVG, VWAP) is read live on TradingView — not computed here.
+      <div className="text-xs text-gray-500 p-4 rounded-2xl bg-[#111111] border border-[#1e1e1e] space-y-2">
+        <div className="text-[10px] uppercase tracking-widest text-gray-600">What this page does not do</div>
+        <ul className="space-y-1">
+          {STOCK_HONEST_GAPS.map((line) => (
+            <li key={line}>• {line}</li>
+          ))}
+        </ul>
       </div>
     </div>
   );
