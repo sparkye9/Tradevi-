@@ -6,6 +6,7 @@ const NAV = [
   { href: '/', label: 'Dashboard', icon: '⬡' },
   { href: '/trade-discovery', label: 'Trade Discovery', icon: '◎' },
   { href: '/swing', label: 'Swing', icon: '↗' },
+  { href: '/trend-bias', label: 'Trend Bias Stack', icon: '△', premium: true },
   { href: '/intraday', label: 'Intraday', icon: '⚡' },
   { href: '/opportunity-finder', label: 'Small Account Edge', icon: '🎯' },
   { href: '/options', label: 'Options', icon: '◈' },
@@ -75,7 +76,7 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
 
       {/* Nav */}
       <nav className="flex flex-col gap-0.5 flex-1">
-        {NAV.map(({ href, label, icon }) => {
+        {NAV.map(({ href, label, icon, premium }) => {
           const active = pathname === href;
           return (
             <Link
@@ -90,7 +91,12 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
               <span className={`text-base leading-none ${active ? 'text-emerald-400' : 'text-gray-600'}`}>
                 {icon}
               </span>
-              <span>{label}</span>
+              <span className="flex-1">{label}</span>
+              {premium && (
+                <span className="text-[9px] font-bold text-amber-400/80 border border-amber-500/30 bg-amber-500/10 rounded px-1 py-0.5">
+                  PRO
+                </span>
+              )}
             </Link>
           );
         })}

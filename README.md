@@ -21,6 +21,7 @@ TradeWise is a real options-analysis dashboard that pulls live/delayed market da
 - **Backtest Lab** — ORB breakout strategy backtester using real historical data
 - **Bible & Mindset** — Verses and affirmations for trading discipline
 - **Audit Log** — Full local audit trail of all your actions
+- **Trend Bias Stack (Premium)** — Weekly/Daily/4H structure engine (higher-high/higher-low, not moving-average based) for futures (MNQ, MES, MYM, GC), gated behind a $7.99/month PayPal subscription — see [SUBSCRIPTIONS.md](./SUBSCRIPTIONS.md)
 
 ---
 
