@@ -1,87 +1,30 @@
 'use client';
-import { useEffect, useState } from 'react';
-import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
 import StocksSubnav from '@/components/stocks/StocksSubnav';
 import VerdictBadge from '@/components/stocks/VerdictBadge';
-import { useTradeviStore, MARKET_TICKERS } from '@/store/tradeviStore';
-import { STOCK_HONEST_GAPS, stockQuality } from '@/lib/stockQuality';
-import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
-
-function SmaLabel({ q }: { q: FinvizQuote }) {
-  const fmt = (rel: 'above' | 'below' | null, label: string) => {
-    if (rel === 'above') return <span key={label} className="text-emerald-400">{label}▲</span>;
-    if (rel === 'below') return <span key={label} className="text-red-400">{label}▼</span>;
-    return <span key={label} className="text-gray-600">{label}?</span>;
-  };
-  return (
-    <div className="flex gap-1 text-xs font-mono">
-      {fmt(q.sma20rel, '20')}
-      {fmt(q.sma50rel, '50')}
-      {fmt(q.sma200rel, '200')}
-    </div>
-  );
-}
-
-function LookCard({ q, threshold }: { q: FinvizQuote; threshold: number }) {
-  const quality = stockQuality(q, threshold);
-  const chgColor = (q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400';
-  return (
-    <div className="bg-[#111111] border border-emerald-500/20 rounded-2xl p-4 flex flex-col gap-2">
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-white font-bold font-mono text-xl">{q.symbol}</span>
-        <VerdictBadge quality={quality} />
-      </div>
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-white font-mono font-semibold">
-          {q.price !== null ? `$${q.price.toFixed(2)}` : '--'}
-        </span>
-        <span className={`font-mono font-semibold ${chgColor}`}>
-          {q.changePercent !== null ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%` : '--'}
-        </span>
-        {q.rvol !== null && <span className="text-xs text-gray-500 font-mono">RVOL {q.rvol.toFixed(2)}</span>}
-      </div>
-      <SmaLabel q={q} />
-      <p className="text-[11px] text-gray-500">{quality.headline}</p>
-      <div className="flex justify-end pt-1 border-t border-[#1e1e1e]">
-        <TradingViewButton symbol={q.symbol} label="Confirm on TradingView" />
-      </div>
-    </div>
-  );
-}
+import LookCard from '@/components/stocks/LookCard';
+import ScanControls from '@/components/stocks/ScanControls';
+import NoTradeEmpty from '@/components/stocks/NoTradeEmpty';
+import SmaLabel from '@/components/stocks/SmaLabel';
+import { useFinvizScan } from '@/hooks/useFinvizScan';
+import { STOCK_HONEST_GAPS } from '@/lib/stockQuality';
 
 export default function StocksPage() {
-  const { watchlist, rvolThreshold, setRvolThreshold, scanMode, setScanMode } = useTradeviStore();
-  const [data, setData] = useState<FinvizResult<FinvizQuote> | null>(null);
-  const [loading, setLoading] = useState(true);
+  const {
+    data,
+    loading,
+    load,
+    watchlist,
+    rvolThreshold,
+    setRvolThreshold,
+    scanMode,
+    setScanMode,
+    withQuality,
+    looks,
+    noTrades,
+  } = useFinvizScan();
 
-  const tickers = scanMode === 'market' ? MARKET_TICKERS : watchlist;
-
-  async function load() {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/finviz/screener?tickers=${tickers.join(',')}`);
-      const json = await res.json();
-      setData(json);
-    } catch {
-      setData({ data: [], sourceError: 'Fetch failed', lastUpdated: new Date().toISOString() });
-    }
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanMode, watchlist]);
-
-  const quotes = data?.data ?? [];
-  const withQuality = quotes
-    .map((q) => ({ q, quality: stockQuality(q, rvolThreshold) }))
-    .sort((a, b) => b.quality.score - a.quality.score || (b.q.rvol ?? 0) - (a.q.rvol ?? 0));
-
-  const looks = withQuality.filter((row) => row.quality.label === 'LOOK');
-  const noTrades = withQuality.filter((row) => row.quality.label === 'NO_TRADE');
   const unusual = withQuality.filter((row) => row.q.unusualVolume === true && (row.q.rvol ?? 0) >= 2);
 
   return (
@@ -97,66 +40,22 @@ export default function StocksPage() {
         <StocksSubnav />
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 p-3 bg-[#111111] border border-[#1e1e1e] rounded-2xl">
-        <div className="flex rounded-full overflow-hidden border border-[#2a2a2a] bg-[#0d0d0d]">
-          <button
-            onClick={() => setScanMode('watchlist')}
-            className={`px-4 py-1.5 text-xs font-semibold transition-all rounded-full ${
-              scanMode === 'watchlist'
-                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                : 'text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            Watchlist ({watchlist.length})
-          </button>
-          <button
-            onClick={() => setScanMode('market')}
-            className={`px-4 py-1.5 text-xs font-semibold transition-all rounded-full ${
-              scanMode === 'market'
-                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                : 'text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            Market Scan ({MARKET_TICKERS.length})
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="label">RVOL &ge;</span>
-          <input
-            type="number"
-            value={rvolThreshold}
-            step={0.1}
-            min={0.5}
-            max={10}
-            onChange={(e) => setRvolThreshold(parseFloat(e.target.value) || 1.5)}
-            className="w-16 bg-[#0d0d0d] border border-[#2a2a2a] rounded-lg px-2 py-1.5 text-white font-mono text-xs focus:outline-none focus:border-emerald-500/50"
-          />
-        </div>
-
-        <button
-          onClick={load}
-          disabled={loading}
-          className="px-4 py-1.5 text-xs font-semibold bg-[#1a1a1a] border border-[#2a2a2a] rounded-full text-gray-300 hover:border-emerald-500/30 hover:text-white transition-all disabled:opacity-50"
-        >
-          {loading ? 'Loading...' : '↻ Refresh'}
-        </button>
-
-        <div className="ml-auto">
-          {data && <SourceTag source={data.source ?? 'Loading...'} lastUpdated={data.lastUpdated} />}
-        </div>
-      </div>
+      <ScanControls
+        watchlistLen={watchlist.length}
+        scanMode={scanMode}
+        setScanMode={setScanMode}
+        rvolThreshold={rvolThreshold}
+        setRvolThreshold={setRvolThreshold}
+        onRefresh={load}
+        loading={loading}
+        source={data?.source}
+        lastUpdated={data?.lastUpdated}
+      />
 
       {data?.sourceError && <DataUnavailable reason={data.sourceError} />}
 
       {!data?.sourceError && !loading && looks.length === 0 && (
-        <div className="border border-gray-500/30 bg-[#141414] rounded-2xl p-5">
-          <div className="text-xs uppercase tracking-widest text-gray-500 mb-1">Workstation read</div>
-          <div className="text-2xl font-black text-gray-200">NO TRADE</div>
-          <p className="text-sm text-gray-400 mt-1">
-            Nothing on this scan has volume plus a directional lean. Sit out or wait for RVOL to show up.
-          </p>
-        </div>
+        <NoTradeEmpty />
       )}
 
       {looks.length > 0 && (
@@ -190,7 +89,9 @@ export default function StocksPage() {
                   <span className="text-white font-mono font-semibold">
                     {q.price !== null ? `$${q.price.toFixed(2)}` : '--'}
                   </span>
-                  <span className="text-xs text-amber-300 font-mono">RVOL {q.rvol !== null ? q.rvol.toFixed(2) : '--'}</span>
+                  <span className="text-xs text-amber-300 font-mono">
+                    RVOL {q.rvol !== null ? q.rvol.toFixed(2) : '--'}
+                  </span>
                 </div>
                 <TradingViewButton symbol={q.symbol} label="Chart" />
               </div>

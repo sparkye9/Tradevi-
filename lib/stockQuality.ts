@@ -91,3 +91,16 @@ export function stockQuality(q: FinvizQuote, rvolThreshold: number): StockQualit
     reasons,
   };
 }
+
+/** SMA 50 and 200 agree. Used by the swing desk after a LOOK verdict. */
+export function smaTrendAligned(q: FinvizQuote): boolean {
+  return (
+    (q.sma50rel === 'above' && q.sma200rel === 'above') ||
+    (q.sma50rel === 'below' && q.sma200rel === 'below')
+  );
+}
+
+/** Volume evidence for the same-session desk. LOOK still required. */
+export function intradayTape(q: FinvizQuote, rvolThreshold: number): boolean {
+  return (q.rvol ?? 0) >= rvolThreshold || q.newHighDay === true || q.unusualVolume === true;
+}

@@ -326,7 +326,8 @@ export default function PowerHourPage() {
         <h1 className="text-2xl font-bold text-white">Power Hour</h1>
         <p className="text-sm text-gray-500 mt-1">
           Globex runs about 23 hours a day, Sunday 6:00 PM through Friday 5:00 PM ET.
-          Asia, London, and New York stay live. Power Hour is 3:00–4:00 PM ET.
+          Asia, London, and New York stay live. Power Hour is 3:00–4:00 PM ET on a US cash
+          session day. Observed NYSE/CME holidays are on the clock — not a live exchange feed.
         </p>
       </div>
 
@@ -337,7 +338,8 @@ export default function PowerHourPage() {
             <div className="text-2xl font-black tracking-tight uppercase">{session.session}</div>
             <div className="text-sm mt-1">{session.headline}</div>
             <div className="text-xs mt-2 opacity-70">
-              {session.tradesOpen ? 'Trades open' : 'Trades closed'}
+              {session.tradesOpen ? 'Globex open' : 'Globex closed'}
+              {session.cashOpen ? ' · cash open' : ' · cash closed'}
             </div>
             <div className="flex flex-wrap gap-1.5 mt-3">
               {(['Asia', 'London', 'New York'] as Venue[]).map((venue) => {

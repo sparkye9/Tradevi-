@@ -35,9 +35,14 @@ export default function SessionStrip() {
             </div>
           );
         })}
+        {clock.holidayName && (
+          <span className="text-[10px] font-semibold tracking-widest uppercase text-amber-400/80 ml-1 whitespace-nowrap">
+            {clock.holidayName}
+          </span>
+        )}
         <span className="text-[10px] text-gray-600 font-mono ml-2 whitespace-nowrap">
           {clock.clock}
-          {clock.tradesOpen ? '' : ' · closed'}
+          {!clock.tradesOpen ? ' · closed' : clock.holidayName ? ' · cash closed' : ''}
         </span>
       </div>
     </div>
