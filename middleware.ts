@@ -61,6 +61,17 @@ export async function middleware(request: NextRequest) {
     return redirectTo(request, '/auth/callback', params);
   }
 
+  // Used/expired confirmation links often land on Site URL with only error
+  // params (no code). Send people to sign in — the account is already created.
+  if (path !== '/auth/callback' && path !== '/login') {
+    const authError = request.nextUrl.searchParams.get('error');
+    const errorCode = request.nextUrl.searchParams.get('error_code');
+    if (authError || errorCode) {
+      const type = request.nextUrl.searchParams.get('type');
+      return redirectTo(request, '/login', { notice: type === 'recovery' ? 'reset' : 'ready' });
+    }
+  }
+
   if (PUBLIC_PATHS.has(path) || PUBLIC_API_PREFIXES.some((p) => path.startsWith(p))) {
     return NextResponse.next();
   }

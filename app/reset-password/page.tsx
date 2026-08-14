@@ -85,9 +85,10 @@ export default function ResetPasswordPage() {
   if (linkInvalid) {
     return (
       <div className="max-w-sm mx-auto mt-12 space-y-4">
-        <h1 className="text-2xl font-bold text-white">Link expired</h1>
-        <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-2xl p-4">
-          This reset link is invalid or has already been used.
+        <h1 className="text-2xl font-bold text-white">Need a new reset link?</h1>
+        <div className="text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4">
+          That reset link already ran or timed out. Request a new one if you still need to change
+          your password.
         </div>
         <Link href="/forgot-password" className="text-emerald-400 underline text-sm">
           Request a new link
