@@ -57,9 +57,16 @@ export default function SignupPage() {
     return (
       <div className="max-w-sm mx-auto mt-12 space-y-4">
         <h1 className="text-2xl font-bold text-white">Check your email</h1>
-        <div className="text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4">
-          We sent a confirmation link to <span className="font-semibold">{email}</span>. The email
-          comes from Supabase — check spam if it is not in your inbox.
+        <div className="text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 space-y-2">
+          <p>
+            We sent a confirmation link to <span className="font-semibold">{email}</span>. The
+            email comes from Supabase — check spam if it is not in your inbox.
+          </p>
+          <p>
+            After you tap it once, come back here and sign in with the password you just created.
+            If the link already opened or says it expired, you don&apos;t need a new one — just
+            sign in. Your account is already created.
+          </p>
         </div>
         <Link href="/login" className="text-emerald-400 underline text-sm">
           Go to sign in

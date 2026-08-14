@@ -7,6 +7,7 @@ import SessionStrip from '@/components/ui/SessionStrip';
 import BibleVerse from '@/components/ui/BibleVerse';
 import { DisclaimerBanner } from '@/components/ui/DisclaimerBanner';
 import ChatFab from '@/components/ui/ChatFab';
+import AuthHashRedirect from '@/components/AuthHashRedirect';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${inter.variable} ${jetbrains.variable}`}>
       <body className="bg-tv-bg text-white min-h-screen flex font-sans">
+        <AuthHashRedirect />
         <div className="hidden md:block">
           <Sidebar />
         </div>
