@@ -1,6 +1,5 @@
 'use client';
 import { useEffect, useState } from 'react';
-import PremiumGate from '@/components/premium/PremiumGate';
 import SourceTag from '@/components/ui/SourceTag';
 import type { TrendBiasStackResult, Timeframe, Bias } from '@/lib/trendBias';
 
@@ -120,10 +119,8 @@ function TrendBiasContent() {
   );
 }
 
+// Login + active subscription are already enforced by middleware.ts for
+// every route except / , /login, /signup, /subscribe — no gate needed here.
 export default function TrendBiasPage() {
-  return (
-    <PremiumGate>
-      <TrendBiasContent />
-    </PremiumGate>
-  );
+  return <TrendBiasContent />;
 }

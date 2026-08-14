@@ -1,6 +1,8 @@
 'use client';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 
 const NAV = [
   { href: '/', label: 'Dashboard', icon: '⬡' },
@@ -23,6 +25,71 @@ const MOBILE_NAV = [
   { href: '/power-hour', label: 'Power Hour', icon: '◉' },
   { href: '/trade-discovery', label: 'Discover', icon: '◎' },
 ];
+
+function AccountPanel() {
+  const router = useRouter();
+  const [email, setEmail] = useState<string | null | undefined>(undefined); // undefined = loading
+
+  useEffect(() => {
+    try {
+      const supabase = createClient();
+      supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((_event, session) => setEmail(session?.user?.email ?? null));
+      return () => subscription.unsubscribe();
+    } catch {
+      // Accounts aren't configured on this deployment (missing Supabase env vars) — show signed-out state.
+      setEmail(null);
+    }
+  }, []);
+
+  async function handleSignOut() {
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    } catch {
+      // Not configured — nothing to sign out of.
+    }
+    router.push('/');
+    router.refresh();
+  }
+
+  if (email === undefined) return null;
+
+  if (!email) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <Link
+          href="/login"
+          className="text-center text-xs font-semibold text-gray-300 hover:text-white border border-[#2a2a2a] rounded-lg py-1.5 transition-colors"
+        >
+          Sign in
+        </Link>
+        <Link
+          href="/signup"
+          className="text-center text-xs font-semibold text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-lg py-1.5 transition-colors"
+        >
+          Sign up
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs text-gray-400 truncate" title={email}>
+        {email}
+      </p>
+      <button
+        onClick={handleSignOut}
+        className="text-left text-xs text-gray-600 hover:text-gray-300 transition-colors"
+      >
+        Sign out
+      </button>
+    </div>
+  );
+}
 
 export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const pathname = usePathname();
@@ -103,9 +170,12 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
       </nav>
 
       {/* Footer */}
-      <div className="px-3 pt-4 border-t border-[#1a1a1a]">
-        <p className="text-[10px] text-gray-600 leading-relaxed">Real data only</p>
-        <p className="text-[10px] text-gray-700">Finviz · Yahoo Finance</p>
+      <div className="px-3 pt-4 border-t border-[#1a1a1a] space-y-3">
+        <AccountPanel />
+        <div>
+          <p className="text-[10px] text-gray-600 leading-relaxed">Real data only</p>
+          <p className="text-[10px] text-gray-700">Finviz · Yahoo Finance</p>
+        </div>
       </div>
     </aside>
   );

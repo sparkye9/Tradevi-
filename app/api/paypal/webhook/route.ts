@@ -1,13 +1,21 @@
 import { NextResponse } from 'next/server';
 import { verifyWebhookSignature } from '@/lib/paypal';
+import { createAdminClient } from '@/lib/supabase/admin';
+
+// PayPal event types this handler cares about — all carry a subscription
+// resource with an `id` matching our stored paypal_subscription_id.
+const SUBSCRIPTION_EVENTS = new Set([
+  'BILLING.SUBSCRIPTION.ACTIVATED',
+  'BILLING.SUBSCRIPTION.CANCELLED',
+  'BILLING.SUBSCRIPTION.EXPIRED',
+  'BILLING.SUBSCRIPTION.SUSPENDED',
+  'BILLING.SUBSCRIPTION.UPDATED',
+]);
 
 /**
- * Receives PayPal's subscription lifecycle events (activated, cancelled,
- * expired, payment failed, ...). Access control never depends on anything
- * this endpoint stores — subscription status is re-checked live against
- * PayPal on every gate (see app/api/paypal/status/route.ts) because Vercel
- * functions have no durable local database. This endpoint exists so PayPal's
- * webhook delivery succeeds and events are visible in logs.
+ * Keeps the subscriptions table in sync with PayPal's view of the world —
+ * this is what makes a cancellation actually lock a user back out, instead
+ * of relying only on the one-time check at /api/subscription/link.
  */
 export async function POST(request: Request) {
   const webhookId = process.env.PAYPAL_WEBHOOK_ID;
@@ -38,7 +46,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Signature verification failed' }, { status: 400 });
   }
 
-  console.log(`PayPal webhook: ${event.event_type} for resource ${event.resource?.id}`);
+  if (SUBSCRIPTION_EVENTS.has(event.event_type)) {
+    const subscriptionId: string | undefined = event.resource?.id;
+    const status: string | undefined = event.resource?.status;
+    if (subscriptionId && status) {
+      const admin = createAdminClient();
+      const { error } = await admin
+        .from('subscriptions')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('paypal_subscription_id', subscriptionId);
+      if (error) {
+        console.error(`Failed to update subscription ${subscriptionId} from webhook:`, error.message);
+      }
+    }
+  }
 
   return NextResponse.json({ received: true });
 }
