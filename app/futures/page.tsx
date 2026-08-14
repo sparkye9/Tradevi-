@@ -3,7 +3,7 @@ import SessionBias from '@/components/futures/SessionBias';
 
 export default function FuturesPage() {
   return (
-    <div className="space-y-10 max-w-3xl">
+    <div className="space-y-10 max-w-6xl">
       <div>
         <h1 className="text-2xl font-bold text-white">Futures</h1>
         <p className="text-sm text-gray-500 mt-1">

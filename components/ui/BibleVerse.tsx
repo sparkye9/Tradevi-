@@ -34,9 +34,9 @@ export default function BibleVerse() {
   if (!verse) return null;
 
   return (
-    <footer className="bg-[#0a0a0a] border-t border-[#1a1a1a] px-6 py-3">
-      <p className="text-xs italic text-gray-600 text-center">
-        &ldquo;{verse.text}&rdquo; &mdash; {verse.ref}
+    <footer className="bg-[#0a0a0a] border-t border-[#1a1a1a] px-6 py-4">
+      <p className="text-xs italic text-gray-600 text-center leading-relaxed max-w-3xl mx-auto">
+        &ldquo;{verse.text}&rdquo; <span className="not-italic text-gray-700">— {verse.ref}</span>
       </p>
     </footer>
   );

@@ -99,6 +99,29 @@ export function journalStats(entries: JournalEntry[]): JournalStats {
   };
 }
 
+export function journalEdge(entries: JournalEntry[]): JournalStats & { bestSetup: string | null; openCount: number } {
+  const stats = journalStats(entries);
+  const closed = entries.filter((e) => e.status === 'closed');
+  const counts = new Map<string, number>();
+  for (const e of closed) {
+    const key = (e.setup || 'manual').trim() || 'manual';
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  let bestSetup: string | null = null;
+  let bestN = 0;
+  for (const [key, n] of Array.from(counts.entries())) {
+    if (n > bestN) {
+      bestSetup = key;
+      bestN = n;
+    }
+  }
+  return {
+    ...stats,
+    bestSetup,
+    openCount: entries.filter((e) => e.status === 'open').length,
+  };
+}
+
 export function readLocalJournal(): JournalEntry[] {
   if (typeof window === 'undefined') return [];
   try {
