@@ -3,6 +3,8 @@ import './globals.css';
 import Sidebar from '@/components/layout/Sidebar';
 import FuturesBar from '@/components/ui/FuturesBar';
 import BibleVerse from '@/components/ui/BibleVerse';
+import { DisclaimerBanner } from '@/components/ui/DisclaimerBanner';
+import ChatFab from '@/components/ui/ChatFab';
 
 export const metadata: Metadata = {
   title: 'Tradevi 3.0',
@@ -18,6 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Sidebar />
         </div>
         <div className="flex-1 flex flex-col overflow-auto min-w-0">
+          <DisclaimerBanner />
           <FuturesBar />
           {/* pb-20 on mobile leaves room for bottom nav */}
           <main className="flex-1 p-4 md:p-6 pb-24 md:pb-6">{children}</main>
@@ -27,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </div>
         {/* Bottom nav — shown on mobile only */}
         <Sidebar mobile />
+        <ChatFab />
       </body>
     </html>
   );

@@ -4,8 +4,10 @@ import Link from 'next/link';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
+import VerdictBadge from '@/components/stocks/VerdictBadge';
 import type { FinvizQuote, FinvizFuture, FinvizResult } from '@/lib/finviz';
 import { useTradeviStore } from '@/store/tradeviStore';
+import { stockQuality } from '@/lib/stockQuality';
 
 const INDEX_TICKERS = ['SPY', 'QQQ', 'IWM', 'GLD'];
 
@@ -32,16 +34,6 @@ function deriveMarketPosture(quotes: FinvizQuote[]): {
   return { posture: 'Mixed', icon: '◆', conditions };
 }
 
-function autoCount(q: FinvizQuote, threshold: number): number {
-  let n = 0;
-  if (q.rvol !== null && q.rvol >= threshold) n++;
-  if (q.unusualVolume) n++;
-  if (q.newHighDay) n++;
-  if (q.sma50rel === 'above') n++;
-  if (q.sma200rel === 'above') n++;
-  return n;
-}
-
 function SmaArrow({ rel }: { rel: 'above' | 'below' | null }) {
   if (rel === 'above') return <span className="text-emerald-400">▲</span>;
   if (rel === 'below') return <span className="text-red-400">▼</span>;
@@ -49,6 +41,7 @@ function SmaArrow({ rel }: { rel: 'above' | 'below' | null }) {
 }
 
 function CandidateCard({ q, rvolThreshold }: { q: FinvizQuote; rvolThreshold: number }) {
+  const quality = stockQuality(q, rvolThreshold);
   const chgColor = (q.changePercent ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400';
   const isUnusual = q.unusualVolume === true && (q.rvol ?? 0) >= 2;
   const isNewHigh = q.newHighDay === true;
@@ -56,18 +49,7 @@ function CandidateCard({ q, rvolThreshold }: { q: FinvizQuote; rvolThreshold: nu
     <div className="card card-hover flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <span className="text-white font-mono font-bold text-lg">{q.symbol}</span>
-        <div className="flex gap-1.5 flex-wrap justify-end">
-          {isUnusual && (
-            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              RVOL {q.rvol!.toFixed(2)}
-            </span>
-          )}
-          {isNewHigh && (
-            <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              NEW HIGH
-            </span>
-          )}
-        </div>
+        <VerdictBadge quality={quality} />
       </div>
       <div className="flex items-center gap-3">
         <span className="text-white font-mono font-semibold text-base">
@@ -80,9 +62,11 @@ function CandidateCard({ q, rvolThreshold }: { q: FinvizQuote; rvolThreshold: nu
       <div className="flex items-center gap-3 text-xs font-mono">
         <span className="text-gray-500">SMA50 <SmaArrow rel={q.sma50rel} /></span>
         <span className="text-gray-500">SMA200 <SmaArrow rel={q.sma200rel} /></span>
+        {isUnusual && <span className="text-amber-300">RVOL {q.rvol!.toFixed(2)}</span>}
         {!isUnusual && q.rvol !== null && (
           <span className="text-gray-600">RVOL {q.rvol.toFixed(2)}</span>
         )}
+        {isNewHigh && <span className="text-emerald-400">HIGH</span>}
       </div>
       <div className="flex items-center justify-between mt-1">
         <TradingViewButton symbol={q.symbol} label="View Setup" />
@@ -148,13 +132,19 @@ export default function DashboardPage() {
 
   const swingCandidates = [...wlQuotes]
     .filter((q) => q.sma50rel === 'above' && q.sma200rel === 'above')
-    .sort((a, b) => autoCount(b, rvolThreshold) - autoCount(a, rvolThreshold))
-    .slice(0, 3);
+    .map((q) => ({ q, quality: stockQuality(q, rvolThreshold) }))
+    .filter((row) => row.quality.label === 'LOOK')
+    .sort((a, b) => b.quality.score - a.quality.score)
+    .slice(0, 3)
+    .map((row) => row.q);
 
   const intradayCandidates = [...wlQuotes]
     .filter((q) => (q.rvol ?? 0) > rvolThreshold || q.newHighDay)
-    .sort((a, b) => (b.rvol ?? 0) - (a.rvol ?? 0))
-    .slice(0, 3);
+    .map((q) => ({ q, quality: stockQuality(q, rvolThreshold) }))
+    .filter((row) => row.quality.label === 'LOOK')
+    .sort((a, b) => b.quality.score - a.quality.score)
+    .slice(0, 3)
+    .map((row) => row.q);
 
   const esFuture = futures.find((f) => f.symbol === 'ES');
   const nqFuture = futures.find((f) => f.symbol === 'NQ');
@@ -169,9 +159,27 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6 max-w-5xl">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-1">What should I focus on right now?</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Briefing only. Weak tape is a no-trade — workstations are Futures and Stocks.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/futures"
+            className="text-xs font-semibold text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-3 py-1.5 hover:bg-emerald-500/20 transition-colors"
+          >
+            Futures
+          </Link>
+          <Link
+            href="/stocks"
+            className="text-xs font-semibold text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-3 py-1.5 hover:bg-emerald-500/20 transition-colors"
+          >
+            Stocks
+          </Link>
+        </div>
       </div>
 
       {loading && (
@@ -261,13 +269,13 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <div className="flex items-center justify-between mb-3">
-            <span className="label">Top Swing Candidates</span>
-            <Link href="/swing" className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors">View all →</Link>
+            <span className="label">Swing looks</span>
+            <Link href="/stocks" className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors">View all →</Link>
           </div>
           {watchlistData?.sourceError ? (
             <DataUnavailable reason={watchlistData.sourceError} />
           ) : swingCandidates.length === 0 ? (
-            <div className="card text-gray-600 text-sm">No swing candidates</div>
+            <div className="card text-gray-500 text-sm">NO TRADE — no swing looks on this watchlist.</div>
           ) : (
             <div className="space-y-2">
               {swingCandidates.map((q) => (
@@ -279,13 +287,13 @@ export default function DashboardPage() {
 
         <div>
           <div className="flex items-center justify-between mb-3">
-            <span className="label">Top Intraday Candidates</span>
-            <Link href="/intraday" className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors">View all →</Link>
+            <span className="label">Intraday looks</span>
+            <Link href="/stocks" className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors">View all →</Link>
           </div>
           {watchlistData?.sourceError ? (
             <DataUnavailable reason={watchlistData.sourceError} />
           ) : intradayCandidates.length === 0 ? (
-            <div className="card text-gray-600 text-sm">No intraday candidates</div>
+            <div className="card text-gray-500 text-sm">NO TRADE — no intraday looks on this watchlist.</div>
           ) : (
             <div className="space-y-2">
               {intradayCandidates.map((q) => (

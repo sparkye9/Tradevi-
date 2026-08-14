@@ -11,8 +11,6 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
-    kalshi_key_id: str = ""
-    kalshi_key_path: str = "~/.kalshi/kalshi_private_key.pem"
 
     @property
     def cors_origins_list(self) -> List[str]:

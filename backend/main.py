@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import settings
-from routers import quotes, charts, options, scanner, alerts, broker, ws as ws_router, kalshi as kalshi_router
+from routers import quotes, charts, options, scanner, alerts, broker, ws as ws_router
 from services.finnhub_service import finnhub_stream
 from routers.ws import on_finnhub_trade
 
@@ -50,7 +50,6 @@ app.include_router(scanner.router)
 app.include_router(alerts.router)
 app.include_router(broker.router)
 app.include_router(ws_router.router)
-app.include_router(kalshi_router.router)
 
 
 @app.on_event("startup")

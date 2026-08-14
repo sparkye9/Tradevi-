@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
+import StocksSubnav from '@/components/stocks/StocksSubnav';
 import { useTradeviStore, MARKET_TICKERS } from '@/store/tradeviStore';
 import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
 import type { TradierContract, TradierOptionsResult } from '@/lib/tradier';
@@ -247,11 +248,14 @@ export default function IntradayPage() {
 
   return (
     <div className="space-y-6 max-w-6xl">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Intraday Options</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Unusual volume scan · same-day option contracts · calls &amp; puts
-        </p>
+      <div className="space-y-3">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Intraday Options</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Unusual volume scan · same-day option contracts · calls &amp; puts
+          </p>
+        </div>
+        <StocksSubnav />
       </div>
 
       {/* Controls */}

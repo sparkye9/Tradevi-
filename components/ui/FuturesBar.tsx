@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { marketClock, type MarketClock } from '@/lib/powerHour';
 
 interface Future {
   symbol: string;
@@ -17,23 +18,6 @@ const PLACEHOLDERS: Future[] = SYMBOLS.map((symbol) => ({
   direction: null,
 }));
 
-function getMarketStatus(etDate: Date): 'CLOSED' | 'PRE-MARKET' | 'OPEN' {
-  const day = etDate.getDay();
-  const h = etDate.getHours();
-  const m = etDate.getMinutes();
-  const timeMin = h * 60 + m;
-
-  if (day === 0 || day === 6) return 'CLOSED';
-
-  const preMarketStart = 4 * 60;
-  const marketOpen = 9 * 60 + 30;
-  const marketClose = 16 * 60;
-
-  if (timeMin >= marketOpen && timeMin < marketClose) return 'OPEN';
-  if (timeMin >= preMarketStart && timeMin < marketOpen) return 'PRE-MARKET';
-  return 'CLOSED';
-}
-
 function formatET(d: Date): string {
   return d.toLocaleTimeString('en-US', {
     hour: '2-digit',
@@ -44,14 +28,10 @@ function formatET(d: Date): string {
   });
 }
 
-function getETDate(): Date {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-}
-
 export default function FuturesBar() {
   const [futures, setFutures] = useState<Future[]>(PLACEHOLDERS);
   const [etTime, setEtTime] = useState('');
-  const [status, setStatus] = useState<'CLOSED' | 'PRE-MARKET' | 'OPEN'>('CLOSED');
+  const [clock, setClock] = useState<MarketClock>(() => marketClock());
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -76,30 +56,37 @@ export default function FuturesBar() {
 
   useEffect(() => {
     function tick() {
-      const et = getETDate();
       setEtTime(formatET(new Date()));
-      setStatus(getMarketStatus(et));
+      setClock(marketClock());
     }
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, []);
 
-  const dotColor =
-    status === 'OPEN'
-      ? 'bg-emerald-400'
-      : status === 'PRE-MARKET'
-      ? 'bg-amber-400'
-      : 'bg-red-400/60';
+  const dotColor = clock.powerHour
+    ? 'bg-amber-400'
+    : clock.tradesOpen
+    ? 'bg-emerald-400'
+    : 'bg-red-400/60';
+
+  const sessionColor = clock.powerHour
+    ? 'text-amber-300'
+    : clock.tradesOpen
+    ? 'text-emerald-400'
+    : 'text-gray-500';
 
   return (
     <div
       className="w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 border-b border-[#1a1a1a] overflow-x-auto scrollbar-none"
       style={{ background: '#090909', minHeight: 38 }}
     >
-      {/* Status dot + ET time */}
+      {/* Session + ET time */}
       <div className="flex items-center gap-1.5 shrink-0">
         <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
+        <span className={`text-[10px] font-bold tracking-widest whitespace-nowrap ${sessionColor}`}>
+          {clock.shortLabel}
+        </span>
         <span className="text-gray-600 font-mono text-xs whitespace-nowrap">{etTime} ET</span>
       </div>
 
