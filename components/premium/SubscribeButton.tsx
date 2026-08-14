@@ -76,9 +76,7 @@ export default function SubscribeButton() {
   if (!CLIENT_ID || !PLAN_ID) {
     return (
       <div className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4">
-        PayPal isn&apos;t configured on this deployment yet. Set{' '}
-        <code className="text-amber-200">NEXT_PUBLIC_PAYPAL_CLIENT_ID</code> and{' '}
-        <code className="text-amber-200">NEXT_PUBLIC_PAYPAL_PLAN_ID</code> — see SUBSCRIPTIONS.md.
+        Payments aren&apos;t available on this deployment yet. Please try again later.
       </div>
     );
   }
@@ -103,8 +101,7 @@ export default function SubscribeButton() {
       {status === 'linking' && <div className="text-gray-500 text-xs animate-pulse">Confirming subscription...</div>}
       {status === 'error' && <div className="text-red-400 text-xs">{errorMsg}</div>}
       <p className="text-xs text-gray-600">
-        Billed and processed by PayPal. Cancel anytime from your PayPal account. Payment processing fees apply
-        to every charge — see SUBSCRIPTIONS.md for the real numbers.
+        Billed and processed by PayPal. Cancel anytime from your PayPal account.
       </p>
     </div>
   );

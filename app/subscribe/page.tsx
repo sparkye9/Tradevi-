@@ -37,7 +37,7 @@ export default async function SubscribePage() {
   return (
     <div className="max-w-lg space-y-5">
       <div>
-        <h1 className="text-2xl font-bold text-white">Subscribe</h1>
+        <h1 className="text-2xl font-bold text-white">Tradevi Premium</h1>
         <p className="text-sm text-gray-500 mt-1">$7.99/month — subscribe for full access.</p>
       </div>
 
