@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import TradingViewButton from '@/components/ui/TradingViewButton';
+import StocksSubnav from '@/components/stocks/StocksSubnav';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import { useTradeviStore, MARKET_TICKERS } from '@/store/tradeviStore';
@@ -829,6 +830,9 @@ export default function OpportunityFinderPage() {
           <p className="text-sm text-gray-500 mt-1">
             Highest-probability setups for small accounts · scores based on real signals
           </p>
+          <div className="mt-3">
+            <StocksSubnav />
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <button

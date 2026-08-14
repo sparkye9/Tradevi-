@@ -3,6 +3,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { safeNextPath } from '@/lib/routes';
 
 function LoginForm() {
   const router = useRouter();
@@ -20,10 +21,7 @@ function LoginForm() {
       const supabase = createClient();
       supabase.auth.getUser().then(({ data }) => {
         if (!data.user) return;
-        const next = searchParams.get('next');
-        const dest =
-          next && next.startsWith('/') && !next.startsWith('//') && next !== '/login' ? next : '/trend-bias';
-        router.replace(dest);
+        router.replace(safeNextPath(searchParams.get('next')));
       });
     } catch {
       // Accounts aren't configured — stay on the form.
@@ -41,10 +39,7 @@ function LoginForm() {
         setError(signInError.message);
         return;
       }
-      const next = searchParams.get('next');
-      const dest =
-        next && next.startsWith('/') && !next.startsWith('//') && next !== '/login' ? next : '/trend-bias';
-      router.push(dest);
+      router.push(safeNextPath(searchParams.get('next')));
       router.refresh();
     } catch {
       setError('Sign-in is not available right now — accounts may not be configured on this deployment.');

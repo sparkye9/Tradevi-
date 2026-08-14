@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
+import StocksSubnav from '@/components/stocks/StocksSubnav';
 import { useTradeviStore, MARKET_TICKERS } from '@/store/tradeviStore';
 import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
 
@@ -146,9 +147,12 @@ export default function TradeDiscoveryPage() {
   return (
     <div className="space-y-5 max-w-6xl">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">Trade Discovery</h1>
-        <p className="text-sm text-gray-500 mt-1">What is moving with conviction today?</p>
+      <div className="space-y-3">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Stocks</h1>
+          <p className="text-sm text-gray-500 mt-1">What is moving with conviction today?</p>
+        </div>
+        <StocksSubnav />
       </div>
 
       {/* Controls bar */}

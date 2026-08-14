@@ -195,7 +195,7 @@ function InstrumentCard({ f }: { f: FinvizFuture }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function MiniFuturesPage() {
+export default function SessionBias() {
   const [data, setData] = useState<FinvizResult<FinvizFuture> | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -231,10 +231,10 @@ export default function MiniFuturesPage() {
     'bg-amber-500';
 
   return (
-    <div className="space-y-5 max-w-3xl">
+    <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-bold text-white">Futures Guide</h1>
-        <p className="text-sm text-gray-500 mt-1">9-factor bias engine — ES · NQ · YM · RTY · VIX · Gold · Oil · 10Y · DXY</p>
+        <h2 className="text-xl font-bold text-white">Overnight session bias</h2>
+        <p className="text-sm text-gray-500 mt-1">9-factor read — ES · NQ · YM · RTY · VIX · Gold · Oil · 10Y · DXY</p>
       </div>
 
       <div className="flex items-center gap-4">

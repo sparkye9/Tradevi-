@@ -175,10 +175,10 @@ export default function DashboardPage() {
           <p className="text-sm text-gray-500 mt-1">What should I focus on right now?</p>
         </div>
         <Link
-          href="/trend-bias"
+          href="/futures"
           className="text-xs font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-full px-3 py-1.5 hover:bg-amber-500/20 transition-colors"
         >
-          Trend Bias Stack · PRO
+          Futures · structure stack
         </Link>
       </div>
 
@@ -270,7 +270,7 @@ export default function DashboardPage() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <span className="label">Top Swing Candidates</span>
-            <Link href="/swing" className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors">View all →</Link>
+            <Link href="/stocks" className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors">View all →</Link>
           </div>
           {watchlistData?.sourceError ? (
             <DataUnavailable reason={watchlistData.sourceError} />
@@ -288,7 +288,7 @@ export default function DashboardPage() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <span className="label">Top Intraday Candidates</span>
-            <Link href="/intraday" className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors">View all →</Link>
+            <Link href="/stocks" className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors">View all →</Link>
           </div>
           {watchlistData?.sourceError ? (
             <DataUnavailable reason={watchlistData.sourceError} />

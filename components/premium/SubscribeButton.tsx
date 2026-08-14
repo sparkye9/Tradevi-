@@ -88,10 +88,10 @@ export default function SubscribeButton() {
       <div className="text-sm text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
         <div>Subscription active. Welcome to Premium.</div>
         <button
-          onClick={() => router.push('/trend-bias')}
+          onClick={() => router.push('/futures')}
           className="px-4 py-2 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-lg text-sm font-semibold hover:bg-emerald-500/30 transition-colors"
         >
-          Go to Trend Bias Stack
+          Go to Futures
         </button>
       </div>
     );

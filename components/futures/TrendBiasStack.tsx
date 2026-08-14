@@ -98,7 +98,7 @@ function TimeframeCard({ tf, data }: { tf: Timeframe; data: TrendBiasStackResult
   );
 }
 
-function TrendBiasContent() {
+export default function TrendBiasStack() {
   const [instrument, setInstrument] = useState<(typeof INSTRUMENTS)[number]>('MNQ');
   const [data, setData] = useState<TrendBiasStackResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -139,9 +139,9 @@ function TrendBiasContent() {
     : 'border-amber-500/30 bg-amber-500/10 text-amber-300';
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Trend Bias Stack</h1>
+        <h2 className="text-xl font-bold text-white">Trend Bias Stack</h2>
         <p className="text-sm text-gray-500 mt-1">
           Weekly / Daily / 4H structure — then a gated swing suggestion. Not a moving-average stack.
         </p>
@@ -223,10 +223,4 @@ function TrendBiasContent() {
       </div>
     </div>
   );
-}
-
-// Login + active subscription are already enforced by middleware.ts for
-// every route except / , /login, /signup, /subscribe — no gate needed here.
-export default function TrendBiasPage() {
-  return <TrendBiasContent />;
 }

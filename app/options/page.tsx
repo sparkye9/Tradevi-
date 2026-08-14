@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
+import StocksSubnav from '@/components/stocks/StocksSubnav';
 import { useTradeviStore } from '@/store/tradeviStore';
 import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
 import type { TradierOptionsResult, TradierContract } from '@/lib/tradier';
@@ -202,9 +203,12 @@ export default function OptionsPage() {
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <div>
-        <h1 className="text-xl font-bold text-white">Options</h1>
-        <p className="text-gray-500 text-sm mt-0.5">Which contracts are worth trading on today's candidates?</p>
+      <div className="space-y-3">
+        <div>
+          <h1 className="text-xl font-bold text-white">Options</h1>
+          <p className="text-gray-500 text-sm mt-0.5">Which contracts are worth trading on today&apos;s candidates?</p>
+        </div>
+        <StocksSubnav />
       </div>
 
       <div className="text-xs text-gray-600 p-3 rounded bg-[#1a1a1a] border border-[#2a2a2a]">

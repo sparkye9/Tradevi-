@@ -5,7 +5,7 @@ What this is:
     Slice 1 of the subscription futures engine: Weekly / Daily / 4H structure
     bias. Slice 2 (dealing-range levels, premium/discount, invalidation, and
     the gated swing suggestion) lives in lib/trendBias.ts and is what the
-    /trend-bias page actually renders.
+    the /futures page actually renders.
 
     This standalone script is the local validation tool for Slice 1 — the
     HH/HL vs LH/LL classify() that the TypeScript port must match. Use this
