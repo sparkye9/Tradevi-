@@ -72,7 +72,7 @@ export default function SignupPage() {
     <div className="max-w-sm mx-auto mt-12 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">Create your account</h1>
-        <p className="text-sm text-gray-500 mt-1">Free to create — Trend Bias Stack needs Premium ($7.99/mo) after.</p>
+        <p className="text-sm text-gray-500 mt-1">Free to create. Subscribe for full access.</p>
       </div>
 
       <form onSubmit={handleSubmit} className="bg-[#111111] border border-[#2a2a2a] rounded-2xl p-5 space-y-4">

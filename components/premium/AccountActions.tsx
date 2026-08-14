@@ -30,7 +30,7 @@ export default function AccountActions({
   }
 
   async function handleCancel() {
-    if (!confirm('Cancel your Tradevi Premium subscription? Access ends as soon as PayPal confirms.')) {
+    if (!confirm('Cancel your Tradevi subscription? Access ends as soon as PayPal confirms.')) {
       return;
     }
     setError('');

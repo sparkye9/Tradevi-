@@ -1,11 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
 import SourceTag from '@/components/ui/SourceTag';
+import TradingViewButton from '@/components/ui/TradingViewButton';
 import type {
   Bias,
-  Conviction,
+  QualityLabel,
   StructureLevels,
-  SwingAction,
   Timeframe,
   TrendBiasStackResult,
   Zone,
@@ -13,6 +13,14 @@ import type {
 
 const INSTRUMENTS = ['MNQ', 'MES', 'MYM', 'M2K', 'GC'] as const;
 const TIMEFRAMES: Timeframe[] = ['Weekly', 'Daily', '4H'];
+
+const TV_SYMBOL: Record<(typeof INSTRUMENTS)[number], string> = {
+  MNQ: 'MNQ1!',
+  MES: 'MES1!',
+  MYM: 'MYM1!',
+  M2K: 'M2K1!',
+  GC: 'GC1!',
+};
 
 function fmt(n: number | null | undefined): string {
   return n == null ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -43,27 +51,39 @@ function ZonePill({ zone }: { zone: Zone }) {
   return <span className={`text-xs font-semibold uppercase tracking-widest ${styles[zone]}`}>{zone}</span>;
 }
 
-function ActionBanner({
-  action,
-  conviction,
-  headline,
-}: {
-  action: SwingAction;
-  conviction: Conviction;
-  headline: string;
-}) {
-  const wrap: Record<SwingAction, string> = {
-    LOOK_LONG: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
-    LOOK_SHORT: 'border-red-500/30 bg-red-500/10 text-red-300',
-    STAND_DOWN: 'border-gray-500/30 bg-gray-500/10 text-gray-300',
+function QualityBanner({ data }: { data: TrendBiasStackResult }) {
+  const q = data.quality;
+  const wrap: Record<QualityLabel, string> = {
+    TRADE:
+      data.suggestion.action === 'LOOK_SHORT'
+        ? 'border-red-500/30 bg-red-500/10 text-red-300'
+        : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+    WAIT: 'border-amber-500/30 bg-amber-500/10 text-amber-200',
+    NO_TRADE: 'border-gray-500/30 bg-[#141414] text-gray-200',
   };
+  const tag = q.label === 'TRADE' ? data.suggestion.action.replace('_', ' ') : 'NO TRADE';
+
   return (
-    <div className={`border rounded-2xl p-5 ${wrap[action]}`}>
-      <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
-        <div className="text-xs uppercase tracking-widest opacity-70">Swing suggestion</div>
-        <span className="text-[10px] font-bold uppercase tracking-widest opacity-70">{conviction} conviction</span>
+    <div className={`border rounded-2xl p-5 ${wrap[q.label]}`}>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <div className="text-xs uppercase tracking-widest opacity-70 mb-1">Workstation read</div>
+          <div className="text-2xl font-black tracking-tight">{tag}</div>
+          <div className="font-semibold mt-1">{q.headline}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] uppercase tracking-widest opacity-70">Quality</div>
+          <div className="text-3xl font-mono font-black">{q.score}</div>
+          <div className="text-[10px] opacity-70">/ 100</div>
+        </div>
       </div>
-      <div className="font-bold text-base">{headline}</div>
+      <ul className="mt-3 space-y-1">
+        {q.reasons.map((line) => (
+          <li key={line} className="text-xs opacity-80">
+            • {line}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -130,23 +150,8 @@ export default function TrendBiasStack() {
     };
   }, [instrument]);
 
-  const alignmentColor = data?.alignment.startsWith('STACKED LONG')
-    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-    : data?.alignment.startsWith('STACKED SHORT')
-    ? 'border-red-500/30 bg-red-500/10 text-red-300'
-    : data?.alignment.startsWith('CONFLICTING')
-    ? 'border-gray-500/30 bg-gray-500/10 text-gray-300'
-    : 'border-amber-500/30 bg-amber-500/10 text-amber-300';
-
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-white">Trend Bias Stack</h2>
-        <p className="text-sm text-gray-500 mt-1">
-          Weekly / Daily / 4H structure — then a gated swing suggestion. Not a moving-average stack.
-        </p>
-      </div>
-
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex rounded-full overflow-hidden border border-[#2a2a2a] bg-[#0d0d0d]">
           {INSTRUMENTS.map((inst) => (
@@ -163,6 +168,7 @@ export default function TrendBiasStack() {
             </button>
           ))}
         </div>
+        <TradingViewButton symbol={TV_SYMBOL[instrument]} label={`Confirm ${instrument} on TradingView`} />
         {data && <SourceTag source={`Yahoo Finance (${data.dataSymbol})`} lastUpdated={data.asOf} />}
         {loading && <span className="text-gray-500 text-sm">Loading...</span>}
       </div>
@@ -177,6 +183,10 @@ export default function TrendBiasStack() {
             <div className="text-[10px] uppercase tracking-widest text-gray-600">Daily zone</div>
             <div className="text-sm font-semibold text-gray-200 capitalize">{data.levels.Daily.zone}</div>
           </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-gray-600">Daily invalidation</div>
+            <div className="text-sm font-mono text-gray-200">{fmt(data.levels.Daily.invalidation)}</div>
+          </div>
         </div>
       )}
 
@@ -186,25 +196,16 @@ export default function TrendBiasStack() {
 
       {data && (
         <>
+          <QualityBanner data={data} />
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {TIMEFRAMES.map((tf) => (
               <TimeframeCard key={tf} tf={tf} data={data} />
             ))}
           </div>
 
-          <div className={`border rounded-2xl p-5 ${alignmentColor}`}>
-            <div className="text-xs uppercase tracking-widest opacity-70 mb-1">Alignment</div>
-            <div className="font-bold">{data.alignment}</div>
-          </div>
-
-          <ActionBanner
-            action={data.suggestion.action}
-            conviction={data.suggestion.conviction}
-            headline={data.suggestion.headline}
-          />
-
           <div className="bg-[#111111] border border-[#1e1e1e] rounded-2xl p-5 space-y-3">
-            <div className="text-xs uppercase tracking-widest text-gray-500">Today&apos;s playbook</div>
+            <div className="text-xs uppercase tracking-widest text-gray-500">Playbook</div>
             <ol className="space-y-2">
               {data.suggestion.playbook.map((line) => (
                 <li key={line} className="text-sm text-gray-300 leading-relaxed pl-1">
@@ -213,14 +214,17 @@ export default function TrendBiasStack() {
               ))}
             </ol>
           </div>
+
+          <div className="text-xs text-gray-500 p-4 rounded-2xl bg-[#111111] border border-[#1e1e1e] space-y-2">
+            <div className="text-[10px] uppercase tracking-widest text-gray-600">What this page does not do</div>
+            <ul className="space-y-1">
+              {data.quality.missing.map((line) => (
+                <li key={line}>• {line}</li>
+              ))}
+            </ul>
+          </div>
         </>
       )}
-
-      <div className="text-xs text-gray-600 p-3 rounded-2xl bg-[#111111] border border-[#1e1e1e]">
-        Structure-based (higher-high/higher-low), not moving-average based. Daily is the dealing range;
-        4H is the entry timeframe. Validate against your TradingView ICT/SMC structure before trusting a
-        fresh flip. Not a signal to trade — confirm manually. Options can go to zero.
-      </div>
     </div>
   );
 }

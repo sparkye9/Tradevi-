@@ -36,7 +36,7 @@ export default async function AccountPage() {
     <div className="max-w-lg space-y-5">
       <div>
         <h1 className="text-2xl font-bold text-white">Account</h1>
-        <p className="text-sm text-gray-500 mt-1">Manage your Tradevi login and Premium subscription.</p>
+        <p className="text-sm text-gray-500 mt-1">Manage your Tradevi login and subscription.</p>
       </div>
 
       <div className="bg-[#111111] border border-[#2a2a2a] rounded-2xl p-5 space-y-3">

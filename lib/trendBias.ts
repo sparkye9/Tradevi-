@@ -68,6 +68,16 @@ export interface SwingSuggestion {
   playbook: string[];
 }
 
+export type QualityLabel = 'TRADE' | 'WAIT' | 'NO_TRADE';
+
+export interface SetupQuality {
+  score: number;
+  label: QualityLabel;
+  headline: string;
+  reasons: string[];
+  missing: string[];
+}
+
 export interface TrendBiasStackResult {
   instrument: string;
   dataSymbol: string;
@@ -76,6 +86,7 @@ export interface TrendBiasStackResult {
   levels: Record<Timeframe, StructureLevels>;
   alignment: string;
   suggestion: SwingSuggestion;
+  quality: SetupQuality;
   asOf: string;
 }
 
@@ -327,6 +338,94 @@ export function swingSuggestion(
   };
 }
 
+const HONEST_GAPS = [
+  'FVG, BOS, and CHOCH are not computed here — confirm those on TradingView.',
+  'No historical analog matching. This is not a backtested twin of prior sessions.',
+  'Yahoo data is delayed. Last price is not a live feed.',
+];
+
+/**
+ * Workstation quality: stacked + correct dealing-range zone can be a trade.
+ * Anything weaker is WAIT or NO TRADE. Chasing premium longs / discount shorts
+ * is not a trade even when the stack agrees.
+ */
+export function setupQuality(
+  suggestion: SwingSuggestion,
+  reads: Record<Timeframe, TrendRead>,
+  daily: StructureLevels
+): SetupQuality {
+  const missing = [...HONEST_GAPS];
+
+  if (suggestion.action === 'STAND_DOWN') {
+    return {
+      score: 12,
+      label: 'NO_TRADE',
+      headline: suggestion.headline,
+      reasons: ['Weekly / Daily / 4H do not agree. No swing until the stack is clean.'],
+      missing,
+    };
+  }
+
+  const reasons: string[] = [];
+  let score = 0;
+  if (suggestion.conviction === 'high') {
+    score += 50;
+    reasons.push('Weekly / Daily / 4H stacked');
+  } else {
+    score += 28;
+    reasons.push('Partial stack — not high conviction');
+  }
+
+  const lookingLong = suggestion.action === 'LOOK_LONG';
+  const zoneOk = lookingLong ? daily.zone === 'discount' : daily.zone === 'premium';
+
+  if (!zoneOk) {
+    return {
+      score: Math.min(score, 35),
+      label: 'WAIT',
+      headline: lookingLong
+        ? 'NO TRADE yet — wait for discount. Do not chase premium.'
+        : 'NO TRADE yet — wait for premium. Do not chase discount.',
+      reasons: [...reasons, `Daily zone is ${daily.zone}`],
+      missing,
+    };
+  }
+
+  score += 30;
+  reasons.push(lookingLong ? 'Daily is in discount' : 'Daily is in premium');
+
+  if (daily.invalidation != null) {
+    score += 15;
+    reasons.push('Invalidation level is defined');
+  }
+
+  const thin = Object.values(reads).some((r) => r.reason === 'not enough confirmed swings');
+  if (thin) {
+    score -= 10;
+    reasons.push('Thin swing history on at least one timeframe');
+  } else {
+    score += 5;
+  }
+
+  if (suggestion.conviction !== 'high') {
+    return {
+      score: Math.min(70, Math.max(0, score)),
+      label: 'WAIT',
+      headline: 'NO TRADE unless you cut size — stack is only partial.',
+      reasons,
+      missing,
+    };
+  }
+
+  return {
+    score: Math.min(100, Math.max(0, score)),
+    label: 'TRADE',
+    headline: suggestion.headline,
+    reasons,
+    missing,
+  };
+}
+
 /** Turn the three timeframe biases into a single conviction read. */
 function alignment(reads: Record<Timeframe, TrendRead>): string {
   const biases = Object.values(reads).map((r) => r.bias);
@@ -368,6 +467,8 @@ export async function trendBiasStack(instrument: string): Promise<TrendBiasStack
     '4H': structureLevels(fourH, reads['4H'].bias, lastPrice),
   };
 
+  const suggestion = swingSuggestion(instrument.toUpperCase(), reads, levels.Daily, levels['4H'], lastPrice);
+
   return {
     instrument: instrument.toUpperCase(),
     dataSymbol: symbol,
@@ -375,7 +476,8 @@ export async function trendBiasStack(instrument: string): Promise<TrendBiasStack
     reads,
     levels,
     alignment: alignment(reads),
-    suggestion: swingSuggestion(instrument.toUpperCase(), reads, levels.Daily, levels['4H'], lastPrice),
+    suggestion,
+    quality: setupQuality(suggestion, reads, levels.Daily),
     asOf: new Date().toISOString(),
   };
 }

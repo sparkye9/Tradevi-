@@ -176,9 +176,9 @@ export default function DashboardPage() {
         </div>
         <Link
           href="/futures"
-          className="text-xs font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-full px-3 py-1.5 hover:bg-amber-500/20 transition-colors"
+          className="text-xs font-semibold text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-3 py-1.5 hover:bg-emerald-500/20 transition-colors"
         >
-          Futures · structure stack
+          Futures workstation
         </Link>
       </div>
 
