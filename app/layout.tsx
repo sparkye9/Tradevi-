@@ -28,7 +28,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} ${jetbrains.variable}`}>
-      <body className="bg-[#0f0f0f] text-white min-h-screen flex font-sans">
+      <body className="bg-tv-bg text-white min-h-screen flex font-sans">
         <div className="hidden md:block">
           <Sidebar />
         </div>
