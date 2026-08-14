@@ -30,6 +30,22 @@ export const INSTRUMENT_MAP: Record<string, string> = {
 /** Instruments shown in the UI (aliases like NQ/ES stay in the map for the API). */
 export const DISPLAY_INSTRUMENTS = ['MNQ', 'MES', 'MYM', 'M2K', 'GC'] as const;
 
+export type DeskInstrument = (typeof DISPLAY_INSTRUMENTS)[number];
+
+/** Micro on the desk → delayed tape symbol + TradingView confirm symbol. */
+export const DESK_FUTURES: {
+  instrument: DeskInstrument;
+  tape: string;
+  tv: string;
+  name: string;
+}[] = [
+  { instrument: 'MNQ', tape: 'NQ', tv: 'MNQ1!', name: 'Nasdaq' },
+  { instrument: 'MES', tape: 'ES', tv: 'MES1!', name: 'S&P' },
+  { instrument: 'MYM', tape: 'YM', tv: 'MYM1!', name: 'Dow' },
+  { instrument: 'M2K', tape: 'RTY', tv: 'M2K1!', name: 'Russell' },
+  { instrument: 'GC', tape: 'GC', tv: 'GC1!', name: 'Gold' },
+];
+
 // How many bars on each side a candle must dominate to count as a swing
 // pivot. Higher = fewer, more significant swings. Tune during validation
 // against your Pine/TradingView structure reads.
