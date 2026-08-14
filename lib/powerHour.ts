@@ -1,7 +1,16 @@
-export type SessionStatus = 'WEEKEND' | 'BEFORE' | 'OPEN' | 'AFTER';
+export type SessionName =
+  | 'Weekend'
+  | 'Closed'
+  | 'Premarket'
+  | 'Regular hours'
+  | 'Power Hour'
+  | 'After hours';
 
-export interface PowerHourClock {
-  status: SessionStatus;
+export interface MarketClock {
+  session: SessionName;
+  shortLabel: string;
+  tradesOpen: boolean;
+  powerHour: boolean;
   clock: string;
   headline: string;
 }
@@ -22,29 +31,95 @@ function etParts(now: Date) {
   };
 }
 
-/** Regular-session last hour: 3:00–4:00 PM America/New_York, weekdays only. */
-export function powerHourClock(now = new Date()): PowerHourClock {
-  const { weekday, hour, minute } = etParts(now);
-  const clock =
+function etClock(now: Date): string {
+  return (
     new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/New_York',
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
-    }).format(now) + ' ET';
+    }).format(now) + ' ET'
+  );
+}
+
+/**
+ * US equity sessions in America/New_York.
+ * Cash market (trades open): 9:30 AM–4:00 PM. Power Hour is the last hour of that.
+ */
+export function marketClock(now = new Date()): MarketClock {
+  const { weekday, hour, minute } = etParts(now);
+  const clock = etClock(now);
+  const mins = hour * 60 + minute;
 
   if (weekday === 'Sat' || weekday === 'Sun') {
-    return { status: 'WEEKEND', clock, headline: 'NO TRADE — market closed' };
+    return {
+      session: 'Weekend',
+      shortLabel: 'WEEKEND',
+      tradesOpen: false,
+      powerHour: false,
+      clock,
+      headline: 'Market closed — weekend',
+    };
   }
 
-  const mins = hour * 60 + minute;
-  const start = 15 * 60;
-  const end = 16 * 60;
-  if (mins < start) {
-    return { status: 'BEFORE', clock, headline: 'NO TRADE yet — Power Hour starts at 3:00 PM ET' };
+  const preOpen = 4 * 60;
+  const cashOpen = 9 * 60 + 30;
+  const powerStart = 15 * 60;
+  const cashClose = 16 * 60;
+  const afterClose = 20 * 60;
+
+  if (mins >= cashOpen && mins < powerStart) {
+    return {
+      session: 'Regular hours',
+      shortLabel: 'REGULAR',
+      tradesOpen: true,
+      powerHour: false,
+      clock,
+      headline: 'Regular session — trades open. Power Hour starts at 3:00 PM ET.',
+    };
   }
-  if (mins >= end) {
-    return { status: 'AFTER', clock, headline: 'NO TRADE — regular session is closed' };
+
+  if (mins >= powerStart && mins < cashClose) {
+    return {
+      session: 'Power Hour',
+      shortLabel: 'POWER HOUR',
+      tradesOpen: true,
+      powerHour: true,
+      clock,
+      headline: 'Power Hour — last hour of the cash session. Trades still open.',
+    };
   }
-  return { status: 'OPEN', clock, headline: 'Power Hour is open — confirm on TradingView before you act' };
+
+  if (mins >= preOpen && mins < cashOpen) {
+    return {
+      session: 'Premarket',
+      shortLabel: 'PREMARKET',
+      tradesOpen: false,
+      powerHour: false,
+      clock,
+      headline: 'Premarket — cash session opens at 9:30 AM ET.',
+    };
+  }
+
+  if (mins >= cashClose && mins < afterClose) {
+    return {
+      session: 'After hours',
+      shortLabel: 'AFTER HOURS',
+      tradesOpen: false,
+      powerHour: false,
+      clock,
+      headline: 'After hours — cash session closed at 4:00 PM ET.',
+    };
+  }
+
+  return {
+    session: 'Closed',
+    shortLabel: 'CLOSED',
+    tradesOpen: false,
+    powerHour: false,
+    clock,
+    headline: 'Market closed',
+  };
 }
+
+export const powerHourClock = marketClock;

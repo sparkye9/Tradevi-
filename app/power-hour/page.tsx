@@ -6,7 +6,7 @@ import TradingViewButton from '@/components/ui/TradingViewButton';
 import VerdictBadge from '@/components/stocks/VerdictBadge';
 import { useTradeviStore, MARKET_TICKERS } from '@/store/tradeviStore';
 import { stockQuality, STOCK_HONEST_GAPS, type StockQuality } from '@/lib/stockQuality';
-import { powerHourClock } from '@/lib/powerHour';
+import { marketClock } from '@/lib/powerHour';
 import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
 import type { TradierContract, TradierOptionsResult } from '@/lib/tradier';
 
@@ -260,7 +260,7 @@ export default function PowerHourPage() {
   const { watchlist, rvolThreshold, scanMode, setScanMode } = useTradeviStore();
   const [data, setData] = useState<FinvizResult<FinvizQuote> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [session, setSession] = useState(() => powerHourClock());
+  const [session, setSession] = useState(() => marketClock());
 
   const tickers = scanMode === 'market' ? MARKET_TICKERS : watchlist;
 
@@ -282,17 +282,17 @@ export default function PowerHourPage() {
   }, [scanMode, watchlist]);
 
   useEffect(() => {
-    const id = setInterval(() => setSession(powerHourClock()), 30_000);
+    const id = setInterval(() => setSession(marketClock()), 30_000);
     return () => clearInterval(id);
   }, []);
 
   const powerThreshold = rvolThreshold * 1.2;
-  const open = session.status === 'OPEN';
+  const tradesOpen = session.tradesOpen;
 
   const withQuality = [...(data?.data ?? [])]
     .map((q) => {
       const base = stockQuality(q, powerThreshold);
-      if (open) return { q, quality: base };
+      if (tradesOpen) return { q, quality: base };
       return {
         q,
         quality: {
@@ -314,17 +314,18 @@ export default function PowerHourPage() {
     return hot && row.quality.label === 'NO_TRADE';
   });
 
-  const sessionWrap =
-    session.status === 'OPEN'
-      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-      : 'border-gray-500/30 bg-[#141414] text-gray-200';
+  const sessionWrap = session.tradesOpen
+    ? session.powerHour
+      ? 'border-amber-500/30 bg-amber-500/10 text-amber-100'
+      : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+    : 'border-gray-500/30 bg-[#141414] text-gray-200';
 
   return (
     <div className="space-y-6 max-w-6xl">
       <div>
         <h1 className="text-2xl font-bold text-white">Power Hour</h1>
         <p className="text-sm text-gray-500 mt-1">
-          3:00–4:00 PM ET. Quality score, then a hard no-trade outside the window or when the tape is weak.
+          Looks stay live while the cash market is open (9:30 AM–4:00 PM ET). Power Hour is 3:00–4:00.
         </p>
       </div>
 
@@ -332,10 +333,11 @@ export default function PowerHourPage() {
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div className="text-xs uppercase tracking-widest opacity-70 mb-1">Session</div>
-            <div className="text-2xl font-black tracking-tight">
-              {session.status === 'OPEN' ? 'OPEN' : 'NO TRADE'}
-            </div>
+            <div className="text-2xl font-black tracking-tight uppercase">{session.session}</div>
             <div className="text-sm mt-1">{session.headline}</div>
+            <div className="text-xs mt-2 opacity-70">
+              {session.tradesOpen ? 'Trades open' : 'Trades closed'}
+            </div>
           </div>
           <div className="text-right font-mono text-sm opacity-80">{session.clock}</div>
         </div>
@@ -420,7 +422,7 @@ export default function PowerHourPage() {
           <div className="text-2xl font-black text-gray-200">NO TRADE</div>
           <p className="text-sm text-gray-400 mt-1">
             Nothing on this scan has volume plus a directional lean
-            {open ? '.' : ', and Power Hour is not open.'}
+            {tradesOpen ? '.' : ` — ${session.session}.`}
           </p>
         </div>
       )}
