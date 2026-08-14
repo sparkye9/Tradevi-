@@ -6,7 +6,14 @@ import { isOwnerEmail } from '@/lib/ownerAccess';
 // though it establishes a session, because the recovery token it needs
 // arrives in the URL fragment (never sent to the server) and is only
 // parsed client-side after the page has already loaded.
-const PUBLIC_PATHS = new Set(['/', '/login', '/signup', '/forgot-password', '/reset-password']);
+const PUBLIC_PATHS = new Set([
+  '/',
+  '/login',
+  '/signup',
+  '/forgot-password',
+  '/reset-password',
+  '/auth/callback',
+]);
 
 // The home page (and the futures ticker shown in the header on every page)
 // depend on these two data endpoints, so they stay reachable by anonymous
@@ -15,7 +22,13 @@ const PUBLIC_PATHS = new Set(['/', '/login', '/signup', '/forgot-password', '/re
 const PUBLIC_API_PREFIXES = ['/api/finviz/screener', '/api/finviz/futures', '/api/paypal/webhook'];
 
 // Requires login, but not an active subscription — this is how you get one.
-const LOGIN_ONLY_PATHS = new Set(['/subscribe', '/api/subscription/link', '/api/paypal/status']);
+const LOGIN_ONLY_PATHS = new Set([
+  '/subscribe',
+  '/account',
+  '/api/subscription/link',
+  '/api/subscription/cancel',
+  '/api/paypal/status',
+]);
 
 function redirectTo(request: NextRequest, pathname: string, params?: Record<string, string>) {
   const url = request.nextUrl.clone();

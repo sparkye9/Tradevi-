@@ -169,9 +169,17 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6 max-w-5xl">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-1">What should I focus on right now?</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+          <p className="text-sm text-gray-500 mt-1">What should I focus on right now?</p>
+        </div>
+        <Link
+          href="/trend-bias"
+          className="text-xs font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-full px-3 py-1.5 hover:bg-amber-500/20 transition-colors"
+        >
+          Trend Bias Stack · PRO
+        </Link>
       </div>
 
       {loading && (

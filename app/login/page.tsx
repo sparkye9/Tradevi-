@@ -1,5 +1,5 @@
 'use client';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -13,6 +13,22 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
 
   const misconfigured = searchParams.get('misconfigured') === '1';
+  const authError = searchParams.get('error') === 'auth';
+
+  useEffect(() => {
+    try {
+      const supabase = createClient();
+      supabase.auth.getUser().then(({ data }) => {
+        if (!data.user) return;
+        const next = searchParams.get('next');
+        const dest =
+          next && next.startsWith('/') && !next.startsWith('//') && next !== '/login' ? next : '/trend-bias';
+        router.replace(dest);
+      });
+    } catch {
+      // Accounts aren't configured — stay on the form.
+    }
+  }, [router, searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -26,7 +42,9 @@ function LoginForm() {
         return;
       }
       const next = searchParams.get('next');
-      router.push(next && next !== '/login' ? next : '/subscribe');
+      const dest =
+        next && next.startsWith('/') && !next.startsWith('//') && next !== '/login' ? next : '/trend-bias';
+      router.push(dest);
       router.refresh();
     } catch {
       setError('Sign-in is not available right now — accounts may not be configured on this deployment.');
@@ -46,6 +64,11 @@ function LoginForm() {
         <div className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4">
           Accounts aren&apos;t set up on this deployment yet — see SUBSCRIPTIONS.md for the Supabase setup
           steps.
+        </div>
+      )}
+      {authError && (
+        <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-2xl p-4">
+          That email link is invalid or has expired. Sign in, or request a new reset link.
         </div>
       )}
 

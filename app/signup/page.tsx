@@ -31,7 +31,8 @@ export default function SignupPage() {
         email,
         password,
         options: {
-          emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/subscribe` : undefined,
+          emailRedirectTo:
+            typeof window !== 'undefined' ? `${window.location.origin}/auth/callback?next=/subscribe` : undefined,
         },
       });
       if (signUpError) {

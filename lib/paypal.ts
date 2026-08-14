@@ -1,12 +1,10 @@
 /**
  * PayPal REST integration for Tradevi Premium subscriptions ($7.99/mo).
  *
- * There is no local subscriber database — Vercel serverless functions have
- * no durable disk. PayPal itself is the source of truth: a subscription's
- * status is looked up live on every access check (see
- * app/api/paypal/status/route.ts). The webhook endpoint exists so PayPal's
- * dashboard validation succeeds and events are logged, but access control
- * never depends on anything cached locally.
+ * PayPal is the billing source of truth. After checkout, /api/subscription/link
+ * verifies the subscription live and writes a row in Supabase. The webhook
+ * (and /api/subscription/cancel) keep that row in sync so middleware can
+ * gate the app without calling PayPal on every request.
  */
 
 const PAYPAL_API_BASE =
@@ -72,6 +70,26 @@ export interface WebhookVerificationPayload {
   transmissionTime: string;
   webhookId: string;
   webhookEvent: unknown;
+}
+
+export async function cancelSubscription(subscriptionId: string, reason: string): Promise<void> {
+  const token = await getAccessToken();
+  const res = await fetch(
+    `${PAYPAL_API_BASE}/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ reason }),
+      cache: 'no-store',
+    }
+  );
+  // PayPal returns 204 No Content on success. 422 usually means already cancelled.
+  if (!res.ok && res.status !== 204 && res.status !== 422) {
+    throw new Error(`PayPal cancel failed: ${res.status}`);
+  }
 }
 
 export async function verifyWebhookSignature(payload: WebhookVerificationPayload): Promise<boolean> {

@@ -2,15 +2,15 @@
 Tradevi swing engine - Slice 1: Trend Bias Stack (Weekly / Daily / 4H)
 
 What this is:
-    The first server-side engine for the subscription futures page. It reads
-    market structure on three timeframes and returns an up / down / range bias
-    per timeframe, plus an alignment read that gates your swing suggestions.
+    Slice 1 of the subscription futures engine: Weekly / Daily / 4H structure
+    bias. Slice 2 (dealing-range levels, premium/discount, invalidation, and
+    the gated swing suggestion) lives in lib/trendBias.ts and is what the
+    /trend-bias page actually renders.
 
-    This standalone script is the local validation tool for the logic that
-    actually ships in the app as lib/trendBias.ts (a TypeScript port run from
-    app/api/trend-bias/route.ts). Use this script to sanity-check the engine
-    against TradingView; the production app does not run Python at all — it's
-    a single Next.js deployment on Vercel.
+    This standalone script is the local validation tool for Slice 1 — the
+    HH/HL vs LH/LL classify() that the TypeScript port must match. Use this
+    script to sanity-check the engine against TradingView; the production app
+    does not run Python at all — it's a single Next.js deployment on Vercel.
 
 Why it is built this way:
     - Free data only. Uses yfinance. No paid feed required.
@@ -45,6 +45,8 @@ INSTRUMENT_MAP = {
     "ES": "ES=F",
     "MYM": "YM=F",
     "YM": "YM=F",
+    "M2K": "RTY=F",
+    "RTY": "RTY=F",
     "GC": "GC=F",
 }
 

@@ -81,6 +81,9 @@ function AccountPanel() {
       <p className="text-xs text-gray-400 truncate" title={email}>
         {email}
       </p>
+      <Link href="/account" className="text-left text-xs text-gray-600 hover:text-gray-300 transition-colors">
+        Account
+      </Link>
       <button
         onClick={handleSignOut}
         className="text-left text-xs text-gray-600 hover:text-gray-300 transition-colors"

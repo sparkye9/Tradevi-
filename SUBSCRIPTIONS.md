@@ -29,14 +29,17 @@ users).
 
 - `middleware.ts` runs on every request. It's the single place access is
   decided — no page has to remember to check anything itself.
-  - `/`, `/login`, `/signup`, `/forgot-password`, `/reset-password` — open
-    to anyone.
+  - `/`, `/login`, `/signup`, `/forgot-password`, `/reset-password`,
+    `/auth/callback` — open to anyone. `/auth/callback` is the PKCE
+    exchange for emailed confirmation and reset links.
   - `/api/finviz/screener`, `/api/finviz/futures` — also open, because the
     public home page and the futures ticker in the header need them.
   - `/api/paypal/webhook` — open, but self-verifies via PayPal's signature
     check instead of a login.
-  - `/subscribe`, `/api/subscription/link`, `/api/paypal/status` — require
-    login, but not an active subscription (this is how you get one).
+  - `/subscribe`, `/account`, `/api/subscription/link`,
+    `/api/subscription/cancel`, `/api/paypal/status` — require login, but
+    not an active subscription (this is how you get one, manage it, or
+    cancel it).
   - Everything else — requires both a logged-in Supabase user **and** a row
     in the `subscriptions` table with `status = 'ACTIVE'`.
 - `supabase/schema.sql` creates that `subscriptions` table: one row per
@@ -44,6 +47,9 @@ users).
 - `/api/subscription/link` is called right after a successful PayPal
   checkout. It looks the subscription up live against PayPal (never trusts
   the browser) and writes the row.
+- `/api/subscription/cancel` lets a signed-in user cancel from `/account`
+  (PayPal cancel API, then the row is marked `CANCELLED`). Cancelling
+  directly in PayPal still works — the webhook catches that too.
 - `/api/paypal/webhook` keeps that row current after the fact — if someone
   cancels through PayPal directly, or a renewal payment fails, PayPal calls
   this endpoint and the row's status is updated, which locks them back out
@@ -68,15 +74,23 @@ from any device and the same account, same subscription, works.
    at low volume — fine for getting started. For real volume later,
    Authentication → Email Templates lets you plug in your own SMTP
    provider.
-5. Set the env vars from `.env.example`:
+5. Authentication → URL Configuration — set **Site URL** to your deployed
+   origin (e.g. `https://tradevi.vercel.app`) and add these **Redirect URLs**:
+   - `https://<your-domain>/auth/callback`
+   - `http://localhost:3000/auth/callback`
+   Signup confirmation and password-reset emails land on `/auth/callback`,
+   which exchanges the PKCE `code` for a session. Without these URLs in the
+   allow-list, the emailed links fail.
+6. Set the env vars from `.env.example`:
    ```
    NEXT_PUBLIC_SUPABASE_URL=...
    NEXT_PUBLIC_SUPABASE_ANON_KEY=...
    SUPABASE_SERVICE_ROLE_KEY=...
    ```
-6. Password reset works out of the box once these are set — `/forgot-password`
+7. Password reset works out of the box once these are set — `/forgot-password`
    sends the email (Supabase's own low-volume sender, same as the signup
-   confirmation email) and `/reset-password` is where that link lands.
+   confirmation email) and `/auth/callback?next=/reset-password` is where
+   that link lands before `/reset-password` lets the user set a new password.
 
 ### 2. PayPal Subscriptions
 
