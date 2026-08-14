@@ -117,15 +117,12 @@ from any device and the same account, same subscription, works.
    `BILLING.SUBSCRIPTION.SUSPENDED`, `BILLING.SUBSCRIPTION.UPDATED`. Copy
    the Webhook ID it gives you.
 
-5. **Set environment variables** (see `.env.example`):
-   ```
-   PAYPAL_ENV=sandbox                 # then "live" when ready
-   PAYPAL_CLIENT_ID=...
-   PAYPAL_CLIENT_SECRET=...
-   PAYPAL_WEBHOOK_ID=...
-   NEXT_PUBLIC_PAYPAL_CLIENT_ID=...   # same value as PAYPAL_CLIENT_ID
-   NEXT_PUBLIC_PAYPAL_PLAN_ID=...     # the P-... plan ID from step 3
-   ```
+5. **Set environment variables in Vercel.**
+   Fill in `premium.vercel.env`, then Vercel → Settings → Environment
+   Variables → Import. `NEXT_PUBLIC_PAYPAL_CLIENT_ID` is the same value as
+   `PAYPAL_CLIENT_ID`. `NEXT_PUBLIC_PAYPAL_PLAN_ID` is the `P-...` plan ID
+   from step 3. The webhook / auto-return / cancel URLs stay in PayPal —
+   they are not Vercel env vars. Full list is also in `.env.example`.
 
 6. **Test end to end in sandbox**: sign up for an account, get redirected
    to `/subscribe`, pay with a PayPal sandbox buyer account, confirm the
