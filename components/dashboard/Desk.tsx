@@ -11,9 +11,31 @@ import { marketClock, sessionFlow } from '@/lib/powerHour';
 import { stockQuality } from '@/lib/stockQuality';
 import { useTradeviStore } from '@/store/tradeviStore';
 import UpcomingPrints from '@/components/calendar/UpcomingPrints';
+import FuturesToggle from '@/components/dashboard/FuturesToggle';
 import { useDeskQuote } from '@/components/ui/BibleVerse';
 import type { FinvizQuote, FinvizFuture, FinvizResult } from '@/lib/finviz';
-import type { TrendBiasStackResult } from '@/lib/trendBias';
+import {
+  DESK_FUTURES,
+  DISPLAY_INSTRUMENTS,
+  type DeskInstrument,
+  type TrendBiasStackResult,
+} from '@/lib/trendBias';
+
+const TV_SYMBOL: Record<DeskInstrument, string> = Object.fromEntries(
+  DESK_FUTURES.map((row) => [row.instrument, row.tv]),
+) as Record<DeskInstrument, string>;
+
+async function fetchStack(instrument: DeskInstrument): Promise<
+  { gated: true } | { error: string } | { stack: TrendBiasStackResult }
+> {
+  const res = await fetch(`/api/trend-bias?instrument=${instrument}`);
+  const ct = res.headers.get('content-type') ?? '';
+  if (!ct.includes('application/json')) return { gated: true };
+  const json = await res.json();
+  if (res.status === 401 || res.status === 403) return { gated: true };
+  if (!res.ok) return { error: json.error ?? 'Stack unavailable' };
+  return { stack: json as TrendBiasStackResult };
+}
 
 const INDEX_TICKERS = ['SPY', 'QQQ', 'IWM', 'GLD'];
 
@@ -115,57 +137,86 @@ export default function Desk() {
     return () => clearInterval(id);
   }, []);
 
-  const [stack, setStack] = useState<TrendBiasStackResult | null>(null);
+  const [instrument, setInstrument] = useState<DeskInstrument>('MNQ');
+  const [stacks, setStacks] = useState<Partial<Record<DeskInstrument, TrendBiasStackResult>>>({});
   const [stackError, setStackError] = useState('');
   const [indexData, setIndexData] = useState<FinvizResult<FinvizQuote> | null>(null);
   const [watchlistData, setWatchlistData] = useState<FinvizResult<FinvizQuote> | null>(null);
   const [futuresData, setFuturesData] = useState<FinvizResult<FinvizFuture> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [gated, setGated] = useState(false);
+  const [loadingInstrument, setLoadingInstrument] = useState<DeskInstrument | null>('MNQ');
+  const [gated, setGated] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
-      setLoading(true);
-      const [idxRes, wlRes, futRes, stackRes] = await Promise.allSettled([
+    async function loadTape() {
+      const [idxRes, wlRes, futRes] = await Promise.allSettled([
         fetch(`/api/finviz/screener?tickers=${INDEX_TICKERS.join(',')}`).then((r) => r.json()),
         fetch(`/api/finviz/screener?tickers=${watchlist.join(',')}`).then((r) => r.json()),
         fetch('/api/finviz/futures').then((r) => r.json()),
-        fetch('/api/trend-bias?instrument=MNQ')
-          .then(async (r) => {
-            const ct = r.headers.get('content-type') ?? '';
-            if (!ct.includes('application/json')) return { gated: true };
-            const json = await r.json();
-            if (r.status === 401 || r.status === 403) return { gated: true };
-            if (!r.ok) return { error: json.error ?? 'Stack unavailable' };
-            return { stack: json as TrendBiasStackResult };
-          })
-          .catch(() => ({ gated: true })),
       ]);
       if (cancelled) return;
       if (idxRes.status === 'fulfilled') setIndexData(idxRes.value);
       if (wlRes.status === 'fulfilled') setWatchlistData(wlRes.value);
       if (futRes.status === 'fulfilled') setFuturesData(futRes.value);
-      if (stackRes.status === 'fulfilled') {
-        const value = stackRes.value as { gated?: boolean; error?: string; stack?: TrendBiasStackResult };
-        if (value.gated) {
-          setGated(true);
-          setStack(null);
-        } else if (value.stack) {
-          setGated(false);
-          setStack(value.stack);
-          setStackError('');
-        } else {
-          setStackError(value.error ?? '');
-        }
+    }
+    loadTape();
+    const id = setInterval(loadTape, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [watchlist]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSelected() {
+      setLoadingInstrument(instrument);
+      const result = await fetchStack(instrument).catch(() => ({ gated: true as const }));
+      if (cancelled) return;
+      if ('gated' in result && result.gated) {
+        setGated(true);
+        setStackError('');
+      } else if ('stack' in result) {
+        setGated(false);
+        setStacks((prev) => ({ ...prev, [instrument]: result.stack }));
+        setStackError('');
+      } else if ('error' in result) {
+        setStackError(result.error);
       }
       setLoading(false);
+      setLoadingInstrument(null);
     }
-    load();
+    loadSelected();
     return () => {
       cancelled = true;
     };
-  }, [watchlist]);
+  }, [instrument]);
+
+  useEffect(() => {
+    if (gated !== false) return;
+    let cancelled = false;
+    async function loadRest() {
+      const rest = DISPLAY_INSTRUMENTS.filter((inst) => inst !== instrument);
+      const results = await Promise.all(
+        rest.map(async (inst) => ({ inst, result: await fetchStack(inst).catch(() => ({ error: 'Fetch failed' })) })),
+      );
+      if (cancelled) return;
+      setStacks((prev) => {
+        const next = { ...prev };
+        for (const { inst, result } of results) {
+          if ('stack' in result) next[inst] = result.stack;
+        }
+        return next;
+      });
+    }
+    loadRest();
+    return () => {
+      cancelled = true;
+    };
+    // Load the other four once after the first selected stack. Re-run if the gate lifts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gated]);
 
   const quotes = indexData?.data ?? [];
   const aboveSma20 = quotes.filter((q) => q.sma20rel === 'above').length;
@@ -184,15 +235,24 @@ export default function Desk() {
     .sort((a, b) => b.quality.score - a.quality.score)
     .slice(0, 4);
 
-  const nq = (futuresData?.data ?? []).find((f) => f.symbol === 'NQ');
+  const stack = stacks[instrument] ?? null;
+  const tape = (futuresData?.data ?? []).find(
+    (f) => f.symbol === DESK_FUTURES.find((row) => row.instrument === instrument)?.tape,
+  );
   const vix = (futuresData?.data ?? []).find((f) => f.symbol === 'VIX');
   const action: Action = stack ? actionFromStack(stack) : 'WAIT';
-  const heroBias = stack ? biasWord(stack) : nq?.direction === 'up' ? 'BULLISH' : nq?.direction === 'down' ? 'BEARISH' : 'MIXED';
+  const heroBias = stack
+    ? biasWord(stack)
+    : tape?.direction === 'up'
+    ? 'BULLISH'
+    : tape?.direction === 'down'
+    ? 'BEARISH'
+    : 'MIXED';
   const heroWhy = stack
     ? stack.quality.headline
     : gated
-    ? 'Sign in for the MNQ stack. This page will not guess a look from delayed tape.'
-    : stackError || 'Waiting on the MNQ stack.';
+    ? `Sign in for the ${instrument} stack. This page will not guess a look from delayed tape.`
+    : stackError || `Waiting on the ${instrument} stack.`;
 
   const actionWrap =
     action === 'LOOK'
@@ -234,7 +294,7 @@ export default function Desk() {
           <>
             <div className="text-[10px] uppercase tracking-[0.18em] text-tv-purple mb-2">Market brief</div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-white leading-tight">
-              MNQ: {heroBias}
+              {instrument}: {heroBias}
               <span className="text-gray-500">, </span>
               <span className={actionColor}>
                 {action === 'LOOK' ? 'LOOK' : action === 'WAIT' ? waitPhrase : 'NO TRADE'}
@@ -253,6 +313,19 @@ export default function Desk() {
           <span className="pill border-tv-purple/30 text-tv-purple bg-tv-purple/10">{session.session}</span>
           <span className="pill border-tv-border text-tv-muted">Delayed Yahoo</span>
         </div>
+        <div className="mt-4">
+          <div className="label mb-2">Futures</div>
+          <FuturesToggle
+            selected={instrument}
+            onSelect={setInstrument}
+            futures={futuresData?.data ?? []}
+            stacks={stacks}
+            loadingInstrument={loadingInstrument}
+          />
+          <p className="text-[11px] text-tv-muted mt-2">
+            Tape refreshes about every minute. Toggle a micro to load its HH/HL stack. Delayed — not a live last-sale.
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.9fr)] gap-4">
@@ -269,12 +342,12 @@ export default function Desk() {
                   {stack
                     ? stack.suggestion.headline
                     : gated
-                    ? 'The stack is behind the login. Futures is where the invalidation lives.'
+                    ? `The stack is behind the login. Futures is where the invalidation lives.`
                     : 'No stack read yet — do not invent a look.'}
                 </p>
                 <div className="mt-4">
                   {stack ? (
-                    <TradingViewButton symbol="MNQ1!" label="Confirm MNQ on TradingView" />
+                    <TradingViewButton symbol={TV_SYMBOL[instrument]} label={`Confirm ${instrument} on TradingView`} />
                   ) : (
                     <Link
                       href={gated ? '/login' : '/futures'}
@@ -294,8 +367,8 @@ export default function Desk() {
           <div className="card overflow-hidden p-0">
             <div className="flex items-center justify-between px-4 py-3">
               <span className="label">Today&apos;s board</span>
-              <Link href="/stocks" className="text-[11px] text-tv-purple hover:text-white">
-                Stocks →
+              <Link href="/futures" className="text-[11px] text-tv-purple hover:text-white">
+                Futures →
               </Link>
             </div>
             {watchlistData?.sourceError ? (
@@ -320,19 +393,69 @@ export default function Desk() {
                     </tr>
                   </thead>
                   <tbody>
-                    {stack && (
-                      <tr className="border-b border-tv-border/80">
-                        <td className="py-2.5 px-4 font-mono font-bold text-white">MNQ</td>
-                        <td className="py-2.5 px-3">
-                          <span className={`pill ${actionWrap} ${actionColor}`}>{action}</span>
-                        </td>
-                        <td className="py-2.5 px-3 font-mono text-tv-muted">{stack.quality.score}/100</td>
-                        <td className={`py-2.5 px-3 font-semibold ${preferredColor}`}>{preferred}</td>
-                        <td className="py-2.5 px-4 font-mono text-xs text-gray-300">
-                          Inv {fmtLevel(stack.levels.Daily.invalidation)}
-                        </td>
-                      </tr>
-                    )}
+                    {DESK_FUTURES.map((row) => {
+                      const rowStack = stacks[row.instrument];
+                      const rowTape = (futuresData?.data ?? []).find((f) => f.symbol === row.tape);
+                      const rowAction: Action = rowStack ? actionFromStack(rowStack) : 'WAIT';
+                      const rowSide = !rowStack
+                        ? '—'
+                        : rowStack.suggestion.action === 'LOOK_LONG'
+                        ? 'LONG'
+                        : rowStack.suggestion.action === 'LOOK_SHORT'
+                        ? 'SHORT'
+                        : 'STAND DOWN';
+                      const selected = row.instrument === instrument;
+                      return (
+                        <tr
+                          key={row.instrument}
+                          className={`border-b border-tv-border/80 cursor-pointer ${selected ? 'bg-tv-purple/10' : 'hover:bg-white/[0.03]'}`}
+                          onClick={() => setInstrument(row.instrument)}
+                        >
+                          <td className="py-2.5 px-4 font-mono font-bold text-white">
+                            {row.instrument}
+                            <span className="text-[10px] text-tv-muted ml-2 font-sans font-normal">{row.name}</span>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            {rowStack ? (
+                              <span
+                                className={`pill ${
+                                  rowAction === 'LOOK'
+                                    ? 'border-tv-green/30 text-tv-green bg-tv-green/10'
+                                    : rowAction === 'WAIT'
+                                    ? 'border-tv-amber/30 text-tv-amber bg-tv-amber/10'
+                                    : 'border-tv-border text-tv-muted'
+                                }`}
+                              >
+                                {rowAction}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-tv-muted font-mono">
+                                {rowTape?.changePercent != null
+                                  ? `${rowTape.changePercent >= 0 ? '+' : ''}${rowTape.changePercent.toFixed(2)}%`
+                                  : '—'}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-tv-muted">
+                            {rowStack ? `${rowStack.quality.score}/100` : '—'}
+                          </td>
+                          <td
+                            className={`py-2.5 px-3 font-semibold ${
+                              rowSide === 'LONG' ? 'text-tv-green' : rowSide === 'SHORT' ? 'text-tv-red' : 'text-tv-muted'
+                            }`}
+                          >
+                            {rowSide}
+                          </td>
+                          <td className="py-2.5 px-4 font-mono text-xs text-gray-300">
+                            {rowStack
+                              ? `Inv ${fmtLevel(rowStack.levels.Daily.invalidation)}`
+                              : rowTape?.price != null
+                              ? rowTape.price.toLocaleString()
+                              : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {looks.map(({ q, quality }) => (
                       <tr key={q.symbol} className="border-b border-tv-border/80 last:border-0">
                         <td className="py-2.5 px-4 font-mono font-bold text-white">{q.symbol}</td>
@@ -348,13 +471,6 @@ export default function Desk() {
                         </td>
                       </tr>
                     ))}
-                    {!stack && looks.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="py-6 px-4 text-sm text-tv-muted">
-                          NO TRADE — nothing on this watchlist cleared volume plus a side, and the MNQ stack is not a look.
-                        </td>
-                      </tr>
-                    )}
                   </tbody>
                 </table>
               </div>
@@ -420,7 +536,7 @@ export default function Desk() {
                 <div className="flex items-center gap-4">
                   <QualityRing score={stack.quality.score} label={stack.quality.label} />
                   <div>
-                    <div className="text-xs text-tv-muted">MNQ setup</div>
+                    <div className="text-xs text-tv-muted">{instrument} setup</div>
                     <div className={`text-lg font-bold ${preferredColor}`}>{preferred === 'STAND DOWN' ? 'NO LOOK' : `${preferred} SETUP`}</div>
                     <div className="text-[11px] text-tv-muted mt-1">{stack.quality.label.replace('_', ' ')} · {stack.quality.score}/100</div>
                   </div>
@@ -451,14 +567,14 @@ export default function Desk() {
               </>
             ) : (
               <p className="text-sm text-tv-muted">
-                {gated ? 'Sign in to load the MNQ stack.' : 'Intelligence needs the stack. It will not invent a setup.'}
+                {gated ? `Sign in to load the ${instrument} stack.` : 'Intelligence needs the stack. It will not invent a setup.'}
               </p>
             )}
           </div>
 
           <div className="card space-y-3">
             <div className="flex items-center justify-between">
-              <span className="label">Quick game plan · MNQ</span>
+              <span className="label">Quick game plan · {instrument}</span>
               <Link href="/futures" className="text-[11px] text-tv-purple hover:text-white">
                 Full stack →
               </Link>
@@ -491,7 +607,7 @@ export default function Desk() {
               </div>
             ) : (
               <p className="text-sm text-tv-muted">
-                {gated ? 'Sign in to load invalidation and the playbook.' : 'Game plan needs the MNQ stack.'}
+                {gated ? 'Sign in to load invalidation and the playbook.' : `Game plan needs the ${instrument} stack.`}
               </p>
             )}
           </div>
