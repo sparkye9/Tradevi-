@@ -4,6 +4,7 @@ import Sidebar from '@/components/layout/Sidebar';
 import FuturesBar from '@/components/ui/FuturesBar';
 import BibleVerse from '@/components/ui/BibleVerse';
 import { DisclaimerBanner } from '@/components/ui/DisclaimerBanner';
+import ChatFab from '@/components/ui/ChatFab';
 
 export const metadata: Metadata = {
   title: 'Tradevi 3.0',
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </div>
         {/* Bottom nav — shown on mobile only */}
         <Sidebar mobile />
+        <ChatFab />
       </body>
     </html>
   );

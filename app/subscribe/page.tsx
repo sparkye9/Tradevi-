@@ -60,6 +60,12 @@ export default async function SubscribePage() {
       ) : (
         <SubscribeButton />
       )}
+
+      <p className="text-sm text-gray-500">
+        <Link href="/chat" className="text-emerald-400 underline">
+          Chat with us
+        </Link>
+      </p>
     </div>
   );
 }

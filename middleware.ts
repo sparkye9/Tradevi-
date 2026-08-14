@@ -13,13 +13,14 @@ const PUBLIC_PATHS = new Set([
   '/forgot-password',
   '/reset-password',
   '/auth/callback',
+  '/chat',
 ]);
 
 // The home page (and the futures ticker shown in the header on every page)
 // depend on these two data endpoints, so they stay reachable by anonymous
 // visitors. The PayPal webhook is unauthenticated by design — it verifies
 // its own signature instead.
-const PUBLIC_API_PREFIXES = ['/api/finviz/screener', '/api/finviz/futures', '/api/paypal/webhook'];
+const PUBLIC_API_PREFIXES = ['/api/finviz/screener', '/api/finviz/futures', '/api/paypal/webhook', '/api/chat'];
 
 // Requires login, but not an active subscription — this is how you get one.
 const LOGIN_ONLY_PATHS = new Set([

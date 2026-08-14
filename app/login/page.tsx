@@ -111,6 +111,11 @@ function LoginForm() {
           Sign up
         </Link>
       </p>
+      <p className="text-sm text-gray-500 text-center">
+        <Link href="/chat" className="text-emerald-400 underline">
+          Chat with us
+        </Link>
+      </p>
     </div>
   );
 }

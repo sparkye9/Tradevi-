@@ -67,6 +67,9 @@ function AccountPanel() {
         >
           Sign up
         </Link>
+        <Link href="/chat" className="text-center text-xs text-gray-600 hover:text-gray-300 transition-colors">
+          Chat with us
+        </Link>
       </div>
     );
   }
@@ -78,6 +81,9 @@ function AccountPanel() {
       </p>
       <Link href="/account" className="text-left text-xs text-gray-600 hover:text-gray-300 transition-colors">
         Account
+      </Link>
+      <Link href="/chat" className="text-left text-xs text-gray-600 hover:text-gray-300 transition-colors">
+        Chat with us
       </Link>
       <button
         onClick={handleSignOut}
