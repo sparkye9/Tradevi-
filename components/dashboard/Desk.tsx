@@ -10,6 +10,7 @@ import { journalEdge } from '@/lib/journal';
 import { marketClock } from '@/lib/powerHour';
 import { stockQuality, type StockQuality } from '@/lib/stockQuality';
 import { useTradeviStore } from '@/store/tradeviStore';
+import UpcomingPrints from '@/components/calendar/UpcomingPrints';
 import type { FinvizQuote, FinvizFuture, FinvizResult } from '@/lib/finviz';
 import type { TrendBiasStackResult } from '@/lib/trendBias';
 
@@ -285,6 +286,8 @@ export default function Desk() {
               </p>
             )}
           </div>
+
+          <UpcomingPrints />
 
           <div className="card space-y-3">
             <div className="flex items-center justify-between">
