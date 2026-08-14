@@ -24,19 +24,22 @@ const VERSES = [
   { text: 'Now unto him that is able to do exceeding abundantly above all that we ask or think, according to the power that worketh in us.', ref: 'Ephesians 3:20' },
 ];
 
-export default function BibleVerse() {
+export function useDeskQuote() {
   const [verse, setVerse] = useState<{ text: string; ref: string } | null>(null);
-
   useEffect(() => {
     setVerse(VERSES[Math.floor(Math.random() * VERSES.length)]);
   }, []);
+  return verse;
+}
 
+export default function BibleVerse() {
+  const verse = useDeskQuote();
   if (!verse) return null;
 
   return (
-    <footer className="bg-[#0a0a0a] border-t border-[#1a1a1a] px-6 py-4">
-      <p className="text-xs italic text-gray-600 text-center leading-relaxed max-w-3xl mx-auto">
-        &ldquo;{verse.text}&rdquo; <span className="not-italic text-gray-700">— {verse.ref}</span>
+    <footer className="bg-[#080A10] border-t border-tv-border px-6 py-4">
+      <p className="text-xs italic text-tv-muted text-center leading-relaxed max-w-3xl mx-auto">
+        &ldquo;{verse.text}&rdquo; <span className="not-italic text-gray-600">— {verse.ref}</span>
       </p>
     </footer>
   );

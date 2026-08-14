@@ -65,41 +65,39 @@ export default function FuturesBar() {
   }, []);
 
   const dotColor = clock.powerHour
-    ? 'bg-amber-400'
+    ? 'bg-tv-amber'
     : clock.tradesOpen
-    ? 'bg-emerald-400'
-    : 'bg-red-400/60';
+    ? 'bg-tv-green'
+    : 'bg-tv-red/60';
 
   const sessionColor = clock.powerHour
-    ? 'text-amber-300'
+    ? 'text-tv-amber'
     : clock.tradesOpen
-    ? 'text-emerald-400'
-    : 'text-gray-500';
+    ? 'text-tv-green'
+    : 'text-tv-muted';
 
   return (
     <div
-      className="w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 border-b border-[#1a1a1a] overflow-x-auto scrollbar-none"
-      style={{ background: '#090909', minHeight: 38 }}
+      className="w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 border-b border-tv-border overflow-x-auto scrollbar-none"
+      style={{ background: '#080A10', minHeight: 38 }}
     >
-      {/* Session + ET time */}
       <div className="flex items-center gap-1.5 shrink-0">
         <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
         <span className={`text-[10px] font-bold tracking-widest whitespace-nowrap ${sessionColor}`}>
           {clock.shortLabel}
         </span>
-        <span className="text-gray-600 font-mono text-xs whitespace-nowrap">{etTime} ET</span>
+        <span className="text-tv-muted font-mono text-xs whitespace-nowrap">{etTime} ET</span>
+        <span className="pill border-tv-border text-tv-muted">Delayed</span>
       </div>
 
-      <span className="text-[#222] text-xs shrink-0">|</span>
+      <span className="text-tv-border text-xs shrink-0">|</span>
 
-      {/* Futures chips */}
       {futures.map((f) => {
         const isUp = f.direction === 'up';
         const isDown = f.direction === 'down';
-        // VIX: rising is bearish (red), falling is bullish (green)
         const chgColor = f.symbol === 'VIX'
-          ? (isUp ? 'text-red-400' : isDown ? 'text-emerald-400' : 'text-gray-500')
-          : (isUp ? 'text-emerald-400' : isDown ? 'text-red-400' : 'text-gray-500');
+          ? (isUp ? 'text-tv-red' : isDown ? 'text-tv-green' : 'text-tv-muted')
+          : (isUp ? 'text-tv-green' : isDown ? 'text-tv-red' : 'text-tv-muted');
         const chgArrow = isUp ? '▲' : isDown ? '▼' : '';
         const isPlaceholder = !loaded || f.price === null;
         const label = f.symbol === 'GC' ? 'Gold' : f.symbol;
@@ -108,7 +106,7 @@ export default function FuturesBar() {
             key={f.symbol}
             className="flex items-center gap-1.5 whitespace-nowrap shrink-0"
           >
-            <span className="text-gray-500 font-mono text-xs">{label}</span>
+            <span className="text-tv-muted font-mono text-xs">{label}</span>
             {!isPlaceholder ? (
               <>
                 <span className="text-white font-mono text-xs">{f.price!.toLocaleString()}</span>
@@ -123,9 +121,8 @@ export default function FuturesBar() {
         );
       })}
 
-      {/* Right side branding */}
       <div className="ml-auto flex items-center shrink-0">
-        <span className="text-[10px] text-gray-700 font-bold tracking-widest">TRADEVI</span>
+        <span className="text-[10px] text-tv-purple/70 font-bold tracking-widest">TRADEVI</span>
       </div>
     </div>
   );

@@ -247,3 +247,13 @@ export function marketClock(now = new Date()): MarketClock {
 }
 
 export const powerHourClock = marketClock;
+
+export type FlowVenue = Venue | 'Power Hour';
+
+export function sessionFlow(clock: MarketClock): { venue: FlowVenue; hours: string; active: boolean }[] {
+  return SESSION_HOURS.map((row) => ({
+    venue: row.venue,
+    hours: row.hours,
+    active: row.venue === 'Power Hour' ? clock.powerHour : clock.venues.includes(row.venue as Venue),
+  }));
+}

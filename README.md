@@ -12,7 +12,7 @@ Five desks plus a calendar, behind sign-in and a $7.99/month PayPal pass (owner 
 
 | Desk | What you get |
 |------|----------------|
-| **Dashboard** | One WAIT / LOOK / NO TRADE read, MNQ game plan, journal edge, next high-impact prints |
+| **Dashboard** | Navy/purple desk: WAIT / LOOK / NO TRADE, MNQ game plan, journal edge, next high-impact prints |
 | **Futures** | Trend Bias Stack (HH/HL structure on micros — not moving averages) |
 | **Stocks** | Volume + SMA tape with a hard NO TRADE. Sub-desks: Discovery, Swing, Intraday, Options, Small Account |
 | **Power Hour** | Globex clock (Asia / London / New York) plus 3:00–4:00 PM ET cash Power Hour |
