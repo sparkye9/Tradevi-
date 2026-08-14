@@ -5,6 +5,13 @@
 import { holidayOn, isCmeClosed, isUsCashHoliday } from '../lib/marketHolidays';
 import { marketClock } from '../lib/powerHour';
 import { stockQuality, smaTrendAligned, intradayTape } from '../lib/stockQuality';
+import {
+  parseFfEvent,
+  parseFfCalendar,
+  eventPrinted,
+  upcomingHighImpact,
+  groupByEtDay,
+} from '../lib/economicCalendar';
 import type { FinvizQuote } from '../lib/finviz';
 
 let failed = 0;
@@ -114,6 +121,30 @@ const mixed = stockQuality(
   1.5,
 );
 check('volume without a side is NO TRADE', mixed.label === 'NO_TRADE');
+
+const cpi = parseFfEvent({
+  title: 'CPI y/y',
+  country: 'USD',
+  date: '2026-08-12T08:30:00-04:00',
+  impact: 'High',
+  forecast: '3.4%',
+  previous: '3.5%',
+});
+check('parses a Forex Factory CPI row', Boolean(cpi && cpi.country === 'USD' && cpi.impact === 'High' && cpi.forecast === '3.4%'));
+check('drops a row with no title', parseFfEvent({ country: 'USD', date: '2026-08-12T08:30:00-04:00' }) === null);
+check('drops a garbage payload', parseFfCalendar({ events: [] }).length === 0);
+
+const week = parseFfCalendar([
+  { title: 'CPI y/y', country: 'USD', date: '2026-08-12T08:30:00-04:00', impact: 'High', forecast: '3.4%', previous: '3.5%' },
+  { title: 'Retail Sales', country: 'USD', date: '2026-08-14T08:30:00-04:00', impact: 'Medium', forecast: '', previous: '' },
+  { title: 'Cash Rate', country: 'AUD', date: '2026-08-11T00:30:00-04:00', impact: 'High', forecast: '4.35%', previous: '4.35%' },
+]);
+check('keeps three valid events', week.length === 3);
+check('CPI is printed after the scheduled time', eventPrinted(week[1].at, new Date('2026-08-12T13:00:00.000Z')));
+check('groups by ET day', groupByEtDay(week).length === 3);
+
+const upcoming = upcomingHighImpact(week, new Date('2026-08-10T12:00:00.000Z'), 5);
+check('upcoming high-impact keeps AUD then USD', upcoming.length === 2 && upcoming[0].country === 'AUD' && upcoming[1].title === 'CPI y/y');
 
 if (failed) {
   console.error(`\n${failed} check(s) failed`);

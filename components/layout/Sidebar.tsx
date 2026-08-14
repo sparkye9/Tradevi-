@@ -7,6 +7,7 @@ import {
   CandlestickChart,
   LineChart,
   Timer,
+  CalendarDays,
   NotebookPen,
   type LucideIcon,
 } from 'lucide-react';
@@ -17,6 +18,7 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/futures', label: 'Futures', icon: CandlestickChart },
   { href: '/stocks', label: 'Stocks', icon: LineChart },
   { href: '/power-hour', label: 'Power Hour', icon: Timer },
+  { href: '/calendar', label: 'Calendar', icon: CalendarDays },
   { href: '/journal', label: 'Journal', icon: NotebookPen },
 ];
 
