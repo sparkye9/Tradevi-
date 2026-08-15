@@ -12,7 +12,7 @@ const YF_INTERVAL_MAP: Record<string, string> = {
 };
 
 const PERIOD_TO_DAYS: Record<string, number> = {
-  '1d': 1, '5d': 5, '1mo': 30, '3mo': 90,
+  '1d': 1, '5d': 5, '10d': 10, '1mo': 30, '3mo': 90,
   '6mo': 180, '1y': 365, '2y': 730, '5y': 1825,
 };
 

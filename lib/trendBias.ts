@@ -12,6 +12,12 @@
  *          swing suggestion that is gated by the stack alignment.
  */
 import { fetchYahooCandles, type YFCandle } from './yahooChart';
+import {
+  type IntradaySetupResult,
+  type TradeSetup,
+  intradaySetupFromLevels,
+  swingSetupFromDaily,
+} from './futuresSetups';
 
 // Instrument -> free data symbol. MNQ reads NQ=F (same underlying index,
 // 1/10 size), MES reads ES=F, MYM reads YM=F, M2K reads RTY=F.
@@ -103,6 +109,8 @@ export interface TrendBiasStackResult {
   alignment: string;
   suggestion: SwingSuggestion;
   quality: SetupQuality;
+  swingSetup: TradeSetup;
+  intraday: IntradaySetupResult | null;
   asOf: string;
 }
 
@@ -162,7 +170,7 @@ function swingPoints(candles: YFCandle[], k: number): { highs: SwingPoint[]; low
 }
 
 /** Classify the last confirmed structure as up, down, or range. */
-function classify(candles: YFCandle[], k = SWING_STRICTNESS): TrendRead {
+export function classify(candles: YFCandle[], k = SWING_STRICTNESS): TrendRead {
   const { highs, lows } = swingPoints(candles, k);
   if (highs.length < 2 || lows.length < 2) {
     return { bias: 'range', reason: 'not enough confirmed swings' };
@@ -356,8 +364,9 @@ export function swingSuggestion(
 
 const HONEST_GAPS = [
   'FVG, BOS, and CHOCH are not computed here — confirm those on TradingView.',
+  'Entry / stop / TP1 / TP2 are swing high, equilibrium, and swing low — not VWAP or a percent guess.',
   'No historical analog matching. This is not a backtested twin of prior sessions.',
-  'Yahoo data is delayed. Last price is not a live feed.',
+  'Yahoo data is delayed. Last price is not a live feed. Intraday map uses 15-minute bars and refreshes every 10 minutes.',
 ];
 
 /**
@@ -462,14 +471,19 @@ export async function trendBiasStack(instrument: string): Promise<TrendBiasStack
     );
   }
 
-  const [weekly, daily, hourly] = await Promise.all([
+  const [weekly, daily, hourly, fifteen] = await Promise.all([
     fetchYahooCandles(symbol, '2y', '1wk'),
     fetchYahooCandles(symbol, '1y', '1d'),
     fetchYahooCandles(symbol, '3mo', '1h'),
+    fetchYahooCandles(symbol, '10d', '15m').catch(() => null),
   ]);
 
   const fourH = resample4h(hourly.candles);
-  const lastPrice = lastClose(daily.candles) ?? lastClose(fourH) ?? lastClose(hourly.candles);
+  const lastPrice =
+    (fifteen ? lastClose(fifteen.candles) : null) ??
+    lastClose(daily.candles) ??
+    lastClose(fourH) ??
+    lastClose(hourly.candles);
 
   const reads: Record<Timeframe, TrendRead> = {
     Weekly: classify(weekly.candles),
@@ -484,6 +498,23 @@ export async function trendBiasStack(instrument: string): Promise<TrendBiasStack
   };
 
   const suggestion = swingSuggestion(instrument.toUpperCase(), reads, levels.Daily, levels['4H'], lastPrice);
+  const swingSetup = swingSetupFromDaily(suggestion.action, levels.Daily, lastPrice);
+
+  let intraday: IntradaySetupResult | null = null;
+  if (fifteen && fifteen.candles.length > 0) {
+    const intraLast = lastClose(fifteen.candles);
+    const read = classify(fifteen.candles);
+    const intraLevels = structureLevels(fifteen.candles, read.bias, intraLast);
+    intraday = {
+      timeframe: '15m',
+      lastPrice: intraLast,
+      read,
+      levels: intraLevels,
+      setup: intradaySetupFromLevels(read, intraLevels, intraLast),
+      asOf: new Date().toISOString(),
+      refreshMinutes: 10,
+    };
+  }
 
   return {
     instrument: instrument.toUpperCase(),
@@ -494,6 +525,8 @@ export async function trendBiasStack(instrument: string): Promise<TrendBiasStack
     alignment: alignment(reads),
     suggestion,
     quality: setupQuality(suggestion, reads, levels.Daily),
+    swingSetup,
+    intraday,
     asOf: new Date().toISOString(),
   };
 }
