@@ -13,6 +13,7 @@ import {
   groupByEtDay,
 } from '../lib/economicCalendar';
 import type { FinvizQuote } from '../lib/finviz';
+import { dealingRangeSetup, intradayAction } from '../lib/futuresSetups';
 
 let failed = 0;
 
@@ -145,6 +146,54 @@ check('groups by ET day', groupByEtDay(week).length === 3);
 
 const upcoming = upcomingHighImpact(week, new Date('2026-08-10T12:00:00.000Z'), 5);
 check('upcoming high-impact keeps AUD then USD', upcoming.length === 2 && upcoming[0].country === 'AUD' && upcoming[1].title === 'CPI y/y');
+
+const longLook = dealingRangeSetup({
+  action: 'LOOK_LONG',
+  lastPrice: 90,
+  high: 120,
+  low: 80,
+  equilibrium: 100,
+  invalidation: 80,
+  zone: 'discount',
+});
+check('discount long entry is last price', longLook.status === 'look' && longLook.entry === 90 && longLook.stop === 80);
+check('discount long TP1 is EQ and TP2 is high', longLook.tp1 === 100 && longLook.tp2 === 120);
+
+const longWait = dealingRangeSetup({
+  action: 'LOOK_LONG',
+  lastPrice: 110,
+  high: 120,
+  low: 80,
+  equilibrium: 100,
+  invalidation: 80,
+  zone: 'premium',
+});
+check('premium long waits at EQ', longWait.status === 'wait' && longWait.entry === 100 && longWait.tp1 === 120 && longWait.tp2 === 160);
+
+const shortLook = dealingRangeSetup({
+  action: 'LOOK_SHORT',
+  lastPrice: 110,
+  high: 120,
+  low: 80,
+  equilibrium: 100,
+  invalidation: 120,
+  zone: 'premium',
+});
+check('premium short entry is last price', shortLook.status === 'look' && shortLook.entry === 110 && shortLook.stop === 120);
+check('premium short TP1 is EQ and TP2 is low', shortLook.tp1 === 100 && shortLook.tp2 === 80);
+
+const none = dealingRangeSetup({
+  action: 'STAND_DOWN',
+  lastPrice: 100,
+  high: 120,
+  low: 80,
+  equilibrium: 100,
+  invalidation: null,
+  zone: 'equilibrium',
+});
+check('stand down has no levels', none.status === 'none' && none.entry === null && none.tp1 === null);
+check('15m up is look long', intradayAction({ bias: 'up', reason: 'hh/hl' }) === 'LOOK_LONG');
+check('15m range is stand down', intradayAction({ bias: 'range', reason: 'mixed' }) === 'STAND_DOWN');
 
 if (failed) {
   console.error(`\n${failed} check(s) failed`);

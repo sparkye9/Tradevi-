@@ -170,8 +170,8 @@ export default function Desk() {
 
   useEffect(() => {
     let cancelled = false;
-    async function loadSelected() {
-      setLoadingInstrument(instrument);
+    async function loadSelected(isRefresh = false) {
+      if (!isRefresh) setLoadingInstrument(instrument);
       const result = await fetchStack(instrument).catch(() => ({ gated: true as const }));
       if (cancelled) return;
       if ('gated' in result && result.gated) {
@@ -187,9 +187,11 @@ export default function Desk() {
       setLoading(false);
       setLoadingInstrument(null);
     }
-    loadSelected();
+    loadSelected(false);
+    const id = setInterval(() => loadSelected(true), 10 * 60 * 1000);
     return () => {
       cancelled = true;
+      clearInterval(id);
     };
   }, [instrument]);
 
@@ -599,6 +601,26 @@ export default function Desk() {
                   <span className="text-tv-muted">Invalidation</span>
                   <span className="text-tv-red">{fmtLevel(stack.levels.Daily.invalidation)}</span>
                 </div>
+                {stack.swingSetup && (
+                  <>
+                    <div className="flex justify-between font-mono">
+                      <span className="text-tv-muted">Entry</span>
+                      <span className="text-white">{fmtLevel(stack.swingSetup.entry)}</span>
+                    </div>
+                    <div className="flex justify-between font-mono">
+                      <span className="text-tv-muted">Stop</span>
+                      <span className="text-tv-red">{fmtLevel(stack.swingSetup.stop)}</span>
+                    </div>
+                    <div className="flex justify-between font-mono">
+                      <span className="text-tv-muted">TP1</span>
+                      <span className="text-tv-green">{fmtLevel(stack.swingSetup.tp1)}</span>
+                    </div>
+                    <div className="flex justify-between font-mono">
+                      <span className="text-tv-muted">TP2</span>
+                      <span className="text-tv-green">{fmtLevel(stack.swingSetup.tp2)}</span>
+                    </div>
+                  </>
+                )}
                 {stack.suggestion.playbook[0] && (
                   <p className="text-xs text-tv-muted pt-2 border-t border-tv-border leading-relaxed">
                     {stack.suggestion.playbook[0]}
