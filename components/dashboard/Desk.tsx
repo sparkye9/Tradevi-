@@ -4,6 +4,7 @@ import Link from 'next/link';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
+import TradingViewAlerts from '@/components/dashboard/TradingViewAlerts';
 import VerdictBadge from '@/components/stocks/VerdictBadge';
 import { useAccountJournal } from '@/hooks/useAccountJournal';
 import { journalEdge } from '@/lib/journal';
@@ -339,6 +340,8 @@ export default function Desk() {
               </>
             )}
           </div>
+
+          <TradingViewAlerts />
         </div>
       </div>
 

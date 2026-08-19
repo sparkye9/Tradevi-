@@ -5,7 +5,7 @@
 import type { FinvizQuote, FinvizResult } from '@/lib/finviz';
 
 const cache = new Map<string, { data: unknown; ts: number }>();
-const TTL = 60_000;
+const TTL = 15_000;
 
 function getCached<T>(key: string): T | null {
   const entry = cache.get(key);
