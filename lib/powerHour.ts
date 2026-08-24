@@ -1,8 +1,11 @@
+import { holidayOn } from './marketHolidays';
+
 export type Venue = 'Asia' | 'London' | 'New York';
 
 export type SessionName =
   | 'Weekend'
   | 'Maintenance'
+  | 'Holiday'
   | 'Asia'
   | 'Asia / London'
   | 'London'
@@ -16,6 +19,9 @@ export interface MarketClock {
   shortLabel: string;
   tradesOpen: boolean;
   powerHour: boolean;
+  /** US cash session 9:30 AM–4:00 PM ET on a non-holiday weekday. */
+  cashOpen: boolean;
+  holidayName: string | null;
   clock: string;
   headline: string;
 }
@@ -36,6 +42,8 @@ const NY_START = 8 * 60; // 8:00 AM
 const NY_END = 17 * 60; // 5:00 PM
 const POWER_START = 15 * 60; // 3:00 PM
 const POWER_END = 16 * 60; // 4:00 PM
+const CASH_START = 9 * 60 + 30; // 9:30 AM
+const CASH_END = 16 * 60; // 4:00 PM
 const HALT_START = 17 * 60; // 5:00 PM
 const HALT_END = 18 * 60; // 6:00 PM
 const GLOBEX_SUNDAY_OPEN = 18 * 60; // Sunday 6:00 PM
@@ -45,6 +53,9 @@ function etParts(now: Date) {
   const fmt = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
     weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
     hour: 'numeric',
     minute: 'numeric',
     hourCycle: 'h23',
@@ -54,7 +65,12 @@ function etParts(now: Date) {
     weekday: parts.weekday ?? '',
     hour: Number(parts.hour),
     minute: Number(parts.minute),
+    ymd: `${parts.year}-${parts.month}-${parts.day}`,
   };
+}
+
+export function etYmd(now = new Date()): string {
+  return etParts(now).ymd;
 }
 
 function etClock(now: Date): string {
@@ -105,6 +121,8 @@ function shortLabel(session: SessionName): string {
       return 'WEEKEND';
     case 'Maintenance':
       return 'HALT';
+    case 'Holiday':
+      return 'HOLIDAY';
     case 'Asia':
       return 'ASIA';
     case 'Asia / London':
@@ -126,6 +144,8 @@ function headlineFor(session: SessionName): string {
       return 'Weekend — Globex closed until Sunday 6:00 PM ET.';
     case 'Maintenance':
       return 'Daily halt — Globex paused 5:00–6:00 PM ET.';
+    case 'Holiday':
+      return 'Exchange holiday — CME equity-index futures closed.';
     case 'Asia':
       return 'Asia session — Globex open.';
     case 'Asia / London':
@@ -141,39 +161,63 @@ function headlineFor(session: SessionName): string {
   }
 }
 
+function closedClock(
+  now: Date,
+  session: Extract<SessionName, 'Weekend' | 'Maintenance' | 'Holiday'>,
+  holidayName: string | null,
+  headline?: string,
+): MarketClock {
+  return {
+    session,
+    venues: [],
+    shortLabel: shortLabel(session),
+    tradesOpen: false,
+    powerHour: false,
+    cashOpen: false,
+    holidayName,
+    clock: etClock(now),
+    headline: headline ?? headlineFor(session),
+  };
+}
+
 /**
  * CME Globex equity-index hours in America/New_York:
  * Sunday 6:00 PM through Friday 5:00 PM, ~23 hours a day,
  * with a daily maintenance halt 5:00–6:00 PM ET (Mon–Thu).
- * Sessions: Asia, London, New York. Power Hour is 3:00–4:00 PM ET.
+ * Sessions: Asia, London, New York. Power Hour is 3:00–4:00 PM ET
+ * on a US cash session day. Holiday dates are observed NYSE/CME
+ * calendar days, not a live exchange feed.
  */
 export function marketClock(now = new Date()): MarketClock {
-  const { weekday, hour, minute } = etParts(now);
+  const { weekday, hour, minute, ymd } = etParts(now);
   const clock = etClock(now);
   const mins = hour * 60 + minute;
+  const holiday = holidayOn(ymd);
+  const cashHoliday = Boolean(holiday);
+  const weekdayCash = weekday !== 'Sat' && weekday !== 'Sun';
+
+  if (holiday?.kind === 'cme_closed') {
+    return closedClock(
+      now,
+      'Holiday',
+      holiday.name,
+      `${holiday.name} — CME equity-index futures closed. Observed calendar date, not a live exchange feed.`,
+    );
+  }
 
   if (globexClosed(weekday, mins)) {
-    return {
-      session: 'Weekend',
-      venues: [],
-      shortLabel: 'WEEKEND',
-      tradesOpen: false,
-      powerHour: false,
-      clock,
-      headline: headlineFor('Weekend'),
-    };
+    return closedClock(now, 'Weekend', holiday?.name ?? null);
   }
 
   if (dailyHalt(weekday, mins)) {
-    return {
-      session: 'Maintenance',
-      venues: [],
-      shortLabel: 'HALT',
-      tradesOpen: false,
-      powerHour: false,
-      clock,
-      headline: headlineFor('Maintenance'),
-    };
+    return closedClock(
+      now,
+      'Maintenance',
+      holiday?.name ?? null,
+      cashHoliday
+        ? `Daily halt — Globex paused 5:00–6:00 PM ET. US cash closed (${holiday!.name}).`
+        : headlineFor('Maintenance'),
+    );
   }
 
   const venues: Venue[] = [];
@@ -181,8 +225,13 @@ export function marketClock(now = new Date()): MarketClock {
   if (inWindow(mins, LONDON_START, LONDON_END)) venues.push('London');
   if (inWindow(mins, NY_START, NY_END)) venues.push('New York');
 
-  const powerHour = inWindow(mins, POWER_START, POWER_END);
+  const powerHour = !cashHoliday && inWindow(mins, POWER_START, POWER_END);
+  const cashOpen = !cashHoliday && weekdayCash && inWindow(mins, CASH_START, CASH_END);
   const session = sessionLabel(venues, powerHour);
+  let headline = headlineFor(session);
+  if (cashHoliday && holiday) {
+    headline = `${session} — Globex open. US cash closed (${holiday.name}). Power Hour is off.`;
+  }
 
   return {
     session,
@@ -190,9 +239,21 @@ export function marketClock(now = new Date()): MarketClock {
     shortLabel: shortLabel(session),
     tradesOpen: true,
     powerHour,
+    cashOpen,
+    holidayName: holiday?.name ?? null,
     clock,
-    headline: headlineFor(session),
+    headline,
   };
 }
 
 export const powerHourClock = marketClock;
+
+export type FlowVenue = Venue | 'Power Hour';
+
+export function sessionFlow(clock: MarketClock): { venue: FlowVenue; hours: string; active: boolean }[] {
+  return SESSION_HOURS.map((row) => ({
+    venue: row.venue,
+    hours: row.hours,
+    active: row.venue === 'Power Hour' ? clock.powerHour : clock.venues.includes(row.venue as Venue),
+  }));
+}

@@ -114,7 +114,7 @@ function computeBias(futures: FinvizFuture[]): BiasRead {
   const alignment = `${indexCount}/4 index futures aligned`;
 
   if (bias === 'BULLISH') {
-    playbook.push(`${alignment} — look for pullbacks to VWAP or yesterday's high as long entries.`);
+    playbook.push(`${alignment} — look for pullbacks into discount or yesterday's high as long entries.`);
     if (vixPrice !== null && vixPrice < 15)
       playbook.push('Low VIX: trend day conditions. Hold runners. Move stop to breakeven at +4 pts on ES.');
     else if (vixPrice !== null && vixPrice >= 20)
@@ -124,7 +124,7 @@ function computeBias(futures: FinvizFuture[]): BiasRead {
     playbook.push('If ES opens above prior day high, wait for a 1-min pullback and retest before entering long.');
     playbook.push('Watch RTY. If small caps lag while ES leads, be cautious — breadth is narrowing.');
   } else if (bias === 'BEARISH') {
-    playbook.push(`${alignment} — look for dead-cat bounces into VWAP or prior day low as short entries.`);
+    playbook.push(`${alignment} — look for dead-cat bounces into premium or prior day low as short entries.`);
     if (vixPrice !== null && vixPrice >= 20)
       playbook.push('High VIX + bearish bias — do not chase breakdowns. Wait for a bounce, then enter short.');
     else

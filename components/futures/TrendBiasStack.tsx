@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import SourceTag from '@/components/ui/SourceTag';
 import TradingViewButton from '@/components/ui/TradingViewButton';
+import SetupLevelsCard from '@/components/futures/SetupLevelsCard';
 import type {
   Bias,
   QualityLabel,
@@ -10,6 +11,8 @@ import type {
   TrendBiasStackResult,
   Zone,
 } from '@/lib/trendBias';
+
+const REFRESH_MS = 10 * 60 * 1000;
 
 const INSTRUMENTS = ['MNQ', 'MES', 'MYM', 'M2K', 'GC'] as const;
 const TIMEFRAMES: Timeframe[] = ['Weekly', 'Daily', '4H'];
@@ -126,27 +129,32 @@ export default function TrendBiasStack() {
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setError(null);
+    async function load(isRefresh: boolean) {
+      if (!isRefresh) {
+        setLoading(true);
+        setError(null);
+      }
       try {
         const res = await fetch(`/api/trend-bias?instrument=${instrument}`);
         const json = await res.json();
         if (cancelled) return;
         if (!res.ok) {
           setError(json.error ?? 'Trend bias engine failed');
-          setData(null);
+          if (!isRefresh) setData(null);
         } else {
           setData(json);
+          setError(null);
         }
       } catch {
         if (!cancelled) setError('Fetch failed');
       }
       if (!cancelled) setLoading(false);
     }
-    load();
+    load(false);
+    const id = setInterval(() => load(true), REFRESH_MS);
     return () => {
       cancelled = true;
+      clearInterval(id);
     };
   }, [instrument]);
 
@@ -197,6 +205,29 @@ export default function TrendBiasStack() {
       {data && (
         <>
           <QualityBanner data={data} />
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <SetupLevelsCard
+              title="Swing setup"
+              subtitle="Daily dealing range — entry, stop, TP1, TP2 from swing high / EQ / swing low."
+              setup={data.swingSetup}
+            />
+            {data.intraday ? (
+              <SetupLevelsCard
+                title="Intraday setup · 15m"
+                subtitle={`15-minute HH/HL. Refreshes every ${data.intraday.refreshMinutes} minutes. Delayed Yahoo — not a live feed.`}
+                setup={data.intraday.setup}
+              />
+            ) : (
+              <div className="border border-[#2a2a2a] bg-[#111111] rounded-2xl p-5">
+                <div className="text-[10px] uppercase tracking-widest text-gray-500">Intraday setup · 15m</div>
+                <p className="text-sm text-gray-400 mt-2">
+                  15-minute candles were not available just now. The swing map above still stands. This card
+                  retries every 10 minutes.
+                </p>
+              </div>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {TIMEFRAMES.map((tf) => (

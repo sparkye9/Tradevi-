@@ -14,7 +14,14 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
 
   const misconfigured = searchParams.get('misconfigured') === '1';
-  const authError = searchParams.get('error') === 'auth';
+  const notice = searchParams.get('notice');
+  const errorParam = searchParams.get('error');
+  const showReady =
+    notice === 'ready' ||
+    errorParam === 'auth' ||
+    errorParam === 'access_denied' ||
+    searchParams.get('error_code') === 'otp_expired';
+  const showReset = notice === 'reset';
 
   useEffect(() => {
     try {
@@ -52,7 +59,9 @@ function LoginForm() {
     <div className="max-w-sm mx-auto mt-12 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">Sign in</h1>
-        <p className="text-sm text-gray-500 mt-1">Welcome back to Tradevi.</p>
+        <p className="text-sm text-gray-500 mt-1">
+          {showReady ? 'Your account is ready.' : 'Welcome back to Tradevi.'}
+        </p>
       </div>
 
       {misconfigured && (
@@ -61,9 +70,16 @@ function LoginForm() {
           steps.
         </div>
       )}
-      {authError && (
-        <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-2xl p-4">
-          That email link is invalid or has expired. Sign in, or request a new reset link.
+      {showReady && (
+        <div className="text-sm text-emerald-200 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4">
+          Sign in with the email and password you created. You don&apos;t need to tap the email
+          link again — once is enough, and your account is already set up.
+        </div>
+      )}
+      {showReset && !showReady && (
+        <div className="text-sm text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4">
+          That reset link already ran or timed out. Sign in if you remember your password, or
+          request a new reset link below.
         </div>
       )}
 

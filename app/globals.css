@@ -12,30 +12,34 @@
   html { scroll-behavior: smooth; }
 
   body {
-    background-color: #0d0d0d;
+    background-color: #0A0C14;
     color: #f0f0f0;
     font-family: var(--font-sans), system-ui, sans-serif;
   }
 
   :root {
-    --bg: #0d0d0d;
-    --card: #111111;
-    --border: #1e1e1e;
+    --bg: #0A0C14;
+    --card: #10131C;
+    --border: #222738;
     --text: #f0f0f0;
-    --muted: #6b7280;
+    --muted: #8B93A7;
+    --purple: #8B7CFF;
   }
 
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background-color: #2a2a2a; border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb { background-color: #2a3144; border-radius: 9999px; }
 }
 
 @layer components {
-  .card { @apply bg-[#111111] border border-[#1e1e1e] rounded-2xl p-4; }
-  .card-hover { @apply hover:bg-[#161616] hover:border-[#2a2a2a] transition-all; }
-  .label { @apply text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500; }
+  .card { @apply bg-tv-surface border border-tv-border rounded-2xl p-4; }
+  .card-hover { @apply hover:bg-tv-panel hover:border-white/10 transition-all; }
+  .label { @apply text-[10px] font-semibold uppercase tracking-[0.16em] text-tv-muted; }
   .value { @apply text-white font-mono font-semibold; }
-  .skeleton { @apply bg-[#1a1a1a] rounded animate-pulse; }
+  .skeleton { @apply bg-tv-panel rounded animate-pulse; }
   .scrollbar-none { scrollbar-width: none; }
   .scrollbar-none::-webkit-scrollbar { display: none; }
+  .pill {
+    @apply text-[10px] font-semibold tracking-widest uppercase px-2.5 py-1 rounded-full border;
+  }
 }

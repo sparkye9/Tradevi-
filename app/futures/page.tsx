@@ -7,8 +7,8 @@ export default function FuturesPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Futures</h1>
         <p className="text-sm text-gray-500 mt-1">
-          MNQ-first workstation. Structure stack, quality score, then a hard no-trade when the read is weak.
-          Confirm on TradingView before you act.
+          MNQ-first workstation. Swing entry / stop / TP1 / TP2 from the daily dealing range, plus a
+          15-minute intraday map that refreshes every 10 minutes. Confirm on TradingView before you act.
         </p>
       </div>
       <TrendBiasStack />
