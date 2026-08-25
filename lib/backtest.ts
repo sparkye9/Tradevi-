@@ -38,10 +38,12 @@ export interface BacktestTrade {
   tp2: number;
   risk: number;
   exitReason: ExitReason;
-  rToTp1Exit: number | null;   // R multiple under a "exit all at TP1" rule
-  rToTp2Exit: number | null;   // R multiple under a "exit all at TP2" rule
-  holdBarsTp1: number | null;  // trading days held under the TP1-exit rule
-  holdBarsTp2: number | null;  // trading days held under the TP2-exit rule
+  rToTp1Exit: number | null;    // R multiple under a "exit all at TP1" rule
+  rToTp2Exit: number | null;    // R multiple under a "exit all at TP2" rule
+  rHybridExit: number | null;   // R under "half at TP1, runner to TP2 at breakeven"
+  holdBarsTp1: number | null;   // trading days held under the TP1-exit rule
+  holdBarsTp2: number | null;   // trading days held under the TP2-exit rule
+  holdBarsHybrid: number | null;// trading days held under the hybrid rule
 }
 
 export interface StrategyStats {
@@ -71,6 +73,8 @@ export interface BacktestResult {
   fillRate: number;        // 0–100
   tp1Strategy: StrategyStats;
   tp2Strategy: StrategyStats;
+  hybridStrategy: StrategyStats;
+  maxHoldBars: number;
   trades: BacktestTrade[];
   notes: string[];
   error?: string;
@@ -147,14 +151,18 @@ export function runBacktest(opts: {
   dataSymbol: string;
   candles: YFCandle[];
   useWeeklyFilter?: boolean;
+  maxBarsInTrade?: number;
 }): BacktestResult {
   const { instrument, dataSymbol, candles } = opts;
   const useWeeklyFilter = opts.useWeeklyFilter ?? true;
+  const maxHold = Math.max(1, opts.maxBarsInTrade ?? MAX_BARS_IN_TRADE);
 
   const notes = [
     'No lookahead: every setup is built only from bars up to and including the signal bar.',
     'Conservative fills: a bar spanning both stop and target counts as a stop.',
     'No slippage or commission. Futures points converted to R multiples (R = entry→stop distance).',
+    'Hybrid = half off at TP1, stop to breakeven, runner to TP2 (breakeven if it comes back first).',
+    `Max hold: positions time-stop after ${maxHold} trading days.`,
     useWeeklyFilter
       ? 'Weekly filter ON: longs skipped when the weekly bias is down, shorts when it is up.'
       : 'Weekly filter OFF: daily bias only.',
@@ -167,6 +175,8 @@ export function runBacktest(opts: {
       signalsGenerated: 0, ordersFilled: 0, fillRate: 0,
       tp1Strategy: statsFor('Exit at TP1', []),
       tp2Strategy: statsFor('Exit at TP2', []),
+      hybridStrategy: statsFor('Hybrid (½ TP1 + runner)', []),
+      maxHoldBars: maxHold,
       trades: [], notes,
       error: 'Not enough history to backtest.',
     };
@@ -224,8 +234,8 @@ export function runBacktest(opts: {
       trades.push({
         side, signalStatus: setup.status, signalTime: slice[slice.length - 1].time,
         fillTime: null, entry, stop, tp1, tp2, risk,
-        exitReason: 'cancelled', rToTp1Exit: null, rToTp2Exit: null,
-        holdBarsTp1: null, holdBarsTp2: null,
+        exitReason: 'cancelled', rToTp1Exit: null, rToTp2Exit: null, rHybridExit: null,
+        holdBarsTp1: null, holdBarsTp2: null, holdBarsHybrid: null,
       });
       i++; continue;
     }
@@ -235,7 +245,7 @@ export function runBacktest(opts: {
     // which each level is first reached so we can measure hold duration.
     let exitReason: ExitReason = 'timeout';
     let stopIdx = -1, tp1Idx = -1, tp2Idx = -1;
-    const lastIdx = Math.min(fillIdx + MAX_BARS_IN_TRADE, candles.length - 1);
+    const lastIdx = Math.min(fillIdx + maxHold, candles.length - 1);
     for (let j = fillIdx; j <= lastIdx; j++) {
       const b = candles[j];
       const stopHit = side === 'long' ? b.low <= stop : b.high >= stop;
@@ -262,11 +272,37 @@ export function runBacktest(opts: {
     else if (hitTp2) rToTp2Exit = rTp2;
     else rToTp2Exit = 0;
 
+    // Strategy C — hybrid: half off at TP1, stop to breakeven, runner to TP2.
+    // If TP1 never hits, it behaves exactly like the TP1 exit (stop = -1, else 0).
+    let rHybridExit: number;
+    let hybridExitIdx: number;
+    if (hitStop && !hitTp1) {
+      rHybridExit = -1;
+      hybridExitIdx = stopIdx;
+    } else if (hitTp1) {
+      const firstHalf = 0.5 * rTp1;
+      // Manage the runner from the bar AFTER TP1: breakeven stop at entry vs TP2.
+      let secondHalf = 0;                 // default: timeout → flat at breakeven
+      hybridExitIdx = lastIdx;
+      for (let j = tp1Idx + 1; j <= lastIdx; j++) {
+        const b = candles[j];
+        const beHit = side === 'long' ? b.low <= entry : b.high >= entry;
+        const tp2Hit = side === 'long' ? b.high >= tp2 : b.low <= tp2;
+        if (beHit) { secondHalf = 0; hybridExitIdx = j; break; }   // conservative: breakeven before TP2
+        if (tp2Hit) { secondHalf = 0.5 * rTp2; hybridExitIdx = j; break; }
+      }
+      rHybridExit = firstHalf + secondHalf;
+    } else {
+      rHybridExit = 0; // timeout, never reached TP1 or stop
+      hybridExitIdx = lastIdx;
+    }
+
     // Hold duration (trading days) for each exit rule = fill bar → resolving bar.
     const tp1ExitIdx = hitTp1 ? tp1Idx : hitStop ? stopIdx : lastIdx;
     const tp2ExitIdx = hitTp2 ? tp2Idx : hitStop ? stopIdx : lastIdx;
     const holdBarsTp1 = tp1ExitIdx - fillIdx;
     const holdBarsTp2 = tp2ExitIdx - fillIdx;
+    const holdBarsHybrid = hybridExitIdx - fillIdx;
 
     if (hitStop) exitReason = 'stop';
     else if (hitTp2) exitReason = 'tp2';
@@ -279,8 +315,10 @@ export function runBacktest(opts: {
       exitReason,
       rToTp1Exit: Math.round(rToTp1Exit * 100) / 100,
       rToTp2Exit: Math.round(rToTp2Exit * 100) / 100,
+      rHybridExit: Math.round(rHybridExit * 100) / 100,
       holdBarsTp1,
       holdBarsTp2,
+      holdBarsHybrid,
     });
 
     // Jump past the trade so we don't overlap positions.
@@ -292,6 +330,8 @@ export function runBacktest(opts: {
   const tp2Rs = filledTrades.map((t) => t.rToTp2Exit ?? 0);
   const tp1Holds = filledTrades.map((t) => t.holdBarsTp1 ?? 0);
   const tp2Holds = filledTrades.map((t) => t.holdBarsTp2 ?? 0);
+  const hybridRs = filledTrades.map((t) => t.rHybridExit ?? 0);
+  const hybridHolds = filledTrades.map((t) => t.holdBarsHybrid ?? 0);
 
   return {
     instrument, dataSymbol, bars: candles.length,
@@ -302,6 +342,8 @@ export function runBacktest(opts: {
     fillRate: signalsGenerated ? Math.round((ordersFilled / signalsGenerated) * 1000) / 10 : 0,
     tp1Strategy: statsFor('Exit at TP1', tp1Rs, tp1Holds),
     tp2Strategy: statsFor('Exit at TP2', tp2Rs, tp2Holds),
+    hybridStrategy: statsFor('Hybrid (½ TP1 + runner)', hybridRs, hybridHolds),
+    maxHoldBars: maxHold,
     trades,
     notes,
   };
