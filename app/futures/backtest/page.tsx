@@ -13,6 +13,8 @@ interface StrategyStats {
   maxDrawdownR: number;
   avgWinR: number;
   avgLossR: number;
+  avgHoldBars: number;
+  medianHoldBars: number;
 }
 interface BTResult {
   instrument: string;
@@ -67,6 +69,8 @@ function StrategyBlock({ s }: { s: StrategyStats }) {
           <Stat k="Avg win" v={`+${s.avgWinR}R`} tone="text-emerald-400" />
           <Stat k="Avg loss" v={`-${s.avgLossR}R`} tone="text-red-400" />
           <Stat k="W / L" v={`${s.wins} / ${s.losses}`} />
+          <Stat k="Avg hold" v={`${s.avgHoldBars}d`} tone="text-gray-200" />
+          <Stat k="Median hold" v={`${s.medianHoldBars}d`} tone="text-gray-200" />
         </div>
       )}
     </div>
@@ -145,9 +149,10 @@ export default function BacktestPage() {
       <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-200/80 leading-relaxed">
         <b>How to read this:</b> results are in <b>R multiples</b> (1R = the entry-to-stop distance).
         Expectancy is average R per trade — positive means an edge. Two exit rules are shown: take everything
-        at TP1 (equilibrium) vs. hold for TP2 (opposite swing). Fills are conservative: a bar that spans both
-        stop and target counts as a loss. This tests the daily mechanics only — the live app is more selective
-        (full Weekly/Daily/4H stack). Not financial advice.
+        at TP1 (equilibrium) vs. hold for TP2 (opposite swing). <b>Avg / median hold</b> is how many trading
+        days the trade stayed open. Fills are conservative: a bar that spans both stop and target counts as a
+        loss. This tests the daily mechanics only — the live app is more selective (full Weekly/Daily/4H
+        stack). Not financial advice.
       </div>
 
       {loading && (
