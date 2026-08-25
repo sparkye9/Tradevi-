@@ -27,6 +27,8 @@ interface BTResult {
   fillRate: number;
   tp1Strategy: StrategyStats;
   tp2Strategy: StrategyStats;
+  hybridStrategy: StrategyStats;
+  maxHoldBars: number;
   notes: string[];
   error?: string;
 }
@@ -34,6 +36,7 @@ interface Payload {
   results: BTResult[];
   period: string;
   weeklyFilter: boolean;
+  maxHold: number;
   source: string;
   lastUpdated: string;
   error?: string;
@@ -99,9 +102,10 @@ function ResultCard({ r }: { r: BTResult }) {
             <span className="text-gray-500">Filled <span className="text-gray-200 font-mono font-semibold">{r.ordersFilled}</span></span>
             <span className="text-gray-500">Fill rate <span className="text-gray-200 font-mono font-semibold">{r.fillRate}%</span></span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <StrategyBlock s={r.tp1Strategy} />
             <StrategyBlock s={r.tp2Strategy} />
+            <StrategyBlock s={r.hybridStrategy} />
           </div>
         </>
       )}
@@ -113,11 +117,13 @@ export default function BacktestPage() {
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [weekly, setWeekly] = useState(true);
+  const [shortHold, setShortHold] = useState(false); // overnight / short-hold mode
 
-  const load = useCallback(async (wk: boolean) => {
+  const load = useCallback(async (wk: boolean, sh: boolean) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/futures/backtest?instrument=ALL&period=2y&weekly=${wk ? 'on' : 'off'}`);
+      const maxHold = sh ? 3 : 40;
+      const res = await fetch(`/api/futures/backtest?instrument=ALL&period=2y&weekly=${wk ? 'on' : 'off'}&maxHold=${maxHold}`);
       setData(await res.json());
     } catch {
       setData(null);
@@ -125,7 +131,7 @@ export default function BacktestPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(weekly); }, [load, weekly]);
+  useEffect(() => { load(weekly, shortHold); }, [load, weekly, shortHold]);
 
   return (
     <div className="space-y-5 max-w-4xl">
@@ -136,23 +142,34 @@ export default function BacktestPage() {
             Walk-forward replay of the daily dealing-range setups over 2 years of history — no lookahead.
           </p>
         </div>
-        <button
-          onClick={() => setWeekly((w) => !w)}
-          className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${
-            weekly ? 'bg-tv-purple/15 text-tv-purple border-tv-purple/40' : 'bg-[#1a1a1a] text-gray-500 border-tv-border'
-          }`}
-        >
-          {weekly ? '✓ Weekly filter ON' : 'Weekly filter OFF'}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setShortHold((s) => !s)}
+            className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${
+              shortHold ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40' : 'bg-[#1a1a1a] text-gray-500 border-tv-border'
+            }`}
+          >
+            {shortHold ? '🌙 Overnight (≤3d)' : 'Full swing (≤40d)'}
+          </button>
+          <button
+            onClick={() => setWeekly((w) => !w)}
+            className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${
+              weekly ? 'bg-tv-purple/15 text-tv-purple border-tv-purple/40' : 'bg-[#1a1a1a] text-gray-500 border-tv-border'
+            }`}
+          >
+            {weekly ? '✓ Weekly filter ON' : 'Weekly filter OFF'}
+          </button>
+        </div>
       </div>
 
       <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-200/80 leading-relaxed">
         <b>How to read this:</b> results are in <b>R multiples</b> (1R = the entry-to-stop distance).
-        Expectancy is average R per trade — positive means an edge. Two exit rules are shown: take everything
-        at TP1 (equilibrium) vs. hold for TP2 (opposite swing). <b>Avg / median hold</b> is how many trading
-        days the trade stayed open. Fills are conservative: a bar that spans both stop and target counts as a
-        loss. This tests the daily mechanics only — the live app is more selective (full Weekly/Daily/4H
-        stack). Not financial advice.
+        Expectancy is average R per trade — positive means an edge. Three exit rules: <b>TP1</b> (all off at
+        equilibrium), <b>TP2</b> (hold for the opposite swing), and <b>Hybrid</b> (half at TP1, stop to
+        breakeven, runner to TP2). <b>Avg / median hold</b> is trading days in the trade. <b>🌙 Overnight</b>
+        mode caps holds at 3 days so you can see the engine when you only carry a swing a night or two. Fills
+        are conservative: a bar spanning both stop and target counts as a loss. Daily mechanics only — the live
+        app is more selective (full Weekly/Daily/4H stack). Not financial advice.
       </div>
 
       {loading && (
