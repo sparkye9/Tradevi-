@@ -20,7 +20,14 @@ const PUBLIC_PATHS = new Set([
 // depend on these two data endpoints, so they stay reachable by anonymous
 // visitors. The PayPal webhook is unauthenticated by design — it verifies
 // its own signature instead.
-const PUBLIC_API_PREFIXES = ['/api/finviz/screener', '/api/finviz/futures', '/api/calendar', '/api/paypal/webhook', '/api/chat'];
+const PUBLIC_API_PREFIXES = [
+  '/api/finviz/screener',
+  '/api/finviz/futures',
+  '/api/calendar',
+  '/api/paypal/webhook',
+  '/api/chat',
+  '/api/tradingview/webhook',
+];
 
 // Requires login, but not an active subscription — this is how you get one.
 const LOGIN_ONLY_PATHS = new Set([

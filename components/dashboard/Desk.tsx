@@ -5,6 +5,7 @@ import { Ban, Check, Circle, Eye, Hourglass } from 'lucide-react';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
+import TradingViewAlerts from '@/components/dashboard/TradingViewAlerts';
 import { useAccountJournal } from '@/hooks/useAccountJournal';
 import { journalEdge } from '@/lib/journal';
 import { marketClock, sessionFlow } from '@/lib/powerHour';
@@ -687,6 +688,8 @@ export default function Desk() {
               </>
             )}
           </div>
+
+          <TradingViewAlerts />
         </div>
       </div>
 

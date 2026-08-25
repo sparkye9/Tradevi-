@@ -32,6 +32,26 @@ export interface TradierOptionsFilter {
   pennyMode?: boolean; // relax volume/OI, fetch 2 nearest expirations
 }
 
+export interface TradierQuote {
+  symbol: string;
+  price: number | null;
+  change: number | null;
+  changePercent: number | null;
+  volume: number | null;
+  avgVolume: number | null;
+  high: number | null;
+  low: number | null;
+  open: number | null;
+  quoteTime: string | null; // ISO, from Tradier's trade_date (epoch ms)
+}
+
+export interface TradierQuotesResult {
+  quotes: TradierQuote[];
+  sourceError?: string;
+  source: string;
+  lastUpdated: string;
+}
+
 function getBaseUrl(): string {
   const env = process.env.TRADIER_ENV ?? 'production';
   return env === 'sandbox'
@@ -194,4 +214,60 @@ export async function fetchTradierOptions(
   contracts.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
 
   return { contracts, source: 'Tradier', lastUpdated: now };
+}
+
+type QuoteRow = {
+  symbol: string;
+  last: number | null;
+  change: number | null;
+  change_percentage: number | null;
+  volume: number | null;
+  average_volume: number | null;
+  high: number | null;
+  low: number | null;
+  open: number | null;
+  trade_date: number | null; // epoch millis
+};
+
+/**
+ * Live equity quotes straight from Tradier's brokerage feed — no 15–20 min
+ * delay like the Finviz/Yahoo scrape path, since Tradier account holders get
+ * real-time NBBO/last-trade data by default.
+ */
+export async function fetchTradierQuotes(symbols: string[]): Promise<TradierQuotesResult> {
+  const now = new Date().toISOString();
+  const token = getToken();
+  if (!token) {
+    return { quotes: [], sourceError: 'Tradier not connected', source: 'Tradier', lastUpdated: now };
+  }
+  if (symbols.length === 0) {
+    return { quotes: [], source: 'Tradier', lastUpdated: now };
+  }
+
+  let rows: QuoteRow[];
+  try {
+    const data = await tradierGet<{ quotes: { quote: QuoteRow | QuoteRow[] } | null }>(
+      `/markets/quotes?symbols=${encodeURIComponent(symbols.join(','))}&greeks=false`,
+      token
+    );
+    const raw = data.quotes?.quote;
+    rows = raw == null ? [] : Array.isArray(raw) ? raw : [raw];
+  } catch (err) {
+    return { quotes: [], sourceError: `Tradier quotes failed: ${String(err)}`, source: 'Tradier', lastUpdated: now };
+  }
+
+  const quotes: TradierQuote[] = rows.map((r) => ({
+    symbol: r.symbol,
+    price: r.last ?? null,
+    change: r.change ?? null,
+    changePercent: r.change_percentage ?? null,
+    volume: r.volume ?? null,
+    avgVolume: r.average_volume ?? null,
+    high: r.high ?? null,
+    low: r.low ?? null,
+    open: r.open ?? null,
+    quoteTime: r.trade_date ? new Date(r.trade_date).toISOString() : null,
+  }));
+
+  return { quotes, source: 'Tradier', lastUpdated: now };
 }
