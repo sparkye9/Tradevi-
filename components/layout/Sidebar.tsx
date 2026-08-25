@@ -12,6 +12,7 @@ import {
   Bookmark,
   MessageCircle,
   Settings,
+  FlaskConical,
   type LucideIcon,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -27,6 +28,7 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
 
 const TOOLS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/stocks', label: 'Watchlist', icon: Bookmark },
+  { href: '/futures/backtest', label: 'Backtest', icon: FlaskConical },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
   { href: '/chat', label: 'Resources', icon: MessageCircle },
 ];
