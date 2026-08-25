@@ -36,8 +36,8 @@ export async function GET(req: Request) {
         results.push({
           instrument: inst, dataSymbol: symbol, bars: 0,
           fromDate: null, toDate: null, signalsGenerated: 0, ordersFilled: 0, fillRate: 0,
-          tp1Strategy: { label: 'Exit at TP1', trades: 0, wins: 0, losses: 0, winRate: 0, expectancyR: 0, profitFactor: 0, totalR: 0, maxDrawdownR: 0, avgWinR: 0, avgLossR: 0 },
-          tp2Strategy: { label: 'Exit at TP2', trades: 0, wins: 0, losses: 0, winRate: 0, expectancyR: 0, profitFactor: 0, totalR: 0, maxDrawdownR: 0, avgWinR: 0, avgLossR: 0 },
+          tp1Strategy: { label: 'Exit at TP1', trades: 0, wins: 0, losses: 0, winRate: 0, expectancyR: 0, profitFactor: 0, totalR: 0, maxDrawdownR: 0, avgWinR: 0, avgLossR: 0, avgHoldBars: 0, medianHoldBars: 0 },
+          tp2Strategy: { label: 'Exit at TP2', trades: 0, wins: 0, losses: 0, winRate: 0, expectancyR: 0, profitFactor: 0, totalR: 0, maxDrawdownR: 0, avgWinR: 0, avgLossR: 0, avgHoldBars: 0, medianHoldBars: 0 },
           trades: [], notes: [], error: err instanceof Error ? err.message : String(err),
         });
       }
