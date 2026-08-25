@@ -40,6 +40,8 @@ export interface BacktestTrade {
   exitReason: ExitReason;
   rToTp1Exit: number | null;   // R multiple under a "exit all at TP1" rule
   rToTp2Exit: number | null;   // R multiple under a "exit all at TP2" rule
+  holdBarsTp1: number | null;  // trading days held under the TP1-exit rule
+  holdBarsTp2: number | null;  // trading days held under the TP2-exit rule
 }
 
 export interface StrategyStats {
@@ -54,6 +56,8 @@ export interface StrategyStats {
   maxDrawdownR: number;
   avgWinR: number;
   avgLossR: number;
+  avgHoldBars: number;     // average trading days in a trade
+  medianHoldBars: number;  // median trading days in a trade
 }
 
 export interface BacktestResult {
@@ -96,13 +100,20 @@ function weeklyBiasUpTo(daily: YFCandle[]): Bias {
   return classify(weekly, K).bias;
 }
 
-function statsFor(label: string, rs: number[]): StrategyStats {
+function statsFor(label: string, rs: number[], holds: number[] = []): StrategyStats {
   const trades = rs.length;
   const wins = rs.filter((r) => r > 0);
   const losses = rs.filter((r) => r <= 0);
   const totalR = rs.reduce((s, r) => s + r, 0);
   const grossWin = wins.reduce((s, r) => s + r, 0);
   const grossLoss = Math.abs(losses.reduce((s, r) => s + r, 0));
+
+  const holdsClean = holds.filter((h) => h != null && !Number.isNaN(h));
+  const avgHoldBars = holdsClean.length
+    ? Math.round((holdsClean.reduce((s, h) => s + h, 0) / holdsClean.length) * 10) / 10 : 0;
+  const sortedHolds = [...holdsClean].sort((a, b) => a - b);
+  const medianHoldBars = sortedHolds.length
+    ? sortedHolds[Math.floor(sortedHolds.length / 2)] : 0;
 
   // Max drawdown of the running R equity curve.
   let peak = 0, equity = 0, maxDd = 0;
@@ -125,6 +136,8 @@ function statsFor(label: string, rs: number[]): StrategyStats {
     maxDrawdownR: Math.round(maxDd * 10) / 10,
     avgWinR: wins.length ? Math.round((grossWin / wins.length) * 100) / 100 : 0,
     avgLossR: losses.length ? Math.round((grossLoss / losses.length) * 100) / 100 : 0,
+    avgHoldBars,
+    medianHoldBars,
   };
 }
 
@@ -212,23 +225,27 @@ export function runBacktest(opts: {
         side, signalStatus: setup.status, signalTime: slice[slice.length - 1].time,
         fillTime: null, entry, stop, tp1, tp2, risk,
         exitReason: 'cancelled', rToTp1Exit: null, rToTp2Exit: null,
+        holdBarsTp1: null, holdBarsTp2: null,
       });
       i++; continue;
     }
 
     ordersFilled++;
-    // Manage the position from the fill bar forward.
+    // Manage the position from the fill bar forward, recording the bar index at
+    // which each level is first reached so we can measure hold duration.
     let exitReason: ExitReason = 'timeout';
-    let hitTp1 = false, hitTp2 = false, hitStop = false;
-    for (let j = fillIdx; j <= Math.min(fillIdx + MAX_BARS_IN_TRADE, candles.length - 1); j++) {
+    let stopIdx = -1, tp1Idx = -1, tp2Idx = -1;
+    const lastIdx = Math.min(fillIdx + MAX_BARS_IN_TRADE, candles.length - 1);
+    for (let j = fillIdx; j <= lastIdx; j++) {
       const b = candles[j];
       const stopHit = side === 'long' ? b.low <= stop : b.high >= stop;
       const tp1Hit = side === 'long' ? b.high >= tp1 : b.low <= tp1;
       const tp2Hit = side === 'long' ? b.high >= tp2 : b.low <= tp2;
-      if (stopHit) { hitStop = true; break; }      // conservative: stop before target in same bar
-      if (tp2Hit) { hitTp2 = true; hitTp1 = true; break; }
-      if (tp1Hit) { hitTp1 = true; /* keep running toward tp2 */ }
+      if (stopHit) { stopIdx = j; break; }               // conservative: stop before target in same bar
+      if (tp2Hit) { tp2Idx = j; if (tp1Idx < 0) tp1Idx = j; break; }
+      if (tp1Hit && tp1Idx < 0) tp1Idx = j;              // keep running toward tp2
     }
+    const hitStop = stopIdx >= 0, hitTp1 = tp1Idx >= 0, hitTp2 = tp2Idx >= 0;
 
     const rTp1 = Math.abs(tp1 - entry) / risk;
     const rTp2 = Math.abs(tp2 - entry) / risk;
@@ -245,6 +262,12 @@ export function runBacktest(opts: {
     else if (hitTp2) rToTp2Exit = rTp2;
     else rToTp2Exit = 0;
 
+    // Hold duration (trading days) for each exit rule = fill bar → resolving bar.
+    const tp1ExitIdx = hitTp1 ? tp1Idx : hitStop ? stopIdx : lastIdx;
+    const tp2ExitIdx = hitTp2 ? tp2Idx : hitStop ? stopIdx : lastIdx;
+    const holdBarsTp1 = tp1ExitIdx - fillIdx;
+    const holdBarsTp2 = tp2ExitIdx - fillIdx;
+
     if (hitStop) exitReason = 'stop';
     else if (hitTp2) exitReason = 'tp2';
     else if (hitTp1) exitReason = 'tp1';
@@ -256,6 +279,8 @@ export function runBacktest(opts: {
       exitReason,
       rToTp1Exit: Math.round(rToTp1Exit * 100) / 100,
       rToTp2Exit: Math.round(rToTp2Exit * 100) / 100,
+      holdBarsTp1,
+      holdBarsTp2,
     });
 
     // Jump past the trade so we don't overlap positions.
@@ -265,6 +290,8 @@ export function runBacktest(opts: {
   const filledTrades = trades.filter((t) => t.exitReason !== 'cancelled');
   const tp1Rs = filledTrades.map((t) => t.rToTp1Exit ?? 0);
   const tp2Rs = filledTrades.map((t) => t.rToTp2Exit ?? 0);
+  const tp1Holds = filledTrades.map((t) => t.holdBarsTp1 ?? 0);
+  const tp2Holds = filledTrades.map((t) => t.holdBarsTp2 ?? 0);
 
   return {
     instrument, dataSymbol, bars: candles.length,
@@ -273,8 +300,8 @@ export function runBacktest(opts: {
     signalsGenerated,
     ordersFilled,
     fillRate: signalsGenerated ? Math.round((ordersFilled / signalsGenerated) * 1000) / 10 : 0,
-    tp1Strategy: statsFor('Exit at TP1', tp1Rs),
-    tp2Strategy: statsFor('Exit at TP2', tp2Rs),
+    tp1Strategy: statsFor('Exit at TP1', tp1Rs, tp1Holds),
+    tp2Strategy: statsFor('Exit at TP2', tp2Rs, tp2Holds),
     trades,
     notes,
   };
