@@ -36,6 +36,15 @@ function roundPx(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * Minimum reward-to-risk to TP1 before a dealing-range entry is a live "look".
+ * With stop at the far swing and TP1 at equilibrium, R:R = 1.0 happens exactly
+ * at the midpoint of the premium (or discount) half — i.e. price must be DEEP
+ * in premium/discount, not one tick past equilibrium. Anything shallower is a
+ * WAIT with a planned entry at that midpoint, not a live chase.
+ */
+const MIN_R_TO_TP1 = 1.0;
+
 function riskReward(entry: number | null, stop: number | null, target: number | null): number | null {
   if (entry == null || stop == null || target == null) return null;
   const risk = Math.abs(entry - stop);
@@ -84,15 +93,44 @@ export function dealingRangeSetup(opts: {
 
   if (opts.action === 'LOOK_LONG') {
     const stop = opts.invalidation ?? low;
+    const deepDiscount = (eq + low) / 2; // midpoint of the discount half → 1R to EQ
     const inDiscount = opts.zone === 'discount';
-    const entry = inDiscount && opts.lastPrice != null ? opts.lastPrice : eq;
-    const status: SetupStatus = inDiscount ? 'look' : 'wait';
 
-    let tp1 = inDiscount ? eq : high;
-    let tp2 = inDiscount ? high : high + range;
+    // R:R the live "delayed last" entry would actually give to TP1 (equilibrium).
+    const lookEntry = opts.lastPrice;
+    const lookR = lookEntry != null ? riskReward(lookEntry, stop, eq) : null;
+    const goodLook = inDiscount && lookEntry != null && lookR != null && lookR >= MIN_R_TO_TP1;
 
-    if (entry != null && tp1 <= entry) tp1 = high;
-    if (entry != null && tp2 <= tp1) tp2 = high + range;
+    let entry: number;
+    let status: SetupStatus;
+    let tp1: number;
+    let tp2: number;
+    let note: string;
+
+    if (goodLook) {
+      entry = lookEntry!;
+      status = 'look';
+      tp1 = eq;
+      tp2 = high;
+      note = `${tf} discount long. Price is deep in discount — entry is delayed last. Stop is last swing low. TP1 is equilibrium. TP2 is last swing high.`;
+    } else if (inDiscount) {
+      // In discount but too close to equilibrium — a live entry here is < 1R to TP1.
+      entry = deepDiscount;
+      status = 'wait';
+      tp1 = eq;
+      tp2 = high;
+      note = `${tf} is in discount but too close to equilibrium for a clean entry (would be under 1R). Wait for a deeper pullback near ${roundPx(deepDiscount)}. Stop is last swing low. TP1 is equilibrium. TP2 is last swing high.`;
+    } else {
+      // Premium / equilibrium — wait for the pullback into discount.
+      entry = eq;
+      status = 'wait';
+      tp1 = high;
+      tp2 = high + range;
+      note = `${tf} is not in discount yet. Planned entry is equilibrium. Stop is last swing low. TP1 is last swing high. TP2 is a measured move (range height above the high).`;
+    }
+
+    if (tp1 <= entry) tp1 = high;
+    if (tp2 <= tp1) tp2 = high + range;
     if (stop >= entry) {
       return {
         ...empty,
@@ -111,22 +149,48 @@ export function dealingRangeSetup(opts: {
       tp2: roundPx(tp2),
       risk: roundPx(Math.abs(entry - stop)),
       rToTp1: riskReward(entry, stop, tp1),
-      note: inDiscount
-        ? `${tf} discount long. Entry is delayed last. Stop is last swing low. TP1 is equilibrium. TP2 is last swing high.`
-        : `${tf} is not in discount yet. Planned entry is equilibrium. Stop is last swing low. TP1 is last swing high. TP2 is a measured move (range height above the high).`,
+      note,
     };
   }
 
   const stop = opts.invalidation ?? high;
+  const deepPremium = (eq + high) / 2; // midpoint of the premium half → 1R to EQ
   const inPremium = opts.zone === 'premium';
-  const entry = inPremium && opts.lastPrice != null ? opts.lastPrice : eq;
-  const status: SetupStatus = inPremium ? 'look' : 'wait';
 
-  let tp1 = inPremium ? eq : low;
-  let tp2 = inPremium ? low : low - range;
+  const lookEntry = opts.lastPrice;
+  const lookR = lookEntry != null ? riskReward(lookEntry, stop, eq) : null;
+  const goodLook = inPremium && lookEntry != null && lookR != null && lookR >= MIN_R_TO_TP1;
 
-  if (entry != null && tp1 >= entry) tp1 = low;
-  if (entry != null && tp2 >= tp1) tp2 = low - range;
+  let entry: number;
+  let status: SetupStatus;
+  let tp1: number;
+  let tp2: number;
+  let note: string;
+
+  if (goodLook) {
+    entry = lookEntry!;
+    status = 'look';
+    tp1 = eq;
+    tp2 = low;
+    note = `${tf} premium short. Price is deep in premium — entry is delayed last. Stop is last swing high. TP1 is equilibrium. TP2 is last swing low.`;
+  } else if (inPremium) {
+    // In premium but too close to equilibrium — a live entry here is < 1R to TP1.
+    entry = deepPremium;
+    status = 'wait';
+    tp1 = eq;
+    tp2 = low;
+    note = `${tf} is in premium but too close to equilibrium for a clean entry (would be under 1R). Wait for a deeper bounce near ${roundPx(deepPremium)}. Stop is last swing high. TP1 is equilibrium. TP2 is last swing low.`;
+  } else {
+    // Discount / equilibrium — wait for the bounce into premium.
+    entry = eq;
+    status = 'wait';
+    tp1 = low;
+    tp2 = low - range;
+    note = `${tf} is not in premium yet. Planned entry is equilibrium. Stop is last swing high. TP1 is last swing low. TP2 is a measured move (range height below the low).`;
+  }
+
+  if (tp1 >= entry) tp1 = low;
+  if (tp2 >= tp1) tp2 = low - range;
   if (stop <= entry) {
     return {
       ...empty,
@@ -145,9 +209,7 @@ export function dealingRangeSetup(opts: {
     tp2: roundPx(tp2),
     risk: roundPx(Math.abs(entry - stop)),
     rToTp1: riskReward(entry, stop, tp1),
-    note: inPremium
-      ? `${tf} premium short. Entry is delayed last. Stop is last swing high. TP1 is equilibrium. TP2 is last swing low.`
-      : `${tf} is not in premium yet. Planned entry is equilibrium. Stop is last swing high. TP1 is last swing low. TP2 is a measured move (range height below the low).`,
+    note,
   };
 }
 
