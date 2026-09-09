@@ -14,6 +14,9 @@ import {
 } from '../lib/economicCalendar';
 import type { FinvizQuote } from '../lib/finviz';
 import { dealingRangeSetup, intradayAction } from '../lib/futuresSetups';
+import { classify, structureLevels, swingSuggestion, setupQuality, type TrendRead, type Timeframe } from '../lib/trendBias';
+import { runBacktest } from '../lib/backtest';
+import type { YFCandle } from '../lib/yahooChart';
 
 let failed = 0;
 
@@ -194,6 +197,137 @@ const none = dealingRangeSetup({
 check('stand down has no levels', none.status === 'none' && none.entry === null && none.tp1 === null);
 check('15m up is look long', intradayAction({ bias: 'up', reason: 'hh/hl' }) === 'LOOK_LONG');
 check('15m range is stand down', intradayAction({ bias: 'range', reason: 'mixed' }) === 'STAND_DOWN');
+
+// Trend Bias Stack — structure engine (classify / structureLevels / suggestion / quality)
+
+/** Piecewise-linear zigzag through alternating swing extrema, for fractal-pivot tests. */
+function zigzagCandles(extrema: { idx: number; price: number }[]): YFCandle[] {
+  const lastIdx = extrema[extrema.length - 1].idx;
+  const len = lastIdx + 3; // trailing bars so the final pivot gets k=2 confirmation
+  const z: number[] = new Array(len).fill(extrema[0].price);
+  for (let i = 0; i <= extrema[0].idx; i++) z[i] = extrema[0].price;
+  for (let e = 0; e < extrema.length - 1; e++) {
+    const a = extrema[e], b = extrema[e + 1];
+    for (let i = a.idx; i <= b.idx; i++) {
+      const t = (i - a.idx) / (b.idx - a.idx);
+      z[i] = a.price + (b.price - a.price) * t;
+    }
+  }
+  const last = extrema[extrema.length - 1];
+  const prev = extrema[extrema.length - 2];
+  const dir = last.price > prev.price ? -1 : 1; // continue away from the last pivot
+  for (let i = last.idx + 1; i < len; i++) {
+    z[i] = last.price + dir * (i - last.idx) * 0.5;
+  }
+  return z.map((price, i) => ({
+    time: i * 86400,
+    open: price,
+    high: price,
+    low: price,
+    close: price,
+    volume: 1000,
+  }));
+}
+
+const uptrendCandles = zigzagCandles([
+  { idx: 2, price: 100 },  // L1
+  { idx: 6, price: 106 },  // H1
+  { idx: 10, price: 103 }, // L2 (higher low)
+  { idx: 14, price: 109 }, // H2 (higher high)
+  { idx: 18, price: 106 }, // L3 (higher low)
+  { idx: 22, price: 112 }, // H3 (higher high)
+  { idx: 26, price: 109 }, // L4 (higher low)
+  { idx: 30, price: 115 }, // H4 (higher high)
+]);
+const downtrendCandles = zigzagCandles([
+  { idx: 2, price: 115 },
+  { idx: 6, price: 109 },
+  { idx: 10, price: 112 },
+  { idx: 14, price: 106 },
+  { idx: 18, price: 109 },
+  { idx: 22, price: 103 },
+  { idx: 26, price: 106 },
+  { idx: 30, price: 100 },
+]);
+const mixedCandles = zigzagCandles([
+  { idx: 2, price: 100 },
+  { idx: 6, price: 106 },
+  { idx: 10, price: 103 }, // higher low
+  { idx: 14, price: 109 }, // higher high
+  { idx: 18, price: 106 }, // higher low
+  { idx: 22, price: 108 }, // LOWER high vs H3 above — breaks the stack
+]);
+
+const upRead = classify(uptrendCandles);
+check('uptrend zigzag classifies as up', upRead.bias === 'up');
+const downRead = classify(downtrendCandles);
+check('downtrend zigzag classifies as down', downRead.bias === 'down');
+const mixedRead = classify(mixedCandles);
+check('mixed zigzag (HL but LH) classifies as range', mixedRead.bias === 'range');
+
+const upLevels = structureLevels(uptrendCandles, 'up', 110);
+check('uptrend last swing high/low are the final confirmed pivots', upLevels.lastSwingHigh === 115 && upLevels.lastSwingLow === 109);
+check('uptrend prev swing high/low are the pivots before those', upLevels.prevSwingHigh === 112 && upLevels.prevSwingLow === 106);
+check('uptrend equilibrium is the mid of last swing high/low', upLevels.equilibrium === (115 + 109) / 2);
+check('uptrend invalidation follows the up bias (last swing low)', upLevels.invalidation === 109);
+check('last price 110 vs EQ 112 reads as discount', upLevels.zone === 'discount');
+
+const flatReads: Record<Timeframe, TrendRead> = {
+  Weekly: { bias: 'up', reason: 'hh/hl' },
+  Daily: { bias: 'up', reason: 'hh/hl' },
+  '4H': { bias: 'up', reason: 'hh/hl' },
+};
+const stackedLong = swingSuggestion('MNQ', flatReads, upLevels, upLevels, 110);
+check('stacked Weekly/Daily/4H up is LOOK_LONG at high conviction', stackedLong.action === 'LOOK_LONG' && stackedLong.conviction === 'high');
+check('stacked long in discount headline says look for longs now', stackedLong.headline.includes('discount'));
+
+const conflictReads: Record<Timeframe, TrendRead> = {
+  Weekly: { bias: 'up', reason: 'hh/hl' },
+  Daily: { bias: 'down', reason: 'lh/ll' },
+  '4H': { bias: 'down', reason: 'lh/ll' },
+};
+const conflictSuggestion = swingSuggestion('MNQ', conflictReads, upLevels, upLevels, 110);
+check('conflicting Weekly vs Daily/4H stands down', conflictSuggestion.action === 'STAND_DOWN');
+
+const standDownQuality = setupQuality(conflictSuggestion, conflictReads, upLevels);
+check('stand-down quality is NO_TRADE with a low fixed score', standDownQuality.label === 'NO_TRADE' && standDownQuality.score === 12);
+
+const stackedQuality = setupQuality(stackedLong, flatReads, upLevels);
+check('stacked long in the right zone with invalidation is a TRADE', stackedQuality.label === 'TRADE' && stackedQuality.score > standDownQuality.score);
+
+const wrongZoneLevels = structureLevels(uptrendCandles, 'up', 114); // near the high, not discount
+const wrongZoneQuality = setupQuality(stackedLong, flatReads, wrongZoneLevels);
+check('stacked long priced in premium is WAIT, not TRADE', wrongZoneQuality.label === 'WAIT');
+
+// Backtest harness — no-lookahead walk-forward replay
+
+const tooShort = runBacktest({ instrument: 'MNQ', dataSymbol: 'NQ=F', candles: uptrendCandles });
+check('backtest on too little history reports an error, not a crash', Boolean(tooShort.error) && tooShort.signalsGenerated === 0);
+
+// Repeat the uptrend leg pattern several times so there's enough history past WARMUP (40 bars).
+const longUptrendExtrema: { idx: number; price: number }[] = [];
+let idx = 2, price = 100;
+for (let leg = 0; leg < 20; leg++) {
+  longUptrendExtrema.push({ idx, price });
+  idx += 4;
+  price += leg % 2 === 0 ? 6 : -3; // net +3 every 2 legs — higher highs and higher lows
+}
+const longUptrendCandles = zigzagCandles(longUptrendExtrema);
+const backtest = runBacktest({ instrument: 'MNQ', dataSymbol: 'NQ=F', candles: longUptrendCandles, useWeeklyFilter: false });
+check('backtest on a long clean uptrend runs without an error', !backtest.error);
+check('backtest generates at least one signal on a trending series', backtest.signalsGenerated > 0);
+check('backtest trade log matches signals + fills accounting', backtest.trades.length === backtest.signalsGenerated);
+check('fill rate is a sane percentage', backtest.fillRate >= 0 && backtest.fillRate <= 100);
+check(
+  'every trade has a positive risk (entry != stop)',
+  backtest.trades.every((t) => t.exitReason === 'cancelled' || t.risk > 0),
+);
+check(
+  'TP1/TP2/hybrid strategy stats are finite, not NaN',
+  [backtest.tp1Strategy, backtest.tp2Strategy, backtest.hybridStrategy].every(
+    (s) => Number.isFinite(s.winRate) && Number.isFinite(s.expectancyR) && Number.isFinite(s.maxDrawdownR),
+  ),
+);
 
 if (failed) {
   console.error(`\n${failed} check(s) failed`);
