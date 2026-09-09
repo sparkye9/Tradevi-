@@ -2,6 +2,56 @@
 // Yahoo Finance options fallback — used only when Tradier is not connected.
 // Returns IV, OI, volume, bid, ask only. Never computes greeks.
 // Data labeled as delayed.
+//
+// Yahoo's v7/finance/options endpoint has required a session cookie + crumb
+// since ~2023 — calling it bare (as this file used to) gets a 401 from
+// Yahoo's edge before the request ever reaches the options data, so this
+// fallback was silently failing whenever it was actually needed. Fetch and
+// cache a cookie/crumb pair the same way yahoo-finance2 does, and retry once
+// with a fresh pair if the crumb has rotated.
+
+const UA = 'Mozilla/5.0 (compatible; Tradevi/3.0)';
+
+interface YahooSession {
+  cookie: string;
+  crumb: string;
+  ts: number;
+}
+
+let session: YahooSession | null = null;
+const SESSION_TTL = 55 * 60 * 1000; // Yahoo's cookie/crumb pair is good for roughly an hour
+
+async function fetchYahooSession(): Promise<YahooSession | null> {
+  try {
+    const cookieResp = await fetch('https://fc.yahoo.com/', {
+      headers: { 'User-Agent': UA },
+      redirect: 'manual',
+    });
+    const setCookie = cookieResp.headers.get('set-cookie');
+    if (!setCookie) return null;
+    const cookie = setCookie.split(';')[0];
+
+    const crumbResp = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
+      headers: { 'User-Agent': UA, Cookie: cookie },
+    });
+    if (!crumbResp.ok) return null;
+    const crumb = (await crumbResp.text()).trim();
+    if (!crumb || crumb.includes('<')) return null;
+
+    return { cookie, crumb, ts: Date.now() };
+  } catch {
+    return null;
+  }
+}
+
+async function getYahooSession(forceRefresh = false): Promise<YahooSession | null> {
+  if (!forceRefresh && session && Date.now() - session.ts < SESSION_TTL) {
+    return session;
+  }
+  const fresh = await fetchYahooSession();
+  session = fresh;
+  return fresh;
+}
 
 export interface YahooContract {
   symbol: string;
@@ -64,16 +114,28 @@ function parseYahooContract(
   };
 }
 
+async function requestOptions(symbol: string, sess: YahooSession | null): Promise<Response> {
+  const base = `https://query1.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
+  const url = sess ? `${base}?crumb=${encodeURIComponent(sess.crumb)}` : base;
+  const headers: Record<string, string> = { 'User-Agent': UA };
+  if (sess) headers.Cookie = sess.cookie;
+  return fetch(url, { headers, cache: 'no-store' });
+}
+
 export async function fetchYahooOptions(symbol: string): Promise<YahooOptionsResult> {
   const now = new Date().toISOString();
-  const url = `https://query1.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
 
   let json: YahooOptionsResponse;
   try {
-    const resp = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Tradevi/3.0)' },
-      cache: 'no-store',
-    });
+    let sess = await getYahooSession();
+    let resp = await requestOptions(symbol, sess);
+
+    // Cookie/crumb can rotate server-side — refresh once and retry on auth failure.
+    if (resp.status === 401 || resp.status === 403) {
+      sess = await getYahooSession(true);
+      resp = await requestOptions(symbol, sess);
+    }
+
     if (!resp.ok) {
       return {
         contracts: [],
