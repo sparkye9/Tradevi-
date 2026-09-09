@@ -81,3 +81,28 @@ create policy "Users can update own journal"
 create policy "Users can delete own journal"
   on public.journal_entries for delete
   using (auth.uid() = user_id);
+
+-- TradingView alert webhooks — not user-scoped, this is the account owner's
+-- own TradingView alerts pushed in from the chart, readable by anyone signed
+-- into the app. Only the webhook route (service-role key) writes to it.
+create table if not exists public.tv_alerts (
+  id uuid primary key default gen_random_uuid(),
+  symbol text not null,
+  message text not null default '',
+  payload jsonb,
+  received_at timestamptz not null default now()
+);
+
+create index if not exists tv_alerts_received_at_idx
+  on public.tv_alerts (received_at desc);
+
+alter table public.tv_alerts enable row level security;
+
+drop policy if exists "Signed-in users can view TradingView alerts" on public.tv_alerts;
+
+create policy "Signed-in users can view TradingView alerts"
+  on public.tv_alerts for select
+  using (auth.role() = 'authenticated');
+
+-- No insert/update/delete policy — the webhook route uses the service-role
+-- key, which bypasses RLS entirely, same as the PayPal webhook.

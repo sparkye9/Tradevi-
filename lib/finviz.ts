@@ -18,6 +18,7 @@ export interface FinvizQuote {
   groupStrength: 'strong' | 'weak' | 'neutral' | null;
   price: number | null;
   lastUpdated: string;
+  priceSource?: 'tradier' | 'finviz' | 'yahoo';
 }
 
 export interface FinvizFuture {
@@ -37,7 +38,7 @@ export interface FinvizResult<T> {
 }
 
 const cache = new Map<string, { data: unknown; ts: number }>();
-const TTL = 60_000;
+const TTL = 15_000;
 // Session cookie cached separately with a longer TTL (8 hours)
 let sessionCache: { cookie: string; ts: number } | null = null;
 const SESSION_TTL = 8 * 60 * 60 * 1000;
