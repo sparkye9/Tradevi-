@@ -1,0 +1,1070 @@
+//@version=6
+// =============================================================================
+//  GR FOCUS  —  TheOptionalTrader
+//  See the setup BEFORE the wick. Click only AFTER the sweep fails.
+//
+//  Paste this whole file into TradingView → Pine Editor → Save → Add to chart.
+//  Chart: MNQ or MES, 1 minute, Extended Hours ON, timezone New York.
+//  Market runs almost 24 hours, 6 days (Sunday 6pm–Friday 5pm NY), pause 5–6pm daily.
+//  Dashboard: DO THIS, ENTRY, STOP, TP1 (take half), TP2 (take the rest).
+//  Optional: turn on BEFORE-BED overnight trades (8pm–11pm). Same poke rule; it can run while you sleep.
+//
+//  This is not a crystal ball. It maps WHERE stops sit, WHICH side is the
+//  nearer raid, and WHEN a wick is likely — so you wait at the door instead
+//  of chasing a move that already happened.
+// =============================================================================
+indicator(
+     "GR Focus - TheOptionalTrader",
+     "GR FOCUS",
+     overlay = true,
+     max_bars_back = 300,
+     max_lines_count = 50,
+     max_labels_count = 80,
+     max_boxes_count = 20)
+// =============================================================================
+//  1. INPUTS
+// =============================================================================
+grpCore  = "01 - Time & limits"
+grpLvl   = "02 - Magnets (where price is drawn)"
+grpAnt   = "03 - See it before"
+grpEntry = "04 - Entry (after the sweep fails)"
+grpRisk  = "05 - Stop & target"
+grpVis   = "06 - Display"
+grpChop  = "07 - Chop firmness"
+maxTrades      = input.int(2, "Max trades per day", minval = 1, maxval = 8, group = grpCore)
+maxLosses      = input.int(2, "Max losses per day (0 = off)", minval = 0, maxval = 5, group = grpCore)
+cooldownMin    = input.int(15, "Minutes between trades", minval = 0, group = grpCore)
+timeLimitMin   = input.int(20, "Close trade after (minutes, 0 = off)", minval = 0, group = grpCore)
+useKZ          = input.bool(true, "Only trade inside time windows", group = grpCore)
+kzAM           = input.session("0930-1100", "AM window (NY)", group = grpCore)
+usePM          = input.bool(false, "Also trade PM window", group = grpCore)
+kzPM           = input.session("1400-1530", "PM window (NY)", group = grpCore)
+useOvernight   = input.bool(false, "Also allow BEFORE-BED overnight trades (market runs 23/6)", group = grpCore)
+kzON           = input.session("2000-2300", "Before-bed window (NY)", group = grpCore)
+flattenByMorning = input.bool(true, "Overnight trade: if still open at 7:00am, flatten", group = grpCore)
+morningClose   = input.session("0700-0715", "Wake-up flatten window (NY)", group = grpCore)
+flattenBeforeHalt = input.bool(true, "Flatten before 5:00pm daily pause (and Friday close)", group = grpCore)
+skipSundayOpen = input.bool(true, "Skip first 90 minutes after Sunday 6:00pm open", group = grpCore)
+overnightTimeMin = input.int(0, "Overnight time limit (minutes, 0 = hold until morning flatten)", minval = 0, group = grpCore)
+blockMidday    = input.bool(true, "Block 11:30-14:00 NY", group = grpCore)
+newsDayHalt    = input.bool(false, "NEWS DAY — no new trades", group = grpCore)
+skip830        = input.bool(true, "Blackout 08:25-08:50 NY", group = grpCore)
+skip1000       = input.bool(false, "Blackout 09:55-10:15 NY", group = grpCore)
+useLvlPD       = input.bool(true, "Previous day high / low / close", group = grpLvl)
+useLvlON       = input.bool(true, "Overnight high / low (18:00-09:30)", group = grpLvl)
+useLvlOR       = input.bool(true, "Opening range high / low", group = grpLvl)
+orMin          = input.int(15, "Opening range minutes", minval = 5, maxval = 60, group = grpLvl)
+useLvlLon      = input.bool(true, "London high / low", group = grpLvl)
+useVwap        = input.bool(true, "VWAP as magnet / target", group = grpLvl)
+useEq          = input.bool(true, "Equal highs / lows as magnets", group = grpLvl)
+useEqEntry     = input.bool(false, "Also ENTER on equal highs / lows (usually skip)", group = grpLvl)
+useFvg         = input.bool(true, "Latest unfilled FVG as magnet", group = grpLvl)
+eqTicks        = input.int(6, "Equal high/low tolerance (ticks)", minval = 1, group = grpLvl)
+approachTicks  = input.int(24, "Get-ready distance (ticks from next high/low)", minval = 4, group = grpAnt)
+probeBars      = input.int(8, "Probe lookback (bars)", minval = 3, maxval = 20, group = grpAnt)
+probeNeed      = input.int(2, "Probes that mean LOADING", minval = 1, group = grpAnt)
+huntAtr        = input.float(0.15, "Expected hunt depth (ATR)", minval = 0.05, step = 0.05, group = grpAnt)
+picky          = input.int(3, "How picky (min score 1-7)", minval = 1, maxval = 7, group = grpAnt)
+sweepMinATR    = input.float(0.12, "Min sweep depth (ATR)", minval = 0.0, step = 0.02, group = grpEntry)
+sweepMinTicks  = input.int(4, "Min sweep depth (ticks)", minval = 1, group = grpEntry)
+reclaimATR     = input.float(0.04, "Min close-back inside (ATR)", minval = 0.0, step = 0.02, group = grpEntry)
+wickBodyMult   = input.float(0.75, "Min wick-to-body ratio", minval = 0.0, step = 0.25, group = grpEntry)
+rvolMin        = input.float(0.9, "Min relative volume", minval = 0.0, step = 0.1, group = grpEntry)
+firstTouch     = input.bool(true, "First sweep of a level only", group = grpEntry)
+fadeInChop     = input.bool(true, "In chop: fade the sweep", group = grpEntry)
+withTrendOnly  = input.bool(true, "In trend: only with-trend sweeps", group = grpEntry)
+stopBufTicks   = input.int(4, "Stop buffer past wick (ticks)", minval = 0, group = grpRisk)
+minRiskTicks   = input.int(8, "Min stop distance (ticks)", minval = 1, group = grpRisk)
+maxRiskTicks   = input.int(120, "Max stop distance (ticks) — skip if the wick is bigger", minval = 2, group = grpRisk)
+tp1R           = input.float(1.0, "Take profit 1 (R) — take HALF off here", minval = 0.5, step = 0.25, group = grpRisk)
+tp2R           = input.float(1.5, "Take profit 2 (R) — take the REST off here", minval = 1.0, step = 0.25, group = grpRisk)
+moveBeAtTp1    = input.bool(true, "After TP1, move stop to entry (break even)", group = grpRisk)
+contracts      = input.int(1, "Contracts (for $ display)", minval = 1, group = grpRisk)
+showLevels     = input.bool(true, "Show key level lines", group = grpVis)
+showMagnets    = input.bool(true, "Show magnet lines", group = grpVis)
+showMapLabels  = input.bool(false, "Name tags on every level (off = cleaner)", group = grpVis)
+showTradeLines = input.bool(true, "Show entry / stop / TP1 / TP2", group = grpVis)
+showMarkers    = input.bool(true, "Show markers", group = grpVis)
+showPanel      = input.bool(true, "Show dashboard", group = grpVis)
+panelBgTransp  = input.int(60, "Dashboard background transparency (0=solid, 100=invisible)", minval = 0, maxval = 100, group = grpVis)
+showKZBG       = input.bool(false, "Tint the AM/PM window", group = grpVis)
+panelPos       = input.string("Top right", "Dashboard corner", options = ["Top right", "Bottom right", "Bottom left", "Top left"], group = grpVis)
+chopScoreBonus = input.int(2, "Extra score required in chop", minval = 0, maxval = 4, group = grpChop)
+chopReclaimMult = input.float(1.6, "Reclaim strength multiplier in chop", minval = 1.0, step = 0.1, group = grpChop)
+chopRvolMin    = input.float(1.15, "Min relative volume in chop", minval = 0.0, step = 0.05, group = grpChop)
+requireConflInChop = input.bool(true, "Require level confluence (stacked levels) in chop", group = grpChop)
+avoidCompressedChop = input.bool(true, "Skip chop fades when the range is compressed / coiling", group = grpChop)
+readyConfirmBars = input.int(2, "Confirm 'get ready' after (consecutive bars)", minval = 1, maxval = 10, group = grpChop)
+// =============================================================================
+//  2. INSTRUMENT
+// =============================================================================
+tickSize = syminfo.mintick
+f_tickDollar() =>
+    float pv = syminfo.pointvalue
+    float ts = syminfo.mintick
+    float d = pv > 0 and ts > 0 ? pv * ts : na
+    if na(d) or d <= 0
+        string raw = na(syminfo.root) ? syminfo.ticker : syminfo.root
+        string r = na(raw) ? "" : str.upper(raw)
+        if str.contains(r, "MNQ")
+            d := 0.50
+        else if str.contains(r, "MES")
+            d := 1.25
+        else if str.contains(r, "MGC")
+            d := 1.00
+        else if str.contains(r, "NQ")
+            d := 5.00
+        else if str.contains(r, "ES")
+            d := 12.50
+        else if str.contains(r, "GC")
+            d := 10.00
+        else
+            d := 0.50
+    d
+tickVal = f_tickDollar()
+// =============================================================================
+//  3. TIME
+// =============================================================================
+tz = "America/New_York"
+newDay = ta.change(time("D")) != 0
+dow = dayofweek(time, tz)
+hhmmNy = hour(time, tz) * 100 + minute(time, tz)
+inAM = not na(time(timeframe.period, kzAM, tz))
+inPM = not na(time(timeframe.period, kzPM, tz))
+inBed = not na(time(timeframe.period, kzON, tz))
+inMidday = not na(time(timeframe.period, "1130-1400", tz))
+in830 = not na(time(timeframe.period, "0825-0850", tz))
+in1000 = not na(time(timeframe.period, "0955-1015", tz))
+onSess = not na(time(timeframe.period, "1800-0930", tz))
+rthSess = not na(time(timeframe.period, "0930-1600", tz))
+lonSess = not na(time(timeframe.period, "0300-0830", tz))
+inHalt = not na(time(timeframe.period, "1650-1800", tz)) and dow != dayofweek.sunday
+inMorningClose = not na(time(timeframe.period, morningClose, tz))
+isWeekendClosed =
+     dow == dayofweek.saturday or
+     (dow == dayofweek.friday and hhmmNy >= 1700) or
+     (dow == dayofweek.sunday and hhmmNy < 1800)
+skipSunOpen = skipSundayOpen and dow == dayofweek.sunday and hhmmNy >= 1800 and hhmmNy < 1930
+inKZ = inAM or (usePM and inPM) or (useOvernight and inBed)
+newsBlock = (skip830 and in830) or (skip1000 and in1000) or inHalt or isWeekendClosed or skipSunOpen
+windowOK = not useKZ or inKZ
+sessionOK = windowOK and not (blockMidday and inMidday) and not newsBlock and not newsDayHalt
+// =============================================================================
+//  4. VOLATILITY / REGIME
+// =============================================================================
+atrLen = timeframe.in_seconds() < 60 ? 28 : 14
+atrUse = ta.atr(atrLen)
+avgVol = ta.sma(volume, 20)
+rvol = avgVol > 0 ? volume / avgVol : 1.0
+[diPlus, diMinus, adxVal] = ta.dmi(14, 14)
+erLen = 20
+erDen = math.sum(math.abs(close - close[1]), erLen)
+er = erDen > 0 ? math.abs(close - close[erLen]) / erDen : 0.0
+chopLen = 14
+chopSpan = ta.highest(high, chopLen) - ta.lowest(low, chopLen)
+chopIdx = chopSpan > 0 ? 100.0 * math.log10(math.sum(ta.atr(1), chopLen) / chopSpan) / math.log10(chopLen) : 50.0
+isChop = chopIdx >= 61.8 or (adxVal < 20.0 and er < 0.30)
+isTrend = chopIdx <= 38.2 and adxVal >= 25.0
+trendUp = diPlus > diMinus
+trendDn = diMinus > diPlus
+regimeTxt = isChop ? "sideways" : isTrend ? "trending" : "mixed"
+[bbMid, bbUp, bbLo] = ta.bb(close, 20, 2)
+bbw = bbMid != 0 ? (bbUp - bbLo) / bbMid * 100.0 : 0.0
+compressed = ta.percentrank(atrUse, 50) <= 25 or ta.percentrank(bbw, 50) <= 20
+insideBar = high <= high[1] and low >= low[1]
+var int insideCount = 0
+insideCount := insideBar ? insideCount + 1 : 0
+coiling = compressed or insideCount >= 2
+minSweep = math.max(sweepMinATR * nz(atrUse, 0.0), sweepMinTicks * tickSize)
+huntDepth = math.max(huntAtr * nz(atrUse, 0.0), sweepMinTicks * tickSize)
+// =============================================================================
+//  5. KEY LEVELS
+// =============================================================================
+[pdHigh, pdLow, pdClose] = request.security(
+     syminfo.tickerid,
+     "D",
+     [high[1], low[1], close[1]],
+     lookahead = barmerge.lookahead_on)
+var float onHigh = na
+var float onLow = na
+if onSess and not onSess[1]
+    onHigh := high
+    onLow := low
+else if onSess
+    onHigh := math.max(nz(onHigh, high), high)
+    onLow := math.min(nz(onLow, low), low)
+var float orHigh = na
+var float orLow = na
+var int orStartTime = na
+var bool orReady = false
+if newDay
+    orHigh := na
+    orLow := na
+    orStartTime := na
+    orReady := false
+if rthSess and na(orStartTime)
+    orHigh := high
+    orLow := low
+    orStartTime := time
+    orReady := false
+else if rthSess and not orReady and not na(orStartTime)
+    orHigh := math.max(nz(orHigh, high), high)
+    orLow := math.min(nz(orLow, low), low)
+    if (time - orStartTime) >= orMin * 60000
+        orReady := true
+var float lonHigh = na
+var float lonLow = na
+if lonSess and not lonSess[1]
+    lonHigh := high
+    lonLow := low
+else if lonSess
+    lonHigh := math.max(nz(lonHigh, high), high)
+    lonLow := math.min(nz(lonLow, low), low)
+var float rthPV = 0.0
+var float rthV = 0.0
+if rthSess and not rthSess[1]
+    rthPV := hlc3 * volume
+    rthV := volume
+else if rthSess
+    rthPV += hlc3 * volume
+    rthV += volume
+rthVwap = rthV > 0 ? rthPV / rthV : na
+vwapUse = useVwap ? (rthSess ? rthVwap : ta.vwap) : na
+ph = ta.pivothigh(high, 3, 3)
+pl = ta.pivotlow(low, 3, 3)
+var float lastPh = na
+var float lastPh2 = na
+var float lastPl = na
+var float lastPl2 = na
+if not na(ph)
+    lastPh2 := lastPh
+    lastPh := ph
+if not na(pl)
+    lastPl2 := lastPl
+    lastPl := pl
+eqBand = eqTicks * tickSize
+eqHigh = useEq and not na(lastPh) and not na(lastPh2) and math.abs(lastPh - lastPh2) <= eqBand ? (lastPh + lastPh2) / 2.0 : na
+eqLow  = useEq and not na(lastPl) and not na(lastPl2) and math.abs(lastPl - lastPl2) <= eqBand ? (lastPl + lastPl2) / 2.0 : na
+var float bullFvgBot = na
+var float bearFvgTop = na
+if useFvg and low > high[2]
+    bullFvgBot := high[2]
+if useFvg and high < low[2]
+    bearFvgTop := low[2]
+if not na(bullFvgBot) and low <= bullFvgBot
+    bullFvgBot := na
+if not na(bearFvgTop) and high >= bearFvgTop
+    bearFvgTop := na
+fvgUp = useFvg ? bearFvgTop : na
+fvgDn = useFvg ? bullFvgBot : na
+orHighUse = useLvlOR and orReady ? orHigh : na
+orLowUse  = useLvlOR and orReady ? orLow : na
+// =============================================================================
+//  6. MAGNET ENGINE  —  nearest liquidity above and below
+// =============================================================================
+f_nearestUp() =>
+    float b = na
+    string n = ""
+    if useLvlPD and not na(pdHigh) and pdHigh > close
+        if na(b) or (pdHigh - close) < (b - close)
+            b := pdHigh
+            n := "PDH"
+    if useLvlPD and not na(pdClose) and pdClose > close
+        if na(b) or (pdClose - close) < (b - close)
+            b := pdClose
+            n := "PDC"
+    if useLvlON and not na(onHigh) and onHigh > close
+        if na(b) or (onHigh - close) < (b - close)
+            b := onHigh
+            n := "ONH"
+    if useLvlOR and not na(orHighUse) and orHighUse > close
+        if na(b) or (orHighUse - close) < (b - close)
+            b := orHighUse
+            n := "ORH"
+    if useLvlLon and not na(lonHigh) and lonHigh > close
+        if na(b) or (lonHigh - close) < (b - close)
+            b := lonHigh
+            n := "LONH"
+    if useVwap and not na(vwapUse) and vwapUse > close
+        if na(b) or (vwapUse - close) < (b - close)
+            b := vwapUse
+            n := "VWAP"
+    if useEq and not na(eqHigh) and eqHigh > close
+        if na(b) or (eqHigh - close) < (b - close)
+            b := eqHigh
+            n := "EQH"
+    if useFvg and not na(fvgUp) and fvgUp > close
+        if na(b) or (fvgUp - close) < (b - close)
+            b := fvgUp
+            n := "FVG"
+    [b, n]
+f_nearestDn() =>
+    float b = na
+    string n = ""
+    if useLvlPD and not na(pdLow) and pdLow < close
+        if na(b) or (close - pdLow) < (close - b)
+            b := pdLow
+            n := "PDL"
+    if useLvlPD and not na(pdClose) and pdClose < close
+        if na(b) or (close - pdClose) < (close - b)
+            b := pdClose
+            n := "PDC"
+    if useLvlON and not na(onLow) and onLow < close
+        if na(b) or (close - onLow) < (close - b)
+            b := onLow
+            n := "ONL"
+    if useLvlOR and not na(orLowUse) and orLowUse < close
+        if na(b) or (close - orLowUse) < (close - b)
+            b := orLowUse
+            n := "ORL"
+    if useLvlLon and not na(lonLow) and lonLow < close
+        if na(b) or (close - lonLow) < (close - b)
+            b := lonLow
+            n := "LONL"
+    if useVwap and not na(vwapUse) and vwapUse < close
+        if na(b) or (close - vwapUse) < (close - b)
+            b := vwapUse
+            n := "VWAP"
+    if useEq and not na(eqLow) and eqLow < close
+        if na(b) or (close - eqLow) < (close - b)
+            b := eqLow
+            n := "EQL"
+    if useFvg and not na(fvgDn) and fvgDn < close
+        if na(b) or (close - fvgDn) < (close - b)
+            b := fvgDn
+            n := "FVG"
+    [b, n]
+[magUp, magUpName] = f_nearestUp()
+[magDn, magDnName] = f_nearestDn()
+distUpTicks = not na(magUp) and tickSize > 0 ? (magUp - close) / tickSize : na
+distDnTicks = not na(magDn) and tickSize > 0 ? (close - magDn) / tickSize : na
+nearerIsDown = not na(distDnTicks) and (na(distUpTicks) or distDnTicks <= distUpTicks)
+nearerName = nearerIsDown ? magDnName : magUpName
+nearerTicks = nearerIsDown ? distDnTicks : distUpTicks
+f_probes(float lvl, bool isLow) =>
+    int n = 0
+    if not na(lvl)
+        float buf = math.max(approachTicks * 0.35, 4.0) * tickSize
+        for i = 1 to probeBars
+            if isLow
+                if low[i] <= lvl + buf and close[i] >= lvl - buf
+                    n += 1
+            else
+                if high[i] >= lvl - buf and close[i] <= lvl + buf
+                    n += 1
+    n
+probesDn = f_probes(magDn, true)
+probesUp = f_probes(magUp, false)
+// A single-bar poke of "close enough" flickers WAIT <-> GET READY in chop.
+// Require the approach to hold for readyConfirmBars in a row before it counts.
+readyDnRaw = not na(distDnTicks) and distDnTicks <= approachTicks
+readyUpRaw = not na(distUpTicks) and distUpTicks <= approachTicks
+var int readyDnBars = 0
+var int readyUpBars = 0
+readyDnBars := readyDnRaw ? readyDnBars + 1 : 0
+readyUpBars := readyUpRaw ? readyUpBars + 1 : 0
+readyDn = readyDnBars >= readyConfirmBars
+readyUp = readyUpBars >= readyConfirmBars
+loadingDn = readyDn and probesDn >= probeNeed
+loadingUp = readyUp and probesUp >= probeNeed
+readyAny = readyDn or readyUp
+loadingAny = loadingDn or loadingUp
+coilAtMagnet = coiling and readyAny
+f_plain(string code) =>
+    string s = code
+    s := str.replace_all(s, "LONH", "London high")
+    s := str.replace_all(s, "LONL", "London low")
+    s := str.replace_all(s, "ONH", "overnight high")
+    s := str.replace_all(s, "ONL", "overnight low")
+    s := str.replace_all(s, "ORH", "opening high")
+    s := str.replace_all(s, "ORL", "opening low")
+    s := str.replace_all(s, "PDH", "yesterday high")
+    s := str.replace_all(s, "PDL", "yesterday low")
+    s := str.replace_all(s, "PDC", "yesterday close")
+    s := str.replace_all(s, "EQH", "double high")
+    s := str.replace_all(s, "EQL", "double low")
+    s := str.replace_all(s, "VWAP", "average price")
+    s := str.replace_all(s, "FVG", "gap")
+    s := str.replace_all(s, "+", " + ")
+    s
+f_px(float px) =>
+    na(px) ? "—" : str.tostring(px, format.mintick)
+var string nyPlan = "Waiting for the open"
+var bool rthStarted = false
+if newDay
+    rthStarted := false
+    nyPlan := "Waiting for the open"
+if rthSess
+    rthStarted := true
+onRange = not na(onHigh) and not na(onLow) ? onHigh - onLow : na
+pdRange = not na(pdHigh) and not na(pdLow) ? pdHigh - pdLow : na
+onTight = not na(onRange) and not na(pdRange) and pdRange > 0 ? onRange < 0.55 * pdRange : false
+f_planFromHere() =>
+    string p = "Reading the chart..."
+    if na(onHigh) or na(onLow)
+        p := "Chart settings: turn Extended Hours ON, then this can work."
+    else if close > onHigh
+        p := "Price is above last night's high. If it stays up, look to BUY dips. If it falls back inside, look to SELL."
+    else if close < onLow
+        p := "Price is below last night's low. If it stays down, look to SELL pops. If it climbs back inside, look to BUY."
+    else
+        string near = f_plain(nearerName)
+        string other = f_plain(nearerIsDown ? magUpName : magDnName)
+        if nearerIsDown
+            p := "WAIT. Price may dip to " + near + " at " + f_px(magDn) + ". BUY only if it pokes through and the candle closes back up. Then aim for " + other + "."
+        else
+            p := "WAIT. Price may poke " + near + " at " + f_px(magUp) + ". SELL only if it pokes through and the candle closes back down. Then aim for " + other + "."
+        if onTight
+            p := p + " Overnight was quiet, so the open can move fast."
+    p
+if rthSess and not rthSess[1]
+    nyPlan := f_planFromHere()
+livePlan = not rthStarted ? f_planFromHere() : nyPlan
+// =============================================================================
+//  7. SWEEP DETECTION
+// =============================================================================
+bodySz = math.abs(close - open)
+lowerWick = math.min(open, close) - low
+upperWick = high - math.max(open, close)
+rejectLong = bodySz == 0 or lowerWick >= wickBodyMult * bodySz or (close > open and close > math.max(open[1], close[1]))
+rejectShort = bodySz == 0 or upperWick >= wickBodyMult * bodySz or (close < open and close < math.min(open[1], close[1]))
+strongLong = (bodySz > 0 and lowerWick >= 1.5 * bodySz) or (close > open and close > math.max(open[1], close[1]))
+strongShort = (bodySz > 0 and upperWick >= 1.5 * bodySz) or (close < open and close < math.min(open[1], close[1]))
+f_sweptLong(float lvl) =>
+    not na(lvl) and not na(atrUse) and atrUse > 0 and
+     low < lvl and close > lvl and
+     (lvl - low) >= minSweep and
+     (close - lvl) >= reclaimATR * atrUse
+f_sweptShort(float lvl) =>
+    not na(lvl) and not na(atrUse) and atrUse > 0 and
+     high > lvl and close < lvl and
+     (high - lvl) >= minSweep and
+     (lvl - close) >= reclaimATR * atrUse
+var bool usedPDH = false
+var bool usedPDL = false
+var bool usedONH = false
+var bool usedONL = false
+var bool usedORH = false
+var bool usedORL = false
+var bool usedLONH = false
+var bool usedLONL = false
+if newDay
+    usedPDH := false
+    usedPDL := false
+    usedONH := false
+    usedONL := false
+    usedORH := false
+    usedORL := false
+    usedLONH := false
+    usedLONL := false
+f_pickLong() =>
+    float bl = na
+    string bn = ""
+    float bd = -1.0
+    bool bv = false
+    float d = na
+    if useLvlPD and f_sweptLong(pdLow) and (not firstTouch or not usedPDL)
+        d := pdLow - low
+        if d > bd
+            bl := pdLow
+            bn := "PDL"
+            bd := d
+            bv := not usedPDL
+    if useLvlON and f_sweptLong(onLow) and (not firstTouch or not usedONL)
+        d := onLow - low
+        if d > bd
+            bl := onLow
+            bn := "ONL"
+            bd := d
+            bv := not usedONL
+    if useLvlOR and f_sweptLong(orLowUse) and (not firstTouch or not usedORL)
+        d := orLowUse - low
+        if d > bd
+            bl := orLowUse
+            bn := "ORL"
+            bd := d
+            bv := not usedORL
+    if useLvlLon and f_sweptLong(lonLow) and (not firstTouch or not usedLONL)
+        d := lonLow - low
+        if d > bd
+            bl := lonLow
+            bn := "LONL"
+            bd := d
+            bv := not usedLONL
+    if useEqEntry and useEq and f_sweptLong(eqLow)
+        d := eqLow - low
+        if d > bd
+            bl := eqLow
+            bn := "EQL"
+            bd := d
+            bv := true
+    string tagged = bn
+    if not na(bl)
+        if useLvlPD and f_sweptLong(pdLow) and math.abs(pdLow - bl) <= eqBand and bn != "PDL"
+            tagged := tagged + "+PDL"
+        if useLvlON and f_sweptLong(onLow) and math.abs(onLow - bl) <= eqBand and bn != "ONL"
+            tagged := tagged + "+ONL"
+        if useLvlOR and f_sweptLong(orLowUse) and math.abs(orLowUse - bl) <= eqBand and bn != "ORL"
+            tagged := tagged + "+ORL"
+        if useLvlLon and f_sweptLong(lonLow) and math.abs(lonLow - bl) <= eqBand and bn != "LONL"
+            tagged := tagged + "+LONL"
+    [bl, tagged, bv]
+f_pickShort() =>
+    float bl = na
+    string bn = ""
+    float bd = -1.0
+    bool bv = false
+    float d = na
+    if useLvlPD and f_sweptShort(pdHigh) and (not firstTouch or not usedPDH)
+        d := high - pdHigh
+        if d > bd
+            bl := pdHigh
+            bn := "PDH"
+            bd := d
+            bv := not usedPDH
+    if useLvlON and f_sweptShort(onHigh) and (not firstTouch or not usedONH)
+        d := high - onHigh
+        if d > bd
+            bl := onHigh
+            bn := "ONH"
+            bd := d
+            bv := not usedONH
+    if useLvlOR and f_sweptShort(orHighUse) and (not firstTouch or not usedORH)
+        d := high - orHighUse
+        if d > bd
+            bl := orHighUse
+            bn := "ORH"
+            bd := d
+            bv := not usedORH
+    if useLvlLon and f_sweptShort(lonHigh) and (not firstTouch or not usedLONH)
+        d := high - lonHigh
+        if d > bd
+            bl := lonHigh
+            bn := "LONH"
+            bd := d
+            bv := not usedLONH
+    if useEqEntry and useEq and f_sweptShort(eqHigh)
+        d := high - eqHigh
+        if d > bd
+            bl := eqHigh
+            bn := "EQH"
+            bd := d
+            bv := true
+    string tagged = bn
+    if not na(bl)
+        if useLvlPD and f_sweptShort(pdHigh) and math.abs(pdHigh - bl) <= eqBand and bn != "PDH"
+            tagged := tagged + "+PDH"
+        if useLvlON and f_sweptShort(onHigh) and math.abs(onHigh - bl) <= eqBand and bn != "ONH"
+            tagged := tagged + "+ONH"
+        if useLvlOR and f_sweptShort(orHighUse) and math.abs(orHighUse - bl) <= eqBand and bn != "ORH"
+            tagged := tagged + "+ORH"
+        if useLvlLon and f_sweptShort(lonHigh) and math.abs(lonHigh - bl) <= eqBand and bn != "LONH"
+            tagged := tagged + "+LONH"
+    [bl, tagged, bv]
+[longLvl, longLvlName, longVirgin] = f_pickLong()
+[shortLvl, shortLvlName, shortVirgin] = f_pickShort()
+if barstate.isconfirmed
+    if useLvlPD and f_sweptLong(pdLow)
+        usedPDL := true
+    if useLvlON and f_sweptLong(onLow)
+        usedONL := true
+    if useLvlOR and f_sweptLong(orLowUse)
+        usedORL := true
+    if useLvlLon and f_sweptLong(lonLow)
+        usedLONL := true
+    if useLvlPD and f_sweptShort(pdHigh)
+        usedPDH := true
+    if useLvlON and f_sweptShort(onHigh)
+        usedONH := true
+    if useLvlOR and f_sweptShort(orHighUse)
+        usedORH := true
+    if useLvlLon and f_sweptShort(lonHigh)
+        usedLONH := true
+// In chop, demand a stronger close-back beyond the level — a marginal
+// reclaim in a sideways market fails far more often than in a clean trend.
+reclaimMult = isChop ? chopReclaimMult : 1.0
+reclaimLongOK = not na(longLvl) and not na(atrUse) and (close - longLvl) >= reclaimATR * reclaimMult * atrUse
+reclaimShortOK = not na(shortLvl) and not na(atrUse) and (shortLvl - close) >= reclaimATR * reclaimMult * atrUse
+conflLong = str.contains(longLvlName, "+")
+conflShort = str.contains(shortLvlName, "+")
+// Extra chop-only gates: don't fade a level alone, don't fade on dead volume,
+// and don't fade while the range itself is still coiling (could break either way).
+chopFirmLong = (not requireConflInChop or conflLong) and rvol >= chopRvolMin and (not avoidCompressedChop or not compressed)
+chopFirmShort = (not requireConflInChop or conflShort) and rvol >= chopRvolMin and (not avoidCompressedChop or not compressed)
+regimeLongOK =
+     (isChop and fadeInChop and chopFirmLong) or
+     (isTrend and withTrendOnly and trendUp) or
+     (isTrend and not withTrendOnly) or
+     (not isChop and not isTrend)
+regimeShortOK =
+     (isChop and fadeInChop and chopFirmShort) or
+     (isTrend and withTrendOnly and trendDn) or
+     (isTrend and not withTrendOnly) or
+     (not isChop and not isTrend)
+scoreLong =
+     (inKZ ? 1 : 0) +
+     (longVirgin ? 1 : 0) +
+     (strongLong ? 1 : 0) +
+     (rvol >= 1.2 ? 1 : 0) +
+     (conflLong ? 1 : 0) +
+     (reclaimLongOK ? 1 : 0) +
+     (regimeLongOK ? 1 : 0)
+scoreShort =
+     (inKZ ? 1 : 0) +
+     (shortVirgin ? 1 : 0) +
+     (strongShort ? 1 : 0) +
+     (rvol >= 1.2 ? 1 : 0) +
+     (conflShort ? 1 : 0) +
+     (reclaimShortOK ? 1 : 0) +
+     (regimeShortOK ? 1 : 0)
+// Chop needs a higher bar to qualify at all — raise the score floor there.
+pickyEff = picky + (isChop ? chopScoreBonus : 0)
+longSweep = not na(longLvl) and rejectLong and rvol >= rvolMin and regimeLongOK and scoreLong >= pickyEff
+shortSweep = not na(shortLvl) and rejectShort and rvol >= rvolMin and regimeShortOK and scoreShort >= pickyEff
+// =============================================================================
+//  8. TRADE STATE
+// =============================================================================
+var int tradesToday = 0
+var int winsToday = 0
+var int lossToday = 0
+var int lastExitTime = na
+var int posDir = 0
+var float entryP = na
+var float stopP = na
+var float tp1P = na
+var float tp2P = na
+var bool tp1Done = false
+var int entryTime = na
+var bool isNightTrade = false
+var string entryLvl = ""
+if newDay
+    tradesToday := 0
+    winsToday := 0
+    lossToday := 0
+cooldownOK = na(lastExitTime) or (time - lastExitTime) / 60000.0 >= cooldownMin
+lossOK = maxLosses == 0 or lossToday < maxLosses
+candStopLong = low - stopBufTicks * tickSize
+candStopShort = high + stopBufTicks * tickSize
+riskLongTicks = tickSize > 0 ? (close - candStopLong) / tickSize : na
+riskShortTicks = tickSize > 0 ? (candStopShort - close) / tickSize : na
+riskOKLong = not na(riskLongTicks) and riskLongTicks >= minRiskTicks and riskLongTicks <= maxRiskTicks
+riskOKShort = not na(riskShortTicks) and riskShortTicks >= minRiskTicks and riskShortTicks <= maxRiskTicks
+skipWideLong = longSweep and not riskOKLong and posDir == 0 and sessionOK
+skipWideShort = shortSweep and not riskOKShort and posDir == 0 and sessionOK
+skipWide = skipWideLong or skipWideShort
+wideTicks = skipWideLong ? riskLongTicks : skipWideShort ? riskShortTicks : na
+wideDollar = not na(wideTicks) ? wideTicks * tickVal * contracts : na
+f_longTp(float entry, float stopPx, float rMult) =>
+    entry + (entry - stopPx) * rMult
+f_shortTp(float entry, float stopPx, float rMult) =>
+    entry - (stopPx - entry) * rMult
+tp2Use = math.max(tp2R, tp1R)
+gatesOK =
+     posDir == 0 and
+     tradesToday < maxTrades and
+     lossOK and
+     cooldownOK and
+     sessionOK
+longSetup = gatesOK and longSweep and riskOKLong
+shortSetup = gatesOK and shortSweep and riskOKShort
+longEntry = longSetup and not shortSetup and barstate.isconfirmed
+shortEntry = shortSetup and not longSetup and barstate.isconfirmed
+longForming = longSetup and not shortSetup and not barstate.isconfirmed
+shortForming = shortSetup and not longSetup and not barstate.isconfirmed
+if longEntry
+    posDir := 1
+    entryP := close
+    stopP := candStopLong
+    tp1P := f_longTp(close, candStopLong, tp1R)
+    tp2P := f_longTp(close, candStopLong, tp2Use)
+    tp1Done := false
+    entryTime := time
+    entryLvl := longLvlName
+    tradesToday += 1
+    isNightTrade := useOvernight and inBed
+if shortEntry
+    posDir := -1
+    entryP := close
+    stopP := candStopShort
+    tp1P := f_shortTp(close, candStopShort, tp1R)
+    tp2P := f_shortTp(close, candStopShort, tp2Use)
+    tp1Done := false
+    entryTime := time
+    entryLvl := shortLvlName
+    tradesToday += 1
+    isNightTrade := useOvernight and inBed
+// =============================================================================
+//  9. EXITS  (stop, take half at TP1, take the rest at TP2)
+// =============================================================================
+minsInTrade = posDir != 0 and not na(entryTime) ? (time - entryTime) / 60000.0 : 0.0
+limitMin = isNightTrade ? overnightTimeMin : timeLimitMin
+timeUp = limitMin > 0 and posDir != 0 and minsInTrade >= limitMin
+morningFlat = isNightTrade and flattenByMorning and inMorningClose
+haltFlat = flattenBeforeHalt and posDir != 0 and (inHalt or isWeekendClosed)
+hitStop = (posDir == 1 and low <= stopP) or (posDir == -1 and high >= stopP)
+hitTp1 = (posDir == 1 and high >= tp1P) or (posDir == -1 and low <= tp1P)
+hitTp2 = (posDir == 1 and high >= tp2P) or (posDir == -1 and low <= tp2P)
+var bool exitStop = false
+var bool exitTp1 = false
+var bool exitTp2 = false
+var bool exitTime = false
+var string flattenWhy = ""
+exitStop := false
+exitTp1 := false
+exitTp2 := false
+exitTime := false
+flattenWhy := ""
+if posDir != 0 and barstate.isconfirmed
+    bool isEntryBar = longEntry or shortEntry
+    if hitStop and not isEntryBar
+        exitStop := true
+        if not tp1Done
+            lossToday += 1
+    else if hitTp2
+        exitTp2 := true
+        winsToday += 1
+    else if hitTp1 and not tp1Done
+        exitTp1 := true
+        tp1Done := true
+        if moveBeAtTp1
+            stopP := entryP
+    else if (timeUp or morningFlat or haltFlat) and not isEntryBar
+        exitTime := true
+        flattenWhy := haltFlat ? "Daily pause is at 5:00pm. Flatten now." : morningFlat ? "Wake-up flatten. Close it." : "Time is up. Flatten now."
+        if tp1Done or (posDir == 1 and close > entryP) or (posDir == -1 and close < entryP)
+            winsToday += 1
+        else
+            lossToday += 1
+exitAny = exitStop or exitTp2 or exitTime
+if exitAny
+    posDir := 0
+    lastExitTime := time
+    isNightTrade := false
+planEntry = posDir != 0 ? entryP : longForming ? close : shortForming ? close : na
+planStop = posDir != 0 ? stopP : longForming ? candStopLong : shortForming ? candStopShort : na
+planTp1 = posDir != 0 ? tp1P : longForming ? f_longTp(close, candStopLong, tp1R) : shortForming ? f_shortTp(close, candStopShort, tp1R) : na
+planTp2 = posDir != 0 ? tp2P : longForming ? f_longTp(close, candStopLong, tp2Use) : shortForming ? f_shortTp(close, candStopShort, tp2Use) : na
+// =============================================================================
+//  10. STATUS
+// =============================================================================
+tradesLeft = math.max(0, maxTrades - tradesToday)
+nextHighTxt = na(magUp) ? "—" : f_px(magUp)
+nextLowTxt = na(magDn) ? "—" : f_px(magDn)
+string doThis =
+     isWeekendClosed ? "MARKET CLOSED" :
+     inHalt and posDir == 0 ? "DAILY PAUSE" :
+     skipSunOpen ? "SUNDAY OPEN" :
+     newsDayHalt or newsBlock ? "NO TRADE" :
+     longEntry ? "BUY NOW" :
+     shortEntry ? "SELL NOW" :
+     posDir == 1 ? "IN BUY" :
+     posDir == -1 ? "IN SELL" :
+     tradesLeft == 0 or not lossOK ? "DONE TODAY" :
+     skipWide ? "SKIP" :
+     blockMidday and inMidday ? "PAUSED" :
+     useOvernight and onSess and not inBed and not inAM ? "OVERNIGHT OPEN" :
+     useKZ and not inKZ and not rthStarted and not useOvernight ? "BEFORE OPEN" :
+     useKZ and not inKZ ? "WAIT" :
+     not cooldownOK ? "WAIT" :
+     longForming or shortForming ? "GET READY" :
+     loadingAny or coilAtMagnet or readyAny ? "GET READY" :
+     "WAIT"
+string howTxt =
+     posDir != 0 and isNightTrade and not tp1Done ? "You can go to bed. Stop is " + f_px(stopP) + ". Take HALF at TP1 " + f_px(tp1P) + ". Take the REST at TP2 " + f_px(tp2P) + ". If it is still open at 7:00am, flatten. Flatten before 5:00pm (daily pause)." :
+     posDir != 0 and isNightTrade and tp1Done ? "Half is off. Stop is at entry. Rest runs to TP2 " + f_px(tp2P) + " while you sleep. Flatten at 7:00am if still open." :
+     posDir == 1 and not tp1Done ? "Stop is " + f_px(stopP) + ". Take HALF at TP1 " + f_px(tp1P) + ". Take the REST at TP2 " + f_px(tp2P) + "." :
+     posDir == 1 and tp1Done ? "Half is off. Stop is at entry. Let the rest run to TP2 " + f_px(tp2P) + "." :
+     posDir == -1 and not tp1Done ? "Stop is " + f_px(stopP) + ". Take HALF at TP1 " + f_px(tp1P) + ". Take the REST at TP2 " + f_px(tp2P) + "." :
+     posDir == -1 and tp1Done ? "Half is off. Stop is at entry. Let the rest run to TP2 " + f_px(tp2P) + "." :
+     isWeekendClosed ? "Market is closed until Sunday 6:00pm New York. Then it runs almost all night, 6 days a week, with a 5:00–6:00pm pause each day. Closed Friday 5:00pm to Sunday 6:00pm." :
+     inHalt ? "Daily pause 5:00–6:00pm New York. Do not click. If you are still in a trade, flatten." :
+     skipSunOpen ? "Sunday 6:00pm open is noisy. Wait 90 minutes, then the before-bed window can start." :
+     skipWide ? "The poke is real, but STOP would be " + str.tostring(int(math.round(nz(wideTicks, 0)))) + " ticks (about $" + str.tostring(math.round(nz(wideDollar, 0))) + "). Max allowed is " + str.tostring(maxRiskTicks) + ". Skip this one." :
+     longForming ? "Wait for this candle to CLOSE. If it stays a BUY, use the prices below." :
+     shortForming ? "Wait for this candle to CLOSE. If it stays a SELL, use the prices below." :
+     useOvernight and inBed ? "Before-bed window. Same rule: wait for a poke, then a close back. Set ENTRY / STOP / TP1 / TP2, then you can go to sleep. Market stays open overnight." :
+     useOvernight and onSess and not inBed ? "Market is OPEN overnight (23 hours, 6 days). Daily pause was 5:00–6:00pm. Before-bed clicks are in your 8:00–11:00pm window. Do not chase." :
+     loadingDn ? "Price is poking " + f_plain(magDnName) + ". Do not click yet. BUY only if it pokes through and closes back up." :
+     loadingUp ? "Price is poking " + f_plain(magUpName) + ". Do not click yet. SELL only if it pokes through and closes back down." :
+     coilAtMagnet ? "Range is tight at a level. A fast move is next. Do not chase." :
+     readyDn ? "Next low is close (" + f_plain(magDnName) + "). Wait for a poke through, then a close back up, then BUY." :
+     readyUp ? "Next high is close (" + f_plain(magUpName) + "). Wait for a poke through, then a close back down, then SELL." :
+     livePlan
+color statusCol =
+     doThis == "BUY NOW" or doThis == "IN BUY" ? color.lime :
+     doThis == "SELL NOW" or doThis == "IN SELL" ? color.red :
+     doThis == "GET READY" or doThis == "OVERNIGHT OPEN" ? color.yellow :
+     doThis == "SKIP" or doThis == "SUNDAY OPEN" or doThis == "DAILY PAUSE" ? color.orange :
+     doThis == "MARKET CLOSED" ? color.gray :
+     doThis == "BEFORE OPEN" or doThis == "WAIT" ? color.white :
+     color.gray
+// =============================================================================
+//  11. PLOTS
+// =============================================================================
+plot(showLevels and useLvlPD ? pdHigh : na, "Yesterday high", color.new(color.red, 35), 1, plot.style_linebr)
+plot(showLevels and useLvlPD ? pdLow : na, "Yesterday low", color.new(color.green, 35), 1, plot.style_linebr)
+plot(showLevels and useLvlPD ? pdClose : na, "Yesterday close", color.new(color.gray, 55), 1, plot.style_stepline)
+pOnh = plot(showLevels and useLvlON ? onHigh : na, "Overnight high", color.new(color.orange, 40), 1, plot.style_linebr)
+pOnl = plot(showLevels and useLvlON ? onLow : na, "Overnight low", color.new(color.orange, 40), 1, plot.style_linebr)
+fill(pOnh, pOnl, color = showLevels and useLvlON ? color.new(color.orange, 94) : na, title = "Overnight / premarket range")
+plot(showLevels and useLvlOR ? orHighUse : na, "Opening high", color.new(color.aqua, 40), 1, plot.style_linebr)
+plot(showLevels and useLvlOR ? orLowUse : na, "Opening low", color.new(color.aqua, 40), 1, plot.style_linebr)
+plot(showLevels and useLvlLon ? lonHigh : na, "London high", color.new(#af7ac5, 45), 1, plot.style_linebr)
+plot(showLevels and useLvlLon ? lonLow : na, "London low", color.new(#af7ac5, 45), 1, plot.style_linebr)
+plot(showLevels and useVwap ? vwapUse : na, "Average price", color.new(color.yellow, 50), 1, plot.style_linebr)
+pMagUp = plot(showMagnets ? magUp : na, "Next high", color.new(color.fuchsia, 0), 2, plot.style_linebr)
+pHuntUp = plot(showMagnets and readyUp ? magUp + huntDepth : na, "Hunt pocket high", color.new(color.red, 100))
+fill(pMagUp, pHuntUp, color = readyUp ? color.new(color.red, 88) : na, title = "Expected high raid")
+pMagDn = plot(showMagnets ? magDn : na, "Next low", color.new(color.aqua, 0), 2, plot.style_linebr)
+pHuntDn = plot(showMagnets and readyDn ? magDn - huntDepth : na, "Hunt pocket low", color.new(color.lime, 100))
+fill(pMagDn, pHuntDn, color = readyDn ? color.new(color.lime, 88) : na, title = "Expected low raid")
+plot(showTradeLines and (longForming or shortForming) ? planEntry : na, "ENTRY", color.new(color.white, 0), 2, plot.style_linebr)
+plot(showTradeLines and (longForming or shortForming) ? planStop : na, "STOP", color.new(color.red, 0), 2, plot.style_linebr)
+plot(showTradeLines and (longForming or shortForming) ? planTp1 : na, "TP1 (take half)", color.new(color.teal, 0), 2, plot.style_linebr)
+plot(showTradeLines and (longForming or shortForming) ? planTp2 : na, "TP2 (take the rest)", color.new(color.lime, 0), 2, plot.style_linebr)
+bgcolor(showKZBG and inKZ and posDir == 0 ? color.new(color.teal, 94) : na, title = "Trade window")
+bgcolor(showKZBG and useOvernight and inBed and posDir == 0 ? color.new(color.purple, 94) : na, title = "Before-bed window")
+bgcolor(inHalt or isWeekendClosed ? color.new(color.gray, 92) : na, title = "Daily pause / weekend closed")
+bgcolor(readyAny and posDir == 0 ? color.new(color.yellow, 93) : na, title = "Get ready")
+bgcolor(posDir == 1 ? color.new(color.green, 94) : posDir == -1 ? color.new(color.red, 94) : na, title = "In trade")
+var line lnEntry = na
+var line lnStop = na
+var line lnTp1 = na
+var line lnTp2 = na
+var label lbTrade = na
+var label lbUp = na
+var label lbDn = na
+var label lbPdh = na
+var label lbPdl = na
+var label lbOnh = na
+var label lbOnl = na
+var label lbLonh = na
+var label lbLonl = na
+var label lbEntry = na
+var label lbStop = na
+var label lbTp1 = na
+var label lbTp2 = na
+// Neutral slate instead of pure black — the old solid-black label/box read as
+// a heavy "block" on the chart; this keeps text legible without the block.
+neutralLabelCol = #2a2e39
+f_setMapLabel(label id, float px, string txt, color col) =>
+    label out = id
+    if na(out)
+        out := label.new(bar_index, nz(px, close), "", style = label.style_label_left, color = color.new(col, 35), textcolor = color.white, size = size.tiny)
+    if not na(px)
+        label.set_xy(out, bar_index, px)
+        label.set_text(out, txt)
+        label.set_color(out, color.new(col, 35))
+    else
+        label.set_text(out, "")
+    out
+if barstate.islast and showMagnets
+    if na(lbUp)
+        lbUp := label.new(bar_index, nz(magUp, close), "", style = label.style_label_left, color = color.new(color.fuchsia, 10), textcolor = color.white, size = size.normal)
+    if na(lbDn)
+        lbDn := label.new(bar_index, nz(magDn, close), "", style = label.style_label_left, color = color.new(color.teal, 10), textcolor = color.white, size = size.normal)
+    if not na(magUp)
+        label.set_xy(lbUp, bar_index, magUp)
+        label.set_text(lbUp, "Next high " + f_px(magUp))
+        label.set_textcolor(lbUp, color.white)
+        label.set_size(lbUp, size.normal)
+    else
+        label.set_text(lbUp, "")
+    if not na(magDn)
+        label.set_xy(lbDn, bar_index, magDn)
+        label.set_text(lbDn, "Next low " + f_px(magDn))
+        label.set_textcolor(lbDn, color.white)
+        label.set_size(lbDn, size.normal)
+    else
+        label.set_text(lbDn, "")
+if barstate.islast and showMapLabels
+    lbPdh := f_setMapLabel(lbPdh, showLevels and useLvlPD ? pdHigh : na, "yesterday high", color.red)
+    lbPdl := f_setMapLabel(lbPdl, showLevels and useLvlPD ? pdLow : na, "yesterday low", color.green)
+    lbOnh := f_setMapLabel(lbOnh, showLevels and useLvlON ? onHigh : na, "overnight high", color.orange)
+    lbOnl := f_setMapLabel(lbOnl, showLevels and useLvlON ? onLow : na, "overnight low", color.orange)
+    lbLonh := f_setMapLabel(lbLonh, showLevels and useLvlLon ? lonHigh : na, "London high", #af7ac5)
+    lbLonl := f_setMapLabel(lbLonl, showLevels and useLvlLon ? lonLow : na, "London low", #af7ac5)
+f_setPxLabel(label id, float px, string txt, color col) =>
+    label out = id
+    if na(out)
+        out := label.new(bar_index, nz(px, close), "", style = label.style_label_left, color = color.new(col, 20), textcolor = color.white, size = size.normal)
+    if not na(px)
+        label.set_xy(out, bar_index, px)
+        label.set_text(out, txt)
+        label.set_color(out, color.new(col, 20))
+        label.set_size(out, size.normal)
+    else
+        label.set_text(out, "")
+    out
+if barstate.islast and showTradeLines
+    lbEntry := f_setPxLabel(lbEntry, planEntry, "ENTRY " + f_px(planEntry), neutralLabelCol)
+    lbStop := f_setPxLabel(lbStop, planStop, "STOP " + f_px(planStop), color.red)
+    lbTp1 := f_setPxLabel(lbTp1, planTp1, "TP1 take half " + f_px(planTp1), color.teal)
+    lbTp2 := f_setPxLabel(lbTp2, planTp2, "TP2 take the rest " + f_px(planTp2), color.green)
+if (longEntry or shortEntry) and showTradeLines
+    line.delete(lnEntry)
+    line.delete(lnStop)
+    line.delete(lnTp1)
+    line.delete(lnTp2)
+    label.delete(lbTrade)
+    lnEntry := line.new(bar_index, entryP, bar_index + 1, entryP, color = color.new(color.white, 10), extend = extend.right, width = 2)
+    lnStop := line.new(bar_index, stopP, bar_index + 1, stopP, color = color.new(color.red, 10), extend = extend.right, width = 2)
+    lnTp1 := line.new(bar_index, tp1P, bar_index + 1, tp1P, color = color.new(color.teal, 10), extend = extend.right, width = 2)
+    lnTp2 := line.new(bar_index, tp2P, bar_index + 1, tp2P, color = color.new(color.lime, 10), extend = extend.right, width = 2)
+    string sideTxt = posDir == 1 ? "BUY" : "SELL"
+    lbTrade := label.new(
+         bar_index,
+         posDir == 1 ? stopP : tp2P,
+         sideTxt + "  " + f_plain(entryLvl) +
+         "\nENTRY " + f_px(entryP) +
+         "\nSTOP " + f_px(stopP) +
+         "\nTP1 half " + f_px(tp1P) +
+         "\nTP2 rest " + f_px(tp2P),
+         style = label.style_label_upper_left,
+         color = color.new(neutralLabelCol, 25),
+         textcolor = color.white,
+         size = size.normal)
+if exitTp1 and moveBeAtTp1 and showTradeLines and not na(lnStop)
+    line.set_y1(lnStop, entryP)
+    line.set_y2(lnStop, entryP)
+if exitAny and showTradeLines and not na(lnEntry)
+    line.set_extend(lnEntry, extend.none)
+    line.set_extend(lnStop, extend.none)
+    line.set_extend(lnTp1, extend.none)
+    line.set_extend(lnTp2, extend.none)
+    line.set_x2(lnEntry, bar_index)
+    line.set_x2(lnStop, bar_index)
+    line.set_x2(lnTp1, bar_index)
+    line.set_x2(lnTp2, bar_index)
+plotshape(showMarkers and longEntry, "Buy", shape.triangleup, location.belowbar, color.new(color.lime, 0), size = size.small, text = "BUY")
+plotshape(showMarkers and shortEntry, "Sell", shape.triangledown, location.abovebar, color.new(color.red, 0), size = size.small, text = "SELL")
+plotshape(showMarkers and exitTp1 ? tp1P : na, "Took half", shape.diamond, location.absolute, color.new(color.teal, 0), size = size.tiny)
+plotshape(showMarkers and exitTp2 ? tp2P : na, "Took the rest", shape.xcross, location.absolute, color.new(color.lime, 0), size = size.tiny)
+plotshape(showMarkers and exitStop ? stopP : na, "Stopped", shape.xcross, location.absolute, color.new(color.red, 0), size = size.tiny)
+plotshape(showMarkers and exitTime ? close : na, "Time is up", shape.square, location.absolute, color.new(color.gray, 0), size = size.tiny)
+plotshape(showMarkers and longForming, "Buy forming", shape.circle, location.belowbar, color.new(color.yellow, 0), size = size.tiny)
+plotshape(showMarkers and shortForming, "Sell forming", shape.circle, location.abovebar, color.new(color.yellow, 0), size = size.tiny)
+// =============================================================================
+//  12. PANEL
+// =============================================================================
+panelSize  = input.string("Small", "Dashboard text size", options = ["Tiny", "Small", "Normal", "Large"], group = grpVis)
+vertAnchor = input.string("Top", "Dashboard vertical anchor", options = ["Top", "Middle", "Bottom"], group = grpVis)
+nudgeRows  = input.int(2, "Nudge down (blank rows)", minval = 0, maxval = 6, group = grpVis)
+wrapChars  = input.int(32, "Wrap HOW text after (characters)", minval = 18, maxval = 90, group = grpVis)
+showHowRow = input.bool(true, "Show the HOW row", group = grpVis)
+f_wrap(string src, int w) =>
+    string outTxt = ""
+    string lineTxt = ""
+    array<string> words = str.split(src, " ")
+    if array.size(words) > 0
+        for i = 0 to array.size(words) - 1
+            string wd = array.get(words, i)
+            if str.length(lineTxt) == 0
+                lineTxt := wd
+            else if str.length(lineTxt) + str.length(wd) + 1 <= w
+                lineTxt := lineTxt + " " + wd
+            else
+                outTxt := outTxt + (str.length(outTxt) == 0 ? "" : "\n") + lineTxt
+                lineTxt := wd
+        if str.length(lineTxt) > 0
+            outTxt := outTxt + (str.length(outTxt) == 0 ? "" : "\n") + lineTxt
+    outTxt
+szH = panelSize == "Tiny" ? size.tiny : panelSize == "Small" ? size.small : panelSize == "Normal" ? size.normal : size.large
+szN = panelSize == "Tiny" ? size.tiny : panelSize == "Small" ? size.tiny : panelSize == "Normal" ? size.small : size.normal
+szS = size.tiny
+riskDollar = (not na(planEntry) and not na(planStop) and tickSize > 0) ? math.abs(planEntry - planStop) / tickSize * tickVal * contracts : na
+tradesTxt = str.tostring(tradesToday) + "/" + str.tostring(maxTrades) + "  " + str.tostring(lossToday) + "L  " + regimeTxt
+stopTxt = f_px(planStop) + (na(riskDollar) ? "" : "  ($" + str.tostring(math.round(nz(riskDollar, 0))) + ")")
+isLeftSide = str.contains(str.lower(panelPos), "left")
+tablePos =
+     vertAnchor == "Middle" ? (isLeftSide ? position.middle_left : position.middle_right) :
+     vertAnchor == "Bottom" ? (isLeftSide ? position.bottom_left : position.bottom_right) :
+     (isLeftSide ? position.top_left : position.top_right)
+var table pnl = table.new(position.top_right, 2, 15, bgcolor = color.new(#131722, 100), border_width = 0, frame_width = 0)
+f_dash(int c, int r, string txt, color tc, string sz, color bg) =>
+    table.cell(
+         pnl, c, r, txt,
+         text_color = tc,
+         text_size = sz == "H" ? szH : sz == "N" ? szN : szS,
+         text_halign = text.align_left,
+         text_valign = text.align_center,
+         bgcolor = bg)
+if barstate.islast
+    table.set_position(pnl, tablePos)
+    table.clear(pnl, 0, 0, 1, 14)
+    if showPanel
+        int r0 = vertAnchor == "Top" ? nudgeRows : 0
+        if r0 > 0
+            for i = 0 to r0 - 1
+                table.cell(pnl, 0, i, "", bgcolor = color.new(color.black, 100), height = 3)
+                table.cell(pnl, 1, i, "", bgcolor = color.new(color.black, 100), height = 3)
+        // Softer slate panel instead of a near-opaque black slab; tune with
+        // "Dashboard background transparency" in the Display group.
+        color cellBg = color.new(#131722, panelBgTransp)
+        f_dash(0, r0 + 0, "DO THIS", color.orange, "H", cellBg)
+        f_dash(1, r0 + 0, doThis, statusCol, "H", color.new(statusCol, 70))
+        if showHowRow
+            f_dash(0, r0 + 1, "HOW", color.gray, "S", cellBg)
+            f_dash(1, r0 + 1, f_wrap(howTxt, wrapChars), color.white, "S", cellBg)
+        f_dash(0, r0 + 2, "ENTRY", color.white, "N", cellBg)
+        f_dash(1, r0 + 2, f_px(planEntry), color.white, "N", cellBg)
+        f_dash(0, r0 + 3, "STOP", color.red, "N", cellBg)
+        f_dash(1, r0 + 3, stopTxt, color.red, "N", cellBg)
+        f_dash(0, r0 + 4, "TP1 half", color.teal, "N", cellBg)
+        f_dash(1, r0 + 4, f_px(planTp1), color.teal, "N", cellBg)
+        f_dash(0, r0 + 5, "TP2 rest", color.lime, "N", cellBg)
+        f_dash(1, r0 + 5, f_px(planTp2), color.lime, "N", cellBg)
+        f_dash(0, r0 + 6, "NEXT HIGH", color.fuchsia, "S", cellBg)
+        f_dash(1, r0 + 6, nextHighTxt, color.white, "S", cellBg)
+        f_dash(0, r0 + 7, "NEXT LOW", color.aqua, "S", cellBg)
+        f_dash(1, r0 + 7, nextLowTxt, color.white, "S", cellBg)
+        f_dash(0, r0 + 8, "TRADES", color.gray, "S", cellBg)
+        f_dash(1, r0 + 8, tradesTxt, color.white, "S", cellBg)
+// =============================================================================
+//  13. ALERTS
+// =============================================================================
+f_five(string action) =>
+    action + " | " + syminfo.ticker +
+     " | ENTRY " + f_px(planEntry) +
+     " | STOP " + f_px(planStop) +
+     " | TP1 take half " + f_px(planTp1) +
+     " | TP2 take the rest " + f_px(planTp2)
+var bool alertedUp = false
+var bool alertedDn = false
+var bool alertedLoad = false
+if newDay
+    alertedUp := false
+    alertedDn := false
+    alertedLoad := false
+if readyUp and not alertedUp and posDir == 0
+    alertedUp := true
+    alert("GET READY | " + syminfo.ticker + " | Next high " + f_px(magUp) + " (" + f_plain(magUpName) + "). Wait for a poke through and a close back down. Then SELL. Do not click yet.", alert.freq_once_per_bar)
+if readyDn and not alertedDn and posDir == 0
+    alertedDn := true
+    alert("GET READY | " + syminfo.ticker + " | Next low " + f_px(magDn) + " (" + f_plain(magDnName) + "). Wait for a poke through and a close back up. Then BUY. Do not click yet.", alert.freq_once_per_bar)
+if loadingAny and not alertedLoad and posDir == 0
+    alertedLoad := true
+    alert("GET READY | " + syminfo.ticker + " | " + howTxt, alert.freq_once_per_bar)
+if longEntry
+    alert(f_five("BUY NOW") + " | Swept " + f_plain(entryLvl) + (isNightTrade ? " | Overnight hold. You can go to bed. Flatten by 7:00am if still open." : ""), alert.freq_once_per_bar_close)
+if shortEntry
+    alert(f_five("SELL NOW") + " | Swept " + f_plain(entryLvl) + (isNightTrade ? " | Overnight hold. You can go to bed. Flatten by 7:00am if still open." : ""), alert.freq_once_per_bar_close)
+if exitTp1
+    alert("TAKE HALF OFF | " + syminfo.ticker + " | TP1 " + f_px(tp1P) + " | Move stop to entry " + f_px(entryP) + " | Rest runs to TP2 " + f_px(tp2P), alert.freq_once_per_bar_close)
+if exitTp2
+    alert("TAKE THE REST OFF | " + syminfo.ticker + " | TP2 " + f_px(tp2P), alert.freq_once_per_bar_close)
+if exitStop
+    alert("STOPPED | " + syminfo.ticker + " | Stop " + f_px(stopP), alert.freq_once_per_bar_close)
+if exitTime
+    alert((flattenWhy == "" ? "TIME IS UP | Flatten now" : flattenWhy) + " | " + syminfo.ticker, alert.freq_once_per_bar_close)
+alertcondition(readyAny and posDir == 0, "Get ready (at the door)", "Price is at the next high or low. Wait for the poke. Do not click yet.")
+alertcondition(loadingAny and posDir == 0, "Get ready (poke coming)", "The level is being poked. A wick is likely. Do not click yet.")
+alertcondition(longForming or shortForming, "Get ready (wait for close)", "The poke is printing. Wait for this candle to close.")
+alertcondition(longEntry, "Buy now", "Buy. Dashboard has entry, stop, TP1, and TP2.")
+alertcondition(shortEntry, "Sell now", "Sell. Dashboard has entry, stop, TP1, and TP2.")
+alertcondition(exitTp1, "Take half off (TP1)", "Take half off at TP1. Move stop to entry.")
+alertcondition(exitTp2, "Take the rest off (TP2)", "Take the rest off at TP2.")
+alertcondition(exitStop, "Stopped", "Stopped out.")
+alertcondition(exitTime, "Flatten now (time / morning / daily pause)", "Flatten. Time is up, wake-up close, or 5:00pm pause.")
+alertcondition(tradesLeft == 0 or not lossOK, "Done for today", "Done for today. Close the platform.")
+alertcondition(useOvernight and inBed and posDir == 0, "Before-bed window is open", "Overnight window is open. Same poke-and-close rule. You can set it and go to sleep.")
