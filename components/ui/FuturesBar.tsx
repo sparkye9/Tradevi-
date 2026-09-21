@@ -33,6 +33,7 @@ export default function FuturesBar() {
   const [etTime, setEtTime] = useState('');
   const [clock, setClock] = useState<MarketClock>(() => marketClock());
   const [loaded, setLoaded] = useState(false);
+  const [sourceError, setSourceError] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(async () => {
@@ -46,8 +47,10 @@ export default function FuturesBar() {
           return found ?? { symbol: sym, price: null, changePercent: null, direction: null };
         });
         setFutures(merged);
+        setSourceError(json.sourceError ?? null);
       } catch {
-        // Keep placeholders
+        // Keep placeholders, but say so instead of showing them as live
+        setSourceError('Could not reach the futures feed');
       }
       setLoaded(true);
     }, 0);
@@ -87,7 +90,16 @@ export default function FuturesBar() {
           {clock.shortLabel}
         </span>
         <span className="text-tv-muted font-mono text-xs whitespace-nowrap">{etTime} ET</span>
-        <span className="pill border-tv-border text-tv-muted">Delayed</span>
+        {sourceError ? (
+          <span
+            className="pill border-tv-red/60 text-tv-red"
+            title={sourceError}
+          >
+            Stale
+          </span>
+        ) : (
+          <span className="pill border-tv-border text-tv-muted">Delayed</span>
+        )}
       </div>
 
       <span className="text-tv-border text-xs shrink-0">|</span>
