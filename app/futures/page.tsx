@@ -1,3 +1,4 @@
+import LearnBox from '@/components/ui/LearnBox';
 import Link from 'next/link';
 import TrendBiasStack from '@/components/futures/TrendBiasStack';
 import SessionBias from '@/components/futures/SessionBias';
@@ -20,6 +21,19 @@ export default function FuturesPage() {
           🧪 Backtest
         </Link>
       </div>
+      <LearnBox
+        summary="a top-down trend read on the index futures, from weekly down to 4-hour."
+        items={[
+          { term: 'Futures', text: 'Contracts that track an index like the Nasdaq (MNQ) or S&P 500 (MES). They trade almost 24 hours a day, so they show how the market is leaning before stocks open.' },
+          { term: 'HH / HL', text: 'Higher highs and higher lows = uptrend. Lower highs and lower lows = downtrend. Neither = range.' },
+          { term: 'Stack', text: 'Checking the weekly, daily and 4-hour trend together. When all three agree, the trend is “stacked”.' },
+          { term: 'Premium / Discount', text: 'Upper or lower half of the recent range. In an uptrend you want to buy in discount, not chase premium.' },
+          { term: 'Invalidation', text: 'The price that proves the idea wrong. Every setup here shows one.' },
+          { term: 'TP1 / TP2', text: 'First and second take-profit targets.' },
+        ]}
+        learnHref="/learn"
+      />
+
       <TrendBiasStack />
       <div className="border-t border-[#1a1a1a] pt-8">
         <SessionBias />

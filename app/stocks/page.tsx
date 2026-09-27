@@ -1,4 +1,5 @@
 'use client';
+import LearnBox from '@/components/ui/LearnBox';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
 import StocksSubnav from '@/components/stocks/StocksSubnav';
@@ -39,6 +40,18 @@ export default function StocksPage() {
         </div>
         <StocksSubnav />
       </div>
+
+      <LearnBox
+        summary="a scanner that ranks stocks on your watchlist by volume and trend."
+        items={[
+          { term: 'RVOL', text: 'Relative volume: today’s volume vs. normal. 2.0 means twice as much trading as usual — people are paying attention.' },
+          { term: 'SMA 20 / 50 / 200', text: 'Simple moving averages: the average closing price over the last 20, 50 or 200 days. Price above them = uptrend-ish; below = downtrend-ish.' },
+          { term: 'LOOK', text: 'Volume and trend line up well enough to be worth studying on a chart. It is not a buy button.' },
+          { term: 'NO TRADE', text: 'The scan found nothing clean. Sitting out is a real, often correct, decision.' },
+          { term: 'Quality', text: 'A 0–100 score from volume, trend and today’s move. Higher means more things agree — not that it will go up.' },
+        ]}
+        learnHref="/learn"
+      />
 
       <ScanControls
         watchlistLen={watchlist.length}

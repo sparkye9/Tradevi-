@@ -1,4 +1,5 @@
 'use client';
+import LearnBox from '@/components/ui/LearnBox';
 import { useState } from 'react';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import StocksSubnav from '@/components/stocks/StocksSubnav';
@@ -59,6 +60,20 @@ export default function IntradayPage() {
         </div>
         <StocksSubnav />
       </div>
+
+      <LearnBox
+        summary="stocks that are unusually active today."
+        items={[
+          { term: 'Intraday', text: 'Opened and closed on the same day. Faster and riskier — moves can reverse within minutes.' },
+          { term: 'New day high', text: 'Price just traded above everything earlier today — a sign buyers are in control, for now.' },
+          { term: 'VWAP', text: 'Volume-weighted average price. Big traders use it as “fair value” for the day. Check it on TradingView.' },
+          { term: 'RVOL', text: 'Relative volume: today’s volume vs. normal. 2.0 means twice as much trading as usual — people are paying attention.' },
+          { term: 'SMA 20 / 50 / 200', text: 'Simple moving averages: the average closing price over the last 20, 50 or 200 days. Price above them = uptrend-ish; below = downtrend-ish.' },
+          { term: 'LOOK', text: 'Volume and trend line up well enough to be worth studying on a chart. It is not a buy button.' },
+          { term: 'NO TRADE', text: 'The scan found nothing clean. Sitting out is a real, often correct, decision.' },
+        ]}
+        learnHref="/learn"
+      />
 
       <ScanControls
         watchlistLen={watchlist.length}

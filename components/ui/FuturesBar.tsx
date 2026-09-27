@@ -31,7 +31,8 @@ function formatET(d: Date): string {
 export default function FuturesBar() {
   const [futures, setFutures] = useState<Future[]>(PLACEHOLDERS);
   const [etTime, setEtTime] = useState('');
-  const [clock, setClock] = useState<MarketClock>(() => marketClock());
+  // Starts null so the server HTML and first client render match (no hydration mismatch).
+  const [clock, setClock] = useState<MarketClock | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -64,13 +65,17 @@ export default function FuturesBar() {
     return () => clearInterval(id);
   }, []);
 
-  const dotColor = clock.powerHour
+  const dotColor = !clock
+    ? 'bg-tv-border'
+    : clock.powerHour
     ? 'bg-tv-amber'
     : clock.tradesOpen
     ? 'bg-tv-green'
     : 'bg-tv-red/60';
 
-  const sessionColor = clock.powerHour
+  const sessionColor = !clock
+    ? 'text-tv-muted'
+    : clock.powerHour
     ? 'text-tv-amber'
     : clock.tradesOpen
     ? 'text-tv-green'
@@ -84,9 +89,9 @@ export default function FuturesBar() {
       <div className="flex items-center gap-1.5 shrink-0">
         <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
         <span className={`text-[10px] font-bold tracking-widest whitespace-nowrap ${sessionColor}`}>
-          {clock.shortLabel}
+          {clock?.shortLabel ?? '\u00a0'}
         </span>
-        <span className="text-tv-muted font-mono text-xs whitespace-nowrap">{etTime} ET</span>
+        <span className="text-tv-muted font-mono text-xs whitespace-nowrap">{etTime ? `${etTime} ET` : ''}</span>
         <span className="pill border-tv-border text-tv-muted">Delayed</span>
       </div>
 

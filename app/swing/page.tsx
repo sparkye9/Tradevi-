@@ -1,4 +1,5 @@
 'use client';
+import LearnBox from '@/components/ui/LearnBox';
 import { useState } from 'react';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import StocksSubnav from '@/components/stocks/StocksSubnav';
@@ -66,6 +67,18 @@ export default function SwingPage() {
         </div>
         <StocksSubnav />
       </div>
+
+      <LearnBox
+        summary="stocks in a longer trend, for trades held days to weeks."
+        items={[
+          { term: 'Swing trade', text: 'A trade held for a few days to a few weeks, riding a bigger trend instead of minute-to-minute moves.' },
+          { term: 'RVOL', text: 'Relative volume: today’s volume vs. normal. 2.0 means twice as much trading as usual — people are paying attention.' },
+          { term: 'SMA 20 / 50 / 200', text: 'Simple moving averages: the average closing price over the last 20, 50 or 200 days. Price above them = uptrend-ish; below = downtrend-ish.' },
+          { term: 'LOOK', text: 'Volume and trend line up well enough to be worth studying on a chart. It is not a buy button.' },
+          { term: 'NO TRADE', text: 'The scan found nothing clean. Sitting out is a real, often correct, decision.' },
+        ]}
+        learnHref="/learn"
+      />
 
       <ScanControls
         watchlistLen={watchlist.length}

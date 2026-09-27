@@ -2,8 +2,8 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 /**
  * Service-role Supabase client — bypasses Row Level Security. Server-only,
- * never import this from a client component. Used by the PayPal webhook to
- * write subscription status for a user without that user's own session.
+ * never import this from a client component. Used by the TradingView webhook
+ * to store incoming alerts.
  */
 export function createAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

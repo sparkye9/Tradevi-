@@ -1,7 +1,6 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { CONTACT_REPLY_WINDOW } from '@/lib/contact';
-import { createClient } from '@/lib/supabase/client';
 
 export default function ChatPage() {
   const [name, setName] = useState('');
@@ -11,16 +10,6 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
 
-  useEffect(() => {
-    try {
-      const supabase = createClient();
-      supabase.auth.getUser().then(({ data }) => {
-        if (data.user?.email) setEmail((current) => current || data.user!.email!);
-      });
-    } catch {
-      // Accounts aren't configured — visitor types their email.
-    }
-  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
