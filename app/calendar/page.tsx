@@ -1,4 +1,5 @@
 'use client';
+import LearnBox from '@/components/ui/LearnBox';
 import { useEffect, useMemo, useState } from 'react';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
@@ -130,6 +131,16 @@ export default function CalendarPage() {
           government feed — confirm the number on Forex Factory before you size a trade.
         </p>
       </div>
+
+      <LearnBox
+        summary="scheduled economic reports that can move the whole market."
+        items={[
+          { term: 'High impact', text: 'Reports like CPI (inflation), NFP (jobs) and Fed rate decisions. Prices can jump within seconds of the release.' },
+          { term: 'Forecast vs actual', text: 'The market reacts to the surprise — the gap between what economists expected and the real number.' },
+          { term: 'Why options traders care', text: 'Implied volatility often rises before big reports and drops right after (“IV crush”), which can hurt option buyers even when they guess the direction right.' },
+        ]}
+        learnHref="/learn"
+      />
 
       <div className="flex flex-wrap items-center gap-2 p-3 bg-[#111111] border border-[#1e1e1e] rounded-2xl">
         {IMPACTS.map((impact) => {

@@ -1,4 +1,5 @@
 'use client';
+import { friendlyDataError } from '@/lib/friendlyError';
 import { useEffect, useState } from 'react';
 import SourceTag from '@/components/ui/SourceTag';
 import TradingViewButton from '@/components/ui/TradingViewButton';
@@ -199,7 +200,7 @@ export default function TrendBiasStack() {
       )}
 
       {error && (
-        <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-2xl p-4">{error}</div>
+        <div className="text-sm text-gray-300 bg-tv-amber/5 border border-tv-amber/20 rounded-2xl p-4" title={error}>{friendlyDataError(error)}</div>
       )}
 
       {data && (

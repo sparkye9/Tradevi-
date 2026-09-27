@@ -17,6 +17,6 @@ export async function GET() {
     tradier: Boolean(process.env.TRADIER_TOKEN),
     finviz,
     tradingviewWebhook: Boolean(process.env.TRADINGVIEW_WEBHOOK_SECRET),
-    supabase: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+    supabase: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
   });
 }

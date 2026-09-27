@@ -1,4 +1,5 @@
 'use client';
+import { friendlyDataError } from '@/lib/friendlyError';
 import { useEffect, useState } from 'react';
 import type { TradierContract, TradierOptionsResult } from '@/lib/tradier';
 
@@ -70,7 +71,7 @@ export default function OptionsContracts({
   }
   if (result?.sourceError) {
     return (
-      <div className="mt-2 pt-2 border-t border-[#1e1e1e] text-xs text-red-500/70">{result.sourceError}</div>
+      <div className="mt-2 pt-2 border-t border-[#1e1e1e] text-xs text-tv-amber/80">{friendlyDataError(result.sourceError)}</div>
     );
   }
 

@@ -1,6 +1,6 @@
 # Tradevi 3.0
 
-Tape desk for micros, stocks, and a per-account journal. Education and research only — it does not place trades, connect to a broker, or give financial advice.
+Free, open trading-education desk for futures, stocks and options — no sign-up. Education and research only — it does not place trades, connect to a broker, or give financial advice.
 
 Live: [tradevi.vercel.app](https://tradevi.vercel.app)
 
@@ -8,18 +8,18 @@ Live: [tradevi.vercel.app](https://tradevi.vercel.app)
 
 ## What it is
 
-Five desks plus a calendar, behind sign-in and a $7.99/month PayPal pass (owner emails skip checkout):
+Open to everyone — no accounts or subscriptions. A Learn section plus five desks:
 
 | Desk | What you get |
 |------|----------------|
-| **Dashboard** | Navy/purple desk: WAIT / LOOK / NO TRADE, MNQ game plan, journal edge, next high-impact prints |
+| **Dashboard** | Welcome tour, WAIT / LOOK / NO TRADE, MNQ game plan, next high-impact prints |
+| **Learn** | Options 101: calls/puts, contracts, moneyness, the Greeks, payoff calculator, practice quiz, glossary |
 | **Futures** | Trend Bias Stack (HH/HL on micros) plus swing and 15-minute entry / stop / TP1 / TP2 |
 | **Stocks** | Volume + SMA tape with a hard NO TRADE. Sub-desks: Discovery, Swing, Intraday, Options, Small Account |
 | **Power Hour** | Globex clock (Asia / London / New York) plus 3:00–4:00 PM ET cash Power Hour |
 | **Calendar** | This week’s economic prints from Forex Factory’s public weekly export |
-| **Journal** | Saved to the signed-in Supabase account |
 
-Chat with us (`/chat`) emails TheOptionaltrader@gmail.com. Expect 24–48 business hours.
+Each desk has a collapsible “What am I looking at?” explainer for students. A contact form still exists at `/chat` (emails TheOptionaltrader@gmail.com) but is not linked from the navigation.
 
 ---
 
@@ -45,7 +45,7 @@ Small Account sizes LOOK names to the capital you pick. Entry / stop / targets o
 
 ## Tech
 
-Next.js 14 (App Router), TypeScript, Tailwind, Zustand, Supabase, PayPal, yahoo-finance2 / Finviz / Tradier where configured. Deployed on Vercel from `main`.
+Next.js 14 (App Router), TypeScript, Tailwind, Zustand, yahoo-finance2 / Finviz / Tradier where configured. Deployed on Vercel from `main`.
 
 ---
 
@@ -54,7 +54,7 @@ Next.js 14 (App Router), TypeScript, Tailwind, Zustand, Supabase, PayPal, yahoo-
 ```bash
 npm install
 cp .env.example .env.local
-# fill Supabase, PayPal, Finviz, Tradier as needed — see SUBSCRIPTIONS.md
+# fill Finviz, Tradier (and optionally Supabase for TradingView alerts) as needed
 npm run dev
 ```
 

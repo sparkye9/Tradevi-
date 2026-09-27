@@ -1,4 +1,7 @@
 'use client';
+import LearnBox from '@/components/ui/LearnBox';
+import { friendlyDataError } from '@/lib/friendlyError';
+import ClientOnly from '@/components/ClientOnly';
 import { useEffect, useState } from 'react';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
@@ -46,7 +49,7 @@ function OptionsPanel({ symbol }: { symbol: string }) {
   }, [symbol]);
 
   if (loading) return <div className="mt-3 pt-3 border-t border-[#1e1e1e] text-xs text-gray-600 animate-pulse">Loading contracts...</div>;
-  if (result?.sourceError) return <div className="mt-3 pt-3 border-t border-[#1e1e1e] text-xs text-red-500/70">{result.sourceError}</div>;
+  if (result?.sourceError) return <div className="mt-3 pt-3 border-t border-[#1e1e1e] text-xs text-tv-amber/80">{friendlyDataError(result.sourceError)}</div>;
 
   const calls = (result?.contracts ?? []).filter((c) => c.type === 'call').slice(0, 4);
   const puts  = (result?.contracts ?? []).filter((c) => c.type === 'put').slice(0, 4);
@@ -256,7 +259,7 @@ function TradingGuide() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function PowerHourPage() {
+function PowerHourContent() {
   const { watchlist, rvolThreshold, scanMode, setScanMode } = useTradeviStore();
   const [data, setData] = useState<FinvizResult<FinvizQuote> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -330,6 +333,17 @@ export default function PowerHourPage() {
           session day. Observed NYSE/CME holidays are on the clock — not a live exchange feed.
         </p>
       </div>
+
+      <LearnBox
+        summary="the last hour of the stock market day, and which session is open now."
+        items={[
+          { term: 'Power Hour', text: '3:00–4:00 PM ET. Funds adjust positions before the close, so volume jumps and moves can speed up or reverse sharply.' },
+          { term: 'Sessions', text: 'Asia, London and New York hand off trading around the clock. The busiest, most important hours for US stocks are 9:30 AM–4:00 PM ET.' },
+          { term: 'Globex', text: 'The electronic exchange where futures trade nearly 24 hours, Sunday evening to Friday afternoon.' },
+          { term: 'Options & the close', text: 'Options lose time value fastest on their last days. Near the close on expiration day, prices can swing wildly — a big risk for beginners.' },
+        ]}
+        learnHref="/learn"
+      />
 
       <div className={`border rounded-2xl p-5 ${sessionWrap}`}>
         <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -471,5 +485,15 @@ export default function PowerHourPage() {
         </ul>
       </div>
     </div>
+  );
+}
+
+// Session state depends on the current time, so render in the browser only
+// (avoids a server/client HTML mismatch).
+export default function PowerHourPage() {
+  return (
+    <ClientOnly fallback={<div className="skeleton h-40 w-full max-w-6xl rounded-2xl" />}>
+      <PowerHourContent />
+    </ClientOnly>
   );
 }

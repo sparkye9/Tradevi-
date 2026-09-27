@@ -7,6 +7,7 @@ import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
 import WelcomeGuide from '@/components/dashboard/WelcomeGuide';
 import { marketClock, sessionFlow } from '@/lib/powerHour';
+import { friendlyDataError } from '@/lib/friendlyError';
 import { stockQuality } from '@/lib/stockQuality';
 import { useTradeviStore } from '@/store/tradeviStore';
 import UpcomingPrints from '@/components/calendar/UpcomingPrints';
@@ -243,7 +244,9 @@ export default function Desk() {
     : 'MIXED';
   const heroWhy = stack
     ? stack.quality.headline
-    : stackError || `Waiting on the ${instrument} stack.`;
+    : stackError
+    ? friendlyDataError(stackError)
+    : `Loading the ${instrument} trend stack…`;
 
   const actionWrap =
     action === 'LOOK'

@@ -3,18 +3,19 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
+  GraduationCap,
   CandlestickChart,
   LineChart,
   Timer,
   CalendarDays,
-  Bookmark,
-  MessageCircle,
+  Layers,
   FlaskConical,
   type LucideIcon,
 } from 'lucide-react';
 
 const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/learn', label: 'Learn', icon: GraduationCap },
   { href: '/futures', label: 'Futures', icon: CandlestickChart },
   { href: '/stocks', label: 'Stocks', icon: LineChart },
   { href: '/power-hour', label: 'Power Hour', icon: Timer },
@@ -22,10 +23,8 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
 ];
 
 const TOOLS: { href: string; label: string; icon: LucideIcon }[] = [
-  { href: '/stocks', label: 'Watchlist', icon: Bookmark },
+  { href: '/options', label: 'Options chains', icon: Layers },
   { href: '/futures/backtest', label: 'Backtest', icon: FlaskConical },
-  { href: '/calendar', label: 'Calendar', icon: CalendarDays },
-  { href: '/chat', label: 'Resources', icon: MessageCircle },
 ];
 
 const STOCKS_PATHS = new Set(['/stocks', '/swing', '/intraday', '/options', '/opportunity-finder']);
@@ -33,7 +32,8 @@ const STOCKS_PATHS = new Set(['/stocks', '/swing', '/intraday', '/options', '/op
 function navActive(pathname: string, href: string): boolean {
   if (href === '/') return pathname === '/';
   if (href === '/stocks') return STOCKS_PATHS.has(pathname);
-  if (href === '/futures') return pathname === '/futures' || pathname.startsWith('/futures/');
+  if (href === '/futures') return pathname === '/futures';
+  if (href === '/learn') return pathname === '/learn' || pathname.startsWith('/learn/');
   return pathname === href;
 }
 
@@ -113,9 +113,11 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
             <Link
               key={label}
               href={href}
-              className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm text-gray-500 hover:text-gray-200 hover:bg-white/5"
+              className={`flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                pathname === href ? 'bg-tv-purple/15 text-tv-purple' : 'text-gray-500 hover:text-gray-200 hover:bg-white/5'
+              }`}
             >
-              <Icon size={15} strokeWidth={1.75} className="text-gray-600" />
+              <Icon size={15} strokeWidth={1.75} className={pathname === href ? 'text-tv-purple' : 'text-gray-600'} />
               {label}
             </Link>
           ))}

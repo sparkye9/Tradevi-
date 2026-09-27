@@ -1,4 +1,5 @@
 'use client';
+import { friendlyDataError } from '@/lib/friendlyError';
 import { useEffect, useState, useCallback } from 'react';
 
 interface StrategyStats {
@@ -94,7 +95,7 @@ function ResultCard({ r }: { r: BTResult }) {
       </div>
 
       {r.error ? (
-        <div className="text-xs text-red-400 bg-red-500/5 border border-red-500/20 rounded-lg p-2">{r.error}</div>
+        <div className="text-xs text-red-400 bg-red-500/5 border border-red-500/20 rounded-lg p-2" title={r.error}>{friendlyDataError(r.error)}</div>
       ) : (
         <>
           <div className="flex flex-wrap gap-4 text-xs">
@@ -179,7 +180,7 @@ export default function BacktestPage() {
       )}
 
       {!loading && data?.error && (
-        <div className="text-sm text-red-400">{data.error}</div>
+        <div className="text-sm text-gray-300" title={data.error}>{friendlyDataError(data.error)}</div>
       )}
 
       {!loading && data?.results?.map((r) => <ResultCard key={r.instrument} r={r} />)}

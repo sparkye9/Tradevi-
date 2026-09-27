@@ -1,14 +1,12 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { marketClock, sessionFlow, type MarketClock } from '@/lib/powerHour';
+import { sessionFlow } from '@/lib/powerHour';
+import { useMarketClock } from '@/hooks/useMarketClock';
 
 export default function SessionStrip() {
-  const [clock, setClock] = useState<MarketClock>(() => marketClock());
-
-  useEffect(() => {
-    const id = setInterval(() => setClock(marketClock()), 30_000);
-    return () => clearInterval(id);
-  }, []);
+  const clock = useMarketClock();
+  if (!clock) {
+    return <div className="w-full border-b border-tv-border bg-[#080A10] h-[45px]" />;
+  }
 
   const steps = sessionFlow(clock);
 

@@ -1,4 +1,5 @@
 'use client';
+import LearnBox from '@/components/ui/LearnBox';
 import { useState } from 'react';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
@@ -150,6 +151,20 @@ export default function OpportunityFinderPage() {
         </div>
         <StocksSubnav />
       </div>
+
+      <LearnBox
+        summary="LOOK names sized so one trade can’t sink a small account."
+        items={[
+          { term: 'Position sizing', text: 'Deciding how many shares to buy so that if you are wrong, you only lose a small, planned amount (many traders risk 1–2% of the account per trade).' },
+          { term: 'Stop', text: 'The price where you admit the trade is wrong and get out. Decide it before you enter.' },
+          { term: 'Target', text: 'Where you plan to take profit. Here these are rough percentage estimates, not chart levels.' },
+          { term: 'RVOL', text: 'Relative volume: today’s volume vs. normal. 2.0 means twice as much trading as usual — people are paying attention.' },
+          { term: 'SMA 20 / 50 / 200', text: 'Simple moving averages: the average closing price over the last 20, 50 or 200 days. Price above them = uptrend-ish; below = downtrend-ish.' },
+          { term: 'LOOK', text: 'Volume and trend line up well enough to be worth studying on a chart. It is not a buy button.' },
+          { term: 'NO TRADE', text: 'The scan found nothing clean. Sitting out is a real, often correct, decision.' },
+        ]}
+        learnHref="/learn"
+      />
 
       <ScanControls
         watchlistLen={watchlist.length}

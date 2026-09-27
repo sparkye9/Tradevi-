@@ -6,7 +6,7 @@ import FuturesBar from '@/components/ui/FuturesBar';
 import SessionStrip from '@/components/ui/SessionStrip';
 import BibleVerse from '@/components/ui/BibleVerse';
 import { DisclaimerBanner } from '@/components/ui/DisclaimerBanner';
-import ChatFab from '@/components/ui/ChatFab';
+import MarketStatusBanner from '@/components/ui/MarketStatusBanner';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -40,6 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </div>
         <div className="flex-1 flex flex-col overflow-auto min-w-0">
           <DisclaimerBanner />
+          <MarketStatusBanner />
           <FuturesBar />
           <SessionStrip />
           <main className="flex-1 p-4 md:p-6 pb-24 md:pb-6">{children}</main>
@@ -48,7 +49,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
         </div>
         <Sidebar mobile />
-        <ChatFab />
       </body>
     </html>
   );

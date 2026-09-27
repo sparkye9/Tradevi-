@@ -1,4 +1,5 @@
 'use client';
+import { friendlyDataError } from '@/lib/friendlyError';
 
 interface Props {
   symbol?: string;
@@ -12,11 +13,10 @@ export default function DataUnavailable({ symbol, reason, href, linkLabel }: Pro
   const label = linkLabel ?? (symbol ? `View ${symbol} on Finviz` : href ? 'Open source' : undefined);
 
   return (
-    <div className="flex items-start gap-2 p-3 rounded bg-[#1a1a1a] border border-[#2a2a2a]">
-      <span className="text-yellow-500 mt-0.5">!</span>
+    <div className="flex items-start gap-2.5 p-3 rounded-xl bg-tv-amber/5 border border-tv-amber/20">
+      <span className="text-tv-amber mt-0.5 text-sm">ⓘ</span>
       <div className="text-sm">
-        <span className="text-gray-300">Not available -- verify manually.</span>
-        {reason && <span className="text-gray-500 ml-1">({reason})</span>}
+        <span className="text-gray-300">{friendlyDataError(reason)}</span>
         {(symbol || href) && label && (
           <>
             {' '}
@@ -24,11 +24,19 @@ export default function DataUnavailable({ symbol, reason, href, linkLabel }: Pro
               href={link}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-400 underline hover:text-blue-300"
+              className="text-tv-purple underline hover:text-white"
             >
               {label}
             </a>
           </>
+        )}
+        {reason && (
+          <details className="mt-1">
+            <summary className="cursor-pointer text-[11px] text-gray-600 hover:text-gray-400 select-none">
+              Technical details
+            </summary>
+            <p className="text-[11px] text-gray-600 font-mono mt-1 break-words">{reason}</p>
+          </details>
         )}
       </div>
     </div>

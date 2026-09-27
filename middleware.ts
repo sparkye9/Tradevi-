@@ -1,10 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
-// Accounts are switched off for now — every page is open to everyone. The
-// old sign-in / subscription pages still exist in the repo but visitors are
-// sent to the dashboard instead so nobody lands on a dead login form. The
-// journal has been removed; old /journal links land on the dashboard too.
-const ACCOUNT_PATHS = new Set([
+// The site is open to everyone — accounts, subscriptions and the journal have
+// been removed. Old links to those pages (bookmarks, emails) land on the
+// dashboard instead of a 404.
+const REMOVED_PATHS = new Set([
   '/login',
   '/signup',
   '/forgot-password',
@@ -15,7 +14,7 @@ const ACCOUNT_PATHS = new Set([
 ]);
 
 export function middleware(request: NextRequest) {
-  if (ACCOUNT_PATHS.has(request.nextUrl.pathname)) {
+  if (REMOVED_PATHS.has(request.nextUrl.pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = '/';
     url.search = '';

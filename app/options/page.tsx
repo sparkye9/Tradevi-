@@ -1,4 +1,5 @@
 'use client';
+import LearnBox from '@/components/ui/LearnBox';
 import { useEffect, useState } from 'react';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
@@ -233,6 +234,21 @@ export default function OptionsPage() {
         </div>
         <StocksSubnav />
       </div>
+
+      <LearnBox
+        summary="real option chains for stocks the scanner rated LOOK."
+        items={[
+          { term: 'Call / Put', text: 'A call profits if the stock goes up; a put profits if it goes down. One contract controls 100 shares.' },
+          { term: 'Strike', text: 'The price the option lets you buy (call) or sell (put) the stock at.' },
+          { term: 'Exp', text: 'Expiration date. After this the option is gone — worth something or worth zero.' },
+          { term: 'Delta', text: 'Roughly how much the option price moves for a $1 move in the stock (0.50 ≈ 50¢). Also a rough odds-of-finishing-in-the-money gauge.' },
+          { term: 'Theta', text: 'Time decay: how much value the option loses per day just from time passing. Buyers fight it; it speeds up near expiration.' },
+          { term: 'IV', text: 'Implied volatility: how big a move the market is pricing in. High IV = expensive options.' },
+          { term: 'Bid / Ask', text: 'Bid is what buyers pay, ask is what sellers want. A wide gap between them costs you money on every trade.' },
+          { term: 'Vol / OI', text: 'Volume is contracts traded today; open interest is contracts still open. Higher numbers = easier to get in and out.' },
+        ]}
+        learnHref="/learn#chain"
+      />
 
       <ScanControls
         watchlistLen={watchlist.length}
