@@ -57,7 +57,7 @@ export default function JournalPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Journal</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Saved to your account — only you can see these trades. Tradevi does not place trades.
+          Saved in this browser only — no account needed, and nobody else can see these trades. Tradevi does not place trades.
         </p>
       </div>
 

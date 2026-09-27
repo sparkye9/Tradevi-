@@ -1,11 +1,11 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Ban, Check, Circle, Eye, Hourglass } from 'lucide-react';
 import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
-import TradingViewAlerts from '@/components/dashboard/TradingViewAlerts';
+import WelcomeGuide from '@/components/dashboard/WelcomeGuide';
 import { useAccountJournal } from '@/hooks/useAccountJournal';
 import { journalEdge } from '@/lib/journal';
 import { marketClock, sessionFlow } from '@/lib/powerHour';
@@ -26,14 +26,11 @@ const TV_SYMBOL: Record<DeskInstrument, string> = Object.fromEntries(
   DESK_FUTURES.map((row) => [row.instrument, row.tv]),
 ) as Record<DeskInstrument, string>;
 
-async function fetchStack(instrument: DeskInstrument): Promise<
-  { gated: true } | { error: string } | { stack: TrendBiasStackResult }
-> {
+async function fetchStack(instrument: DeskInstrument): Promise<{ error: string } | { stack: TrendBiasStackResult }> {
   const res = await fetch(`/api/trend-bias?instrument=${instrument}`);
   const ct = res.headers.get('content-type') ?? '';
-  if (!ct.includes('application/json')) return { gated: true };
+  if (!ct.includes('application/json')) return { error: 'Stack unavailable right now — try again in a minute.' };
   const json = await res.json();
-  if (res.status === 401 || res.status === 403) return { gated: true };
   if (!res.ok) return { error: json.error ?? 'Stack unavailable' };
   return { stack: json as TrendBiasStackResult };
 }
@@ -146,7 +143,7 @@ export default function Desk() {
   const [futuresData, setFuturesData] = useState<FinvizResult<FinvizFuture> | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingInstrument, setLoadingInstrument] = useState<DeskInstrument | null>('MNQ');
-  const [gated, setGated] = useState<boolean | null>(null);
+  const [firstLoaded, setFirstLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -173,13 +170,10 @@ export default function Desk() {
     let cancelled = false;
     async function loadSelected(isRefresh = false) {
       if (!isRefresh) setLoadingInstrument(instrument);
-      const result = await fetchStack(instrument).catch(() => ({ gated: true as const }));
+      const result = await fetchStack(instrument).catch(() => ({ error: 'Could not reach the data feed.' }));
       if (cancelled) return;
-      if ('gated' in result && result.gated) {
-        setGated(true);
-        setStackError('');
-      } else if ('stack' in result) {
-        setGated(false);
+      setFirstLoaded(true);
+      if ('stack' in result) {
         setStacks((prev) => ({ ...prev, [instrument]: result.stack }));
         setStackError('');
       } else if ('error' in result) {
@@ -197,7 +191,7 @@ export default function Desk() {
   }, [instrument]);
 
   useEffect(() => {
-    if (gated !== false) return;
+    if (!firstLoaded) return;
     let cancelled = false;
     async function loadRest() {
       const rest = DISPLAY_INSTRUMENTS.filter((inst) => inst !== instrument);
@@ -217,9 +211,9 @@ export default function Desk() {
     return () => {
       cancelled = true;
     };
-    // Load the other four once after the first selected stack. Re-run if the gate lifts.
+    // Load the other four once after the first selected stack.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gated]);
+  }, [firstLoaded]);
 
   const quotes = indexData?.data ?? [];
   const aboveSma20 = quotes.filter((q) => q.sma20rel === 'above').length;
@@ -253,8 +247,6 @@ export default function Desk() {
     : 'MIXED';
   const heroWhy = stack
     ? stack.quality.headline
-    : gated
-    ? `Sign in for the ${instrument} stack. This page will not guess a look from delayed tape.`
     : stackError || `Waiting on the ${instrument} stack.`;
 
   const actionWrap =
@@ -287,6 +279,9 @@ export default function Desk() {
 
   return (
     <div className="space-y-5 max-w-7xl">
+      <Suspense fallback={null}>
+        <WelcomeGuide />
+      </Suspense>
       <div>
         {loading ? (
           <div className="space-y-2">
@@ -315,6 +310,9 @@ export default function Desk() {
           </span>
           <span className="pill border-tv-purple/30 text-tv-purple bg-tv-purple/10">{session.session}</span>
           <span className="pill border-tv-border text-tv-muted">Delayed Yahoo</span>
+          <Link href="/?guide=1" className="pill border-tv-purple/30 text-tv-purple hover:text-white">
+            Quick tour
+          </Link>
         </div>
         <div className="mt-4">
           <div className="label mb-2">Futures</div>
@@ -344,8 +342,6 @@ export default function Desk() {
                 <p className="text-sm mt-2 opacity-80 max-w-xl">
                   {stack
                     ? stack.suggestion.headline
-                    : gated
-                    ? `The stack is behind the login. Futures is where the invalidation lives.`
                     : 'No stack read yet — do not invent a look.'}
                 </p>
                 <div className="mt-4">
@@ -353,10 +349,10 @@ export default function Desk() {
                     <TradingViewButton symbol={TV_SYMBOL[instrument]} label={`Confirm ${instrument} on TradingView`} />
                   ) : (
                     <Link
-                      href={gated ? '/login' : '/futures'}
+                      href="/futures"
                       className="inline-flex items-center text-xs font-semibold text-tv-purple hover:text-white"
                     >
-                      {gated ? 'Sign in for the stack →' : 'Open Futures →'}
+                      Open Futures →
                     </Link>
                   )}
                 </div>
@@ -570,7 +566,7 @@ export default function Desk() {
               </>
             ) : (
               <p className="text-sm text-tv-muted">
-                {gated ? `Sign in to load the ${instrument} stack.` : 'Intelligence needs the stack. It will not invent a setup.'}
+                Intelligence needs the stack. It will not invent a setup.
               </p>
             )}
           </div>
@@ -630,7 +626,7 @@ export default function Desk() {
               </div>
             ) : (
               <p className="text-sm text-tv-muted">
-                {gated ? 'Sign in to load invalidation and the playbook.' : `Game plan needs the ${instrument} stack.`}
+                {`Game plan needs the ${instrument} stack.`}
               </p>
             )}
           </div>
@@ -644,17 +640,8 @@ export default function Desk() {
             </div>
             {journal.loading ? (
               <div className="skeleton h-16 w-full" />
-            ) : journal.error.startsWith('Sign in') ? (
-              <p className="text-sm text-tv-muted">
-                <Link href="/login" className="text-tv-purple hover:text-white">
-                  Sign in
-                </Link>{' '}
-                so win rate stays on your account.
-              </p>
-            ) : journal.error && journal.entries.length === 0 ? (
-              <p className="text-sm text-tv-muted">Log trades in Journal. Stats stay on your account.</p>
             ) : edge.totalTrades === 0 ? (
-              <p className="text-sm text-tv-muted">No closed trades yet. The journal is how this box gets a memory.</p>
+              <p className="text-sm text-tv-muted">No closed trades yet. Log practice trades in the Journal — they&apos;re saved in this browser, no account needed.</p>
             ) : (
               <>
                 {edge.bestSetup && (
@@ -689,7 +676,6 @@ export default function Desk() {
             )}
           </div>
 
-          <TradingViewAlerts />
         </div>
       </div>
 

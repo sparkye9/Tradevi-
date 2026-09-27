@@ -7,7 +7,6 @@ import SessionStrip from '@/components/ui/SessionStrip';
 import BibleVerse from '@/components/ui/BibleVerse';
 import { DisclaimerBanner } from '@/components/ui/DisclaimerBanner';
 import ChatFab from '@/components/ui/ChatFab';
-import AuthHashRedirect from '@/components/AuthHashRedirect';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -22,15 +21,20 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Tradevi 3.0',
-  description: 'Trading dashboard. Discovers setups. Does not execute.',
+  title: 'Tradevi — learn to read the market',
+  description:
+    'A free, open trading-education dashboard: futures trend stacks, stock scans, power hour and an economic calendar. Education only — no sign-up, no trades executed.',
+  openGraph: {
+    title: 'Tradevi — learn to read the market',
+    description: 'Free trading-education dashboard. No sign-up needed. Education only.',
+    type: 'website',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} ${jetbrains.variable}`}>
       <body className="bg-tv-bg text-white min-h-screen flex font-sans">
-        <AuthHashRedirect />
         <div className="hidden md:block">
           <Sidebar />
         </div>
