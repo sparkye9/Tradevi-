@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { BookOpen, CandlestickChart, LineChart, Timer, CalendarDays, NotebookPen, X } from 'lucide-react';
+import { BookOpen, CandlestickChart, LineChart, Timer, CalendarDays, X } from 'lucide-react';
 
 const DISMISS_KEY = 'tradevi-guide-dismissed';
 
@@ -11,7 +11,6 @@ const TOUR = [
   { href: '/stocks', icon: LineChart, title: 'Stocks', text: 'Scans a watchlist for names with volume and trend lined up. Swing, intraday and options views.' },
   { href: '/power-hour', icon: Timer, title: 'Power Hour', text: 'What to watch in the last hour of the regular session, when volume comes back.' },
   { href: '/calendar', icon: CalendarDays, title: 'Calendar', text: 'Upcoming economic prints (CPI, jobs, Fed) that can move the whole market.' },
-  { href: '/journal', icon: NotebookPen, title: 'Journal', text: 'Log practice trades and see your win rate. Saved in your browser only.' },
 ];
 
 const TERMS = [
@@ -78,7 +77,7 @@ export default function WelcomeGuide() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 mt-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 mt-5">
         {TOUR.map(({ href, icon: Icon, title, text }) => (
           <Link
             key={href}

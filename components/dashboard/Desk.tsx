@@ -6,8 +6,6 @@ import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
 import WelcomeGuide from '@/components/dashboard/WelcomeGuide';
-import { useAccountJournal } from '@/hooks/useAccountJournal';
-import { journalEdge } from '@/lib/journal';
 import { marketClock, sessionFlow } from '@/lib/powerHour';
 import { stockQuality } from '@/lib/stockQuality';
 import { useTradeviStore } from '@/store/tradeviStore';
@@ -125,8 +123,6 @@ function stackChecks(stack: TrendBiasStackResult): { label: string; on: boolean 
 
 export default function Desk() {
   const { watchlist, rvolThreshold } = useTradeviStore();
-  const journal = useAccountJournal();
-  const edge = journalEdge(journal.entries);
   const quote = useDeskQuote();
   const [session, setSession] = useState(() => marketClock());
 
@@ -630,52 +626,6 @@ export default function Desk() {
               </p>
             )}
           </div>
-
-          <div className="card space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="label">Your edge</span>
-              <Link href="/journal" className="text-[11px] text-tv-purple hover:text-white">
-                Journal →
-              </Link>
-            </div>
-            {journal.loading ? (
-              <div className="skeleton h-16 w-full" />
-            ) : edge.totalTrades === 0 ? (
-              <p className="text-sm text-tv-muted">No closed trades yet. Log practice trades in the Journal — they&apos;re saved in this browser, no account needed.</p>
-            ) : (
-              <>
-                {edge.bestSetup && (
-                  <p className="text-sm text-gray-300">
-                    Best logged setup: <span className="text-white font-semibold">{edge.bestSetup}</span>
-                  </p>
-                )}
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <div className="label">Win rate</div>
-                    <div className="font-mono text-white mt-1">{edge.winRate.toFixed(0)}%</div>
-                  </div>
-                  <div>
-                    <div className="label">W / L</div>
-                    <div className="font-mono text-white mt-1">
-                      {edge.wins} / {edge.losses}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="label">Closed P&L</div>
-                    <div
-                      className={`font-mono mt-1 ${
-                        edge.totalPnL > 0 ? 'text-tv-green' : edge.totalPnL < 0 ? 'text-tv-red' : 'text-white'
-                      }`}
-                    >
-                      {edge.totalPnL > 0 ? '+' : ''}
-                      {edge.totalPnL.toFixed(2)}
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
         </div>
       </div>
 

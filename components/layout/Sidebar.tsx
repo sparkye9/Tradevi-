@@ -7,7 +7,6 @@ import {
   LineChart,
   Timer,
   CalendarDays,
-  NotebookPen,
   Bookmark,
   MessageCircle,
   FlaskConical,
@@ -20,7 +19,6 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/stocks', label: 'Stocks', icon: LineChart },
   { href: '/power-hour', label: 'Power Hour', icon: Timer },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
-  { href: '/journal', label: 'Journal', icon: NotebookPen },
 ];
 
 const TOOLS: { href: string; label: string; icon: LucideIcon }[] = [
