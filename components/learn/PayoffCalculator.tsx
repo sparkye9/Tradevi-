@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type Kind = 'call' | 'put';
 
@@ -53,6 +53,20 @@ export default function PayoffCalculator() {
   const [premium, setPremium] = useState(2);
   const [contracts, setContracts] = useState(1);
   const [whatIf, setWhatIf] = useState(110);
+
+  // "Try it in the payoff calculator" on the Options page passes a real contract in the URL.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const k = q.get('kind');
+    const s = parseFloat(q.get('stock') ?? '');
+    const K = parseFloat(q.get('strike') ?? '');
+    const p = parseFloat(q.get('premium') ?? '');
+    if (k === 'call' || k === 'put') setKind(k);
+    if (s > 0) setStock(s);
+    if (K > 0) setStrike(K);
+    if (p >= 0 && Number.isFinite(p)) setPremium(p);
+    if (s > 0) setWhatIf(k === 'put' ? s * 0.95 : s * 1.05);
+  }, []);
 
   const valid = stock > 0 && strike > 0 && premium >= 0 && contracts >= 1;
   const mult = 100 * (Number.isFinite(contracts) ? Math.floor(contracts) : 1);

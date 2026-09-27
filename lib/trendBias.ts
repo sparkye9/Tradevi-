@@ -366,7 +366,7 @@ const HONEST_GAPS = [
   'FVG, BOS, and CHOCH are not computed here — confirm those on TradingView.',
   'Entry / stop / TP1 / TP2 are swing high, equilibrium, and swing low — not VWAP or a percent guess.',
   'No historical analog matching. This is not a backtested twin of prior sessions.',
-  'Yahoo data is delayed. Last price is not a live feed. Intraday map uses 15-minute bars and refreshes every 10 minutes.',
+  'Intraday map uses 15-minute bars and refreshes every 10 minutes. Verify every level on your chart before acting.',
 ];
 
 /**

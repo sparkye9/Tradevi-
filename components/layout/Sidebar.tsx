@@ -27,7 +27,8 @@ const TOOLS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/futures/backtest', label: 'Backtest', icon: FlaskConical },
 ];
 
-const STOCKS_PATHS = new Set(['/stocks', '/swing', '/intraday', '/options', '/opportunity-finder']);
+// /options has its own Tools entry, so it doesn't also light up Stocks.
+const STOCKS_PATHS = new Set(['/stocks', '/swing', '/intraday', '/opportunity-finder']);
 
 function navActive(pathname: string, href: string): boolean {
   if (href === '/') return pathname === '/';
@@ -129,10 +130,10 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
           href="/?guide=1"
           className="block rounded-xl border border-tv-purple/30 bg-tv-purple/10 p-3 hover:bg-tv-purple/15 transition-colors"
         >
-          <div className="text-[10px] font-bold tracking-widest uppercase text-tv-purple">New here?</div>
-          <p className="text-[11px] text-gray-400 mt-1 leading-snug">Free &amp; open to everyone · open the quick tour</p>
+          <div className="text-[10px] font-bold tracking-widest uppercase text-tv-purple">About this site</div>
+          <p className="text-[11px] text-gray-400 mt-1 leading-snug">What Tradevi is and what each page does</p>
         </Link>
-        <p className="px-2 text-[10px] text-gray-600 leading-relaxed">Education only · delayed Yahoo · confirm on TradingView</p>
+        <p className="px-2 text-[10px] text-gray-600 leading-relaxed">Education only · not responsible for your trades · verify on your chart</p>
       </div>
     </aside>
   );

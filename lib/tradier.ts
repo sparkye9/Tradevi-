@@ -59,11 +59,11 @@ function getBaseUrl(): string {
     : 'https://api.tradier.com/v1';
 }
 
-function getToken(): string | null {
+export function getToken(): string | null {
   return process.env.TRADIER_TOKEN ?? null;
 }
 
-async function tradierGet<T>(path: string, token: string): Promise<T> {
+export async function tradierGet<T>(path: string, token: string): Promise<T> {
   const base = getBaseUrl();
   const resp = await fetch(`${base}${path}`, {
     headers: {
@@ -78,7 +78,7 @@ async function tradierGet<T>(path: string, token: string): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
-type OptionRow = {
+export type OptionRow = {
   symbol: string;
   expiration_date: string;
   strike: number;
@@ -97,7 +97,7 @@ type OptionRow = {
   };
 };
 
-async function fetchChain(symbol: string, expiration: string, token: string): Promise<OptionRow[]> {
+export async function fetchChain(symbol: string, expiration: string, token: string): Promise<OptionRow[]> {
   const chainData = await tradierGet<{
     options: { option: OptionRow[] } | null;
   }>(

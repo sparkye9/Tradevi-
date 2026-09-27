@@ -308,9 +308,8 @@ export default function Desk() {
             VIX {vix?.changePercent != null ? `${vix.changePercent >= 0 ? '+' : ''}${vix.changePercent.toFixed(1)}%` : '—'}
           </span>
           <span className="pill border-tv-purple/30 text-tv-purple bg-tv-purple/10">{session.session}</span>
-          <span className="pill border-tv-border text-tv-muted">Delayed Yahoo</span>
           <Link href="/?guide=1" className="pill border-tv-purple/30 text-tv-purple hover:text-white">
-            Quick tour
+            About this site
           </Link>
         </div>
         <div className="mt-4">
@@ -323,7 +322,7 @@ export default function Desk() {
             loadingInstrument={loadingInstrument}
           />
           <p className="text-[11px] text-tv-muted mt-2">
-            Tape refreshes about every minute. Toggle a micro to load its HH/HL stack. Delayed — not a live last-sale.
+            Prices refresh about every minute. Tap a contract to load its trend stack. Always verify on your chart before acting.
           </p>
         </div>
       </div>
