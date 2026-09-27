@@ -2,25 +2,17 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { BookOpen, GraduationCap, CandlestickChart, LineChart, Timer, CalendarDays, X } from 'lucide-react';
+import { BookOpen, GraduationCap, CandlestickChart, LineChart, Layers, Timer, CalendarDays, X } from 'lucide-react';
 
 const DISMISS_KEY = 'tradevi-guide-dismissed';
 
-const TOUR = [
-  { href: '/learn', icon: GraduationCap, title: 'Start here: Options 101', text: 'Calls, puts, strikes and the Greeks in plain English — plus a payoff calculator and practice quiz.' },
-  { href: '/futures', icon: CandlestickChart, title: 'Futures', text: 'Weekly → Daily → 4H trend stack for the micro index futures, with the level that proves the idea wrong.' },
-  { href: '/stocks', icon: LineChart, title: 'Stocks', text: 'Scans a watchlist for names with volume and trend lined up. Swing, intraday and options views.' },
-  { href: '/power-hour', icon: Timer, title: 'Power Hour', text: 'What to watch in the last hour of the regular session, when volume comes back.' },
-  { href: '/calendar', icon: CalendarDays, title: 'Calendar', text: 'Upcoming economic prints (CPI, jobs, Fed) that can move the whole market.' },
-];
-
-const TERMS = [
-  { term: 'LOOK', text: 'Trend and location agree — worth studying on a chart. Not a buy signal.' },
-  { term: 'WAIT', text: 'Trend is there but price is in the wrong spot. Patience.' },
-  { term: 'NO TRADE', text: 'Nothing lines up. Standing aside is a position.' },
-  { term: 'HH / HL', text: 'Higher highs and higher lows = uptrend. Lower highs / lower lows = downtrend.' },
-  { term: 'Premium / discount', text: 'Upper / lower half of the recent range. Buy low in uptrends, sell high in downtrends.' },
-  { term: 'Invalidation', text: 'The price where the idea is wrong. Know it before you think about profit.' },
+const PAGES = [
+  { href: '/learn', icon: GraduationCap, title: 'Learn', text: 'Options 101 — calls, puts, the Greeks, a payoff calculator and practice quiz.' },
+  { href: '/futures', icon: CandlestickChart, title: 'Futures', text: 'Weekly, daily and 4-hour trend on the index futures, with entry, stop and targets.' },
+  { href: '/stocks', icon: LineChart, title: 'Stocks', text: 'Scans a watchlist for stocks where volume and trend line up.' },
+  { href: '/options', icon: Layers, title: 'Options chains', text: 'Look up any ticker and read its calls and puts in plain English.' },
+  { href: '/power-hour', icon: Timer, title: 'Power Hour', text: 'Which market session is open and what to watch in the last hour.' },
+  { href: '/calendar', icon: CalendarDays, title: 'Calendar', text: 'Economic reports this week that can move the whole market.' },
 ];
 
 export default function WelcomeGuide() {
@@ -61,11 +53,11 @@ export default function WelcomeGuide() {
             <BookOpen size={20} />
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-[0.18em] text-tv-purple">Welcome · free &amp; open</div>
-            <h2 className="text-xl md:text-2xl font-bold text-white mt-1">Learn to read the market — no sign-up needed</h2>
-            <p className="text-sm text-gray-400 mt-1 max-w-2xl">
-              Tradevi pulls delayed market data and shows you how a trader would size up the day: trend, location, and
-              the level that invalidates the idea. It never places trades and it is not financial advice.
+            <h2 className="text-xl md:text-2xl font-bold text-white">Welcome to Tradevi</h2>
+            <p className="text-sm text-gray-400 mt-1 max-w-3xl leading-relaxed">
+              Tradevi is a trading-education dashboard. It reads the market the way a trader would — trend, where price
+              sits in its range, and the level that proves an idea wrong — and explains it in plain language so you can
+              learn how futures, stocks and options setups are judged. It does not place trades.
             </p>
           </div>
         </div>
@@ -78,45 +70,28 @@ export default function WelcomeGuide() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 mt-5">
-        {TOUR.map(({ href, icon: Icon, title, text }) => (
-          <Link
-            key={href}
-            href={href}
-            className="group rounded-xl border border-tv-border bg-black/20 p-3 hover:border-tv-purple/50 hover:bg-tv-purple/5 transition-colors"
-          >
-            <div className="flex items-center gap-2 text-white font-semibold text-sm">
-              <Icon size={15} className="text-tv-purple" />
-              {title}
-              <span className="ml-auto text-tv-purple opacity-0 group-hover:opacity-100 transition-opacity">→</span>
-            </div>
-            <p className="text-xs text-tv-muted mt-1.5 leading-relaxed">{text}</p>
-          </Link>
+      <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 mt-4">
+        {PAGES.map(({ href, icon: Icon, title, text }) => (
+          <li key={href}>
+            <Link href={href} className="group flex items-start gap-2.5 rounded-lg px-2 py-1.5 -mx-2 hover:bg-white/5">
+              <Icon size={15} className="text-tv-purple mt-0.5 shrink-0" />
+              <span className="text-sm">
+                <span className="font-semibold text-white group-hover:text-tv-purple">{title}</span>
+                <span className="text-tv-muted"> — {text}</span>
+              </span>
+            </Link>
+          </li>
         ))}
-      </div>
-
-      <details className="mt-4 group">
-        <summary className="cursor-pointer text-xs font-semibold text-tv-purple hover:text-white select-none">
-          Key terms used on this page
-        </summary>
-        <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 mt-3">
-          {TERMS.map(({ term, text }) => (
-            <div key={term} className="text-xs leading-relaxed">
-              <dt className="inline font-mono font-bold text-white">{term}</dt>
-              <dd className="inline text-tv-muted"> — {text}</dd>
-            </div>
-          ))}
-        </dl>
-      </details>
+      </ul>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           onClick={dismiss}
           className="text-xs font-semibold text-white bg-tv-purple/80 hover:bg-tv-purple rounded-lg px-4 py-2 transition-colors"
         >
-          Got it — show me the dashboard
+          Got it
         </button>
-        <span className="text-[11px] text-gray-600">Reopen anytime with “Quick tour” at the top of the dashboard.</span>
+        <span className="text-[11px] text-gray-600">Reopen anytime with “About this site” at the top of the dashboard.</span>
       </div>
     </section>
   );

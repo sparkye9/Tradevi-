@@ -92,7 +92,6 @@ export default function FuturesBar() {
           {clock?.shortLabel ?? '\u00a0'}
         </span>
         <span className="text-tv-muted font-mono text-xs whitespace-nowrap">{etTime ? `${etTime} ET` : ''}</span>
-        <span className="pill border-tv-border text-tv-muted">Delayed</span>
       </div>
 
       <span className="text-tv-border text-xs shrink-0">|</span>

@@ -44,7 +44,7 @@ async function fetchYahooSession(): Promise<YahooSession | null> {
   }
 }
 
-async function getYahooSession(forceRefresh = false): Promise<YahooSession | null> {
+export async function getYahooSession(forceRefresh = false): Promise<YahooSession | null> {
   if (!forceRefresh && session && Date.now() - session.ts < SESSION_TTL) {
     return session;
   }
@@ -68,12 +68,13 @@ export interface YahooContract {
 export interface YahooOptionsResult {
   contracts: YahooContract[];
   sourceError?: string;
-  source: 'Yahoo Finance (delayed)';
+  source: 'Yahoo Finance';
   lastUpdated: string;
 }
 
-interface YahooOptionContract {
+export interface YahooOptionContract {
   contractSymbol?: string;
+  lastPrice?: number;
   expiration?: number;
   strike?: number;
   impliedVolatility?: number;
@@ -140,7 +141,7 @@ export async function fetchYahooOptions(symbol: string): Promise<YahooOptionsRes
       return {
         contracts: [],
         sourceError: `Yahoo Finance HTTP ${resp.status}`,
-        source: 'Yahoo Finance (delayed)',
+        source: 'Yahoo Finance',
         lastUpdated: now,
       };
     }
@@ -149,7 +150,7 @@ export async function fetchYahooOptions(symbol: string): Promise<YahooOptionsRes
     return {
       contracts: [],
       sourceError: `Yahoo Finance fetch failed: ${String(err)}`,
-      source: 'Yahoo Finance (delayed)',
+      source: 'Yahoo Finance',
       lastUpdated: now,
     };
   }
@@ -159,7 +160,7 @@ export async function fetchYahooOptions(symbol: string): Promise<YahooOptionsRes
     return {
       contracts: [],
       sourceError: 'Yahoo Finance returned no options data',
-      source: 'Yahoo Finance (delayed)',
+      source: 'Yahoo Finance',
       lastUpdated: now,
     };
   }
@@ -187,7 +188,7 @@ export async function fetchYahooOptions(symbol: string): Promise<YahooOptionsRes
 
   return {
     contracts: filtered.slice(0, 20),
-    source: 'Yahoo Finance (delayed)',
+    source: 'Yahoo Finance',
     lastUpdated: now,
   };
 }

@@ -100,8 +100,8 @@ export default function LearnPage() {
         <div className="text-[10px] uppercase tracking-[0.18em] text-tv-purple">Learn · Options 101</div>
         <h1 className="text-3xl md:text-4xl font-bold text-white tracking-tight">Options, in plain English</h1>
         <p className="text-gray-400 max-w-2xl">
-          A 15-minute walkthrough of how stock options work — then try the payoff calculator and practice questions. No
-          sign-up, nothing to buy. Education only, not financial advice.
+          A 15-minute walkthrough of how stock options work — then try the payoff calculator and practice questions.
+          Education only, not financial advice.
         </p>
         <nav className="flex flex-wrap gap-1.5 pt-1">
           {SECTIONS.map((s, i) => (

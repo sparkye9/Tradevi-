@@ -14,7 +14,7 @@ export interface StockQuality {
 const HONEST_GAPS = [
   'SMA alignment is not ICT structure. CHOCH, BOS, FVG, and VWAP are not computed here.',
   'No options flow and no GEX. Confirm the contract on your broker chain.',
-  'Yahoo / Finviz tape is delayed. This is not a live feed.',
+  'Tradevi is not responsible for any trade you place. Verify every setup on your chart first.',
 ];
 
 export const STOCK_HONEST_GAPS = HONEST_GAPS;
@@ -103,4 +103,34 @@ export function smaTrendAligned(q: FinvizQuote): boolean {
 /** Volume evidence for the same-session desk. LOOK still required. */
 export function intradayTape(q: FinvizQuote, rvolThreshold: number): boolean {
   return (q.rvol ?? 0) >= rvolThreshold || q.newHighDay === true || q.unusualVolume === true;
+}
+
+/** Plain-English checklist behind a verdict, for students. */
+export function plainReasons(q: FinvizQuote, rvolThreshold: number): { ok: boolean; text: string }[] {
+  const out: { ok: boolean; text: string }[] = [];
+  const rvol = q.rvol;
+  if (rvol == null) {
+    out.push({ ok: false, text: 'Volume data not available.' });
+  } else if (rvol >= rvolThreshold) {
+    out.push({ ok: true, text: `Trading ${rvol.toFixed(1)}× its normal volume — people are paying attention.` });
+  } else {
+    out.push({ ok: false, text: `Only ${rvol.toFixed(1)}× normal volume — not much interest yet (needs ${rvolThreshold}×).` });
+  }
+  if (q.unusualVolume) out.push({ ok: true, text: 'Flagged for unusual volume today.' });
+
+  const up = q.sma50rel === 'above' && q.sma200rel === 'above';
+  const down = q.sma50rel === 'below' && q.sma200rel === 'below';
+  if (up) out.push({ ok: true, text: 'Above its 50- and 200-day averages — longer-term uptrend.' });
+  else if (down) out.push({ ok: true, text: 'Below its 50- and 200-day averages — longer-term downtrend.' });
+  else out.push({ ok: false, text: 'Moving averages disagree — no clear longer-term trend.' });
+
+  if (q.changePercent != null) {
+    const c = q.changePercent;
+    out.push({
+      ok: Math.abs(c) >= 1,
+      text: `${c >= 0 ? 'Up' : 'Down'} ${Math.abs(c).toFixed(2)}% today${Math.abs(c) < 1 ? ' — a small move' : ''}.`,
+    });
+  }
+  if (q.newHighDay) out.push({ ok: true, text: 'Just made a new high for the day.' });
+  return out;
 }

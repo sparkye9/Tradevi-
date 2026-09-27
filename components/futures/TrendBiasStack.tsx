@@ -216,7 +216,7 @@ export default function TrendBiasStack() {
             {data.intraday ? (
               <SetupLevelsCard
                 title="Intraday setup · 15m"
-                subtitle={`15-minute HH/HL. Refreshes every ${data.intraday.refreshMinutes} minutes. Delayed Yahoo — not a live feed.`}
+                subtitle={`15-minute HH/HL. Refreshes every ${data.intraday.refreshMinutes} minutes. Verify on your chart before acting.`}
                 setup={data.intraday.setup}
               />
             ) : (

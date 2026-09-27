@@ -1,9 +1,11 @@
 'use client';
 import type { ReactNode } from 'react';
+import Link from 'next/link';
+import { Check, X } from 'lucide-react';
 import TradingViewButton from '@/components/ui/TradingViewButton';
 import VerdictBadge from '@/components/stocks/VerdictBadge';
 import SmaLabel from '@/components/stocks/SmaLabel';
-import { stockQuality } from '@/lib/stockQuality';
+import { plainReasons, stockQuality } from '@/lib/stockQuality';
 import type { FinvizQuote } from '@/lib/finviz';
 
 export default function LookCard({
@@ -40,10 +42,24 @@ export default function LookCard({
         )}
       </div>
       <SmaLabel q={q} />
-      <p className="text-[11px] text-gray-500">{quality.headline}</p>
+      <ul className="space-y-1">
+        {plainReasons(q, threshold).map((r) => (
+          <li key={r.text} className="flex items-start gap-1.5 text-[11px] leading-snug">
+            {r.ok ? (
+              <Check size={12} className="text-tv-green shrink-0 mt-px" />
+            ) : (
+              <X size={12} className="text-gray-600 shrink-0 mt-px" />
+            )}
+            <span className={r.ok ? 'text-gray-300' : 'text-gray-500'}>{r.text}</span>
+          </li>
+        ))}
+      </ul>
       {extras}
-      <div className="flex justify-end pt-1 border-t border-[#1e1e1e]">
-        <TradingViewButton symbol={q.symbol} label="Confirm on TradingView" />
+      <div className="flex items-center justify-between gap-2 pt-2 mt-auto border-t border-[#1e1e1e]">
+        <Link href={`/options?symbol=${encodeURIComponent(q.symbol)}`} className="text-xs font-semibold text-tv-purple hover:text-white">
+          Options chain →
+        </Link>
+        <TradingViewButton symbol={q.symbol} label="Verify on chart" />
       </div>
     </div>
   );

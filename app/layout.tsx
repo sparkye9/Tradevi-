@@ -23,10 +23,10 @@ const jetbrains = JetBrains_Mono({
 export const metadata: Metadata = {
   title: 'Tradevi — learn to read the market',
   description:
-    'A free, open trading-education dashboard: futures trend stacks, stock scans, power hour and an economic calendar. Education only — no sign-up, no trades executed.',
+    'A trading-education dashboard: Options 101, futures trend stacks, stock scans, option chains, power hour and an economic calendar. Education only.',
   openGraph: {
     title: 'Tradevi — learn to read the market',
-    description: 'Free trading-education dashboard. No sign-up needed. Education only.',
+    description: 'Learn how futures, stocks and options setups are judged. Education only.',
     type: 'website',
   },
 };
