@@ -50,10 +50,10 @@ function ZonePill({ zone }: { zone: Zone }) {
   return <span className={`text-xs font-semibold uppercase tracking-widest ${styles[zone]}`}>{zone}</span>;
 }
 
-export const STATUS_STYLE: Record<ReadinessStatus, { wrap: string; pill: string }> = {
-  READY: { wrap: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200', pill: 'border-tv-green/40 text-tv-green bg-tv-green/10' },
-  WATCH: { wrap: 'border-amber-500/30 bg-amber-500/10 text-amber-100', pill: 'border-tv-amber/40 text-tv-amber bg-tv-amber/10' },
-  WAIT: { wrap: 'border-gray-500/30 bg-[#141414] text-gray-200', pill: 'border-tv-border text-tv-muted bg-white/5' },
+export const STATUS_STYLE: Record<ReadinessStatus, { wrap: string; pill: string; border: string }> = {
+  READY: { wrap: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200', pill: 'border-tv-green/40 text-tv-green bg-tv-green/10', border: 'border-tv-green/30' },
+  WATCH: { wrap: 'border-amber-500/30 bg-amber-500/10 text-amber-100', pill: 'border-tv-amber/40 text-tv-amber bg-tv-amber/10', border: 'border-tv-amber/30' },
+  WAIT: { wrap: 'border-gray-500/30 bg-[#141414] text-gray-200', pill: 'border-tv-border text-tv-muted bg-white/5', border: 'border-tv-border' },
 };
 
 export function GradePill({ grade, score, status }: { grade: Grade; score: number; status: ReadinessStatus }) {

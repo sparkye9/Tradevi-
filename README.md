@@ -14,7 +14,8 @@ Open to everyone — no accounts or subscriptions. A Learn section plus five des
 |------|----------------|
 | **Dashboard** | Welcome tour, WAIT / LOOK / NO TRADE, MNQ game plan, next high-impact prints |
 | **Learn** | Options 101: calls/puts, contracts, moneyness, the Greeks, payoff calculator, practice quiz, glossary |
-| **Futures** | Trend Bias Stack (HH/HL on micros) plus swing and 15-minute entry / stop / TP1 / TP2 |
+| **Futures** | Readiness board (hard gates + 0–100 score → A READY / B WATCH / C WAIT) for ten futures, Trend Bias Stack (HH/HL), swing and 15-minute entry / stop / TP1 / TP2 |
+| **Market Selector** | Ranks the futures universe by trend cleanliness (ER10, ADX14) and the nearest untaken liquidity draw. Trade / Watch / Avoid, daily and weekly views |
 | **Stocks** | Volume + SMA tape with a hard NO TRADE. Sub-desks: Discovery, Swing, Intraday, Options, Small Account |
 | **Power Hour** | Globex clock (Asia / London / New York) plus 3:00–4:00 PM ET cash Power Hour |
 | **Calendar** | This week’s economic prints from Forex Factory’s public weekly export |
@@ -59,9 +60,13 @@ npm run dev
 ```
 
 ```bash
-npm test          # clock + quality engine checks
+npm test          # clock, quality, indicator, readiness and selector checks (+ snapshot)
 npx tsc --noEmit  # typecheck
+npx tsx scripts/validate-readiness.ts 30      # A/B/C grade distribution over the last 30 sessions
+npx tsx scripts/make-selector-fixture.ts      # refresh the selector fixture, then UPDATE_SNAPSHOT=1 npm test
 ```
+
+Futures readiness config (session window, news blackout, data-age limits, weights) lives in `lib/readinessConfig.ts`. The instrument universe for both the readiness board and the Market Selector lives in `lib/marketUniverse.ts`.
 
 ---
 
