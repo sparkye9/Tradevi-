@@ -24,6 +24,7 @@ import {
   type Candle,
   type ResampledBar,
 } from './indicators';
+import { fmtPrice } from './formatters';
 
 export type SelectorLabel = 'Trade' | 'Watch' | 'Avoid';
 export type SelectorBias = 'Bullish' | 'Bearish' | 'Neutral';
@@ -125,6 +126,22 @@ export function completedMonths(monthly: ResampledBar[], now: Date): ResampledBa
   return monthly.filter((m) => m.key < nowKey);
 }
 
+/**
+ * Daily bars whose session is over. Yahoo dates the in-progress Globex session
+ * by its US trading date, so before the 5:00 PM ET close the newest bar is a
+ * partial overnight bar; it is dropped so inside-day, ER and ADX run on
+ * finished sessions only.
+ */
+export function completedDaily(daily: Candle[], now: Date): Candle[] {
+  if (daily.length === 0) return daily;
+  const nowSec = Math.floor(now.getTime() / 1000);
+  const today = etDate(nowSec);
+  const hourEt = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' }).format(now));
+  const last = daily[daily.length - 1];
+  if (etDate(last.time) === today && hourEt < 17) return daily.slice(0, -1);
+  return daily;
+}
+
 /** Price traded through the level after `fromIndex` (exclusive) on the given bars. */
 export function takenAfter(bars: Candle[], fromIndex: number, level: number, side: 'above' | 'below'): boolean {
   for (let i = fromIndex + 1; i < bars.length; i++) {
@@ -223,10 +240,7 @@ export const DRAW_NAMES: Record<DrawType, string> = {
   equal_lows: 'equal lows',
 };
 
-function fmtPx(n: number): string {
-  const places = n >= 1000 ? 0 : n >= 100 ? 1 : n >= 10 ? 2 : 4;
-  return n.toLocaleString('en-US', { minimumFractionDigits: places, maximumFractionDigits: places });
-}
+const fmtPx = fmtPrice;
 
 // ─── main ───────────────────────────────────────────────────────────────────
 
@@ -243,9 +257,9 @@ export interface SelectorInput {
 
 export function computeSelector(input: SelectorInput): SelectorItem {
   const timeframe = input.timeframe ?? 'daily';
-  const daily = input.daily;
-  if (daily.length < 60) throw new Error(`${input.symbol}: need at least 60 daily bars, got ${daily.length}`);
   const now = input.now;
+  const daily = completedDaily(input.daily, now);
+  if (daily.length < 60) throw new Error(`${input.symbol}: need at least 60 completed daily bars, got ${daily.length}`);
   const weekly = resampleWeekly(daily);
   const monthly = resampleMonthly(daily);
   const weeklyDone = completedWeeks(weekly, now);
@@ -291,8 +305,16 @@ export function computeSelector(input: SelectorInput): SelectorItem {
     if (!takenAfter(daily, endIdx, pm.low, 'below')) addDraw('prior_month_low', pm.low);
   }
   const eq = equalLevels(bars, SELECTOR_THRESHOLDS.equalLevelAtr * atr14, SELECTOR_THRESHOLDS.equalLookback);
-  for (const h of eq.highs) addDraw('equal_highs', h.price);
-  for (const l of eq.lows) addDraw('equal_lows', l.price);
+  // On the weekly view `bars` are completed weeks, so also check the current
+  // (incomplete) week's daily bars: a level swept on Tuesday is already taken.
+  const sweptOnDaily = (formedAt: number, price: number, side: 'above' | 'below'): boolean => {
+    if (timeframe !== 'weekly') return false;
+    const week = weeklyDone[formedAt];
+    if (!week) return false;
+    return takenAfter(daily, lastIndexOfBucket(daily, week.key, isoWeekKey), price, side);
+  };
+  for (const h of eq.highs) if (!sweptOnDaily(h.formedAt, h.price, 'above')) addDraw('equal_highs', h.price);
+  for (const l of eq.lows) if (!sweptOnDaily(l.formedAt, l.price, 'below')) addDraw('equal_lows', l.price);
   draws.sort((a, b) => a.distance_atr - b.distance_atr);
 
   const above = draws.filter((d) => d.side === 'above');

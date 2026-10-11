@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { selectorView } from '@/lib/selectorData';
 
 export const runtime = 'nodejs';
+// Ten instruments × several Yahoo calls can exceed the default function timeout.
+export const maxDuration = 60;
 
 /** GET /api/selector/daily — today's ranked list (Trade / Watch / Avoid). */
 export async function GET(request: Request) {

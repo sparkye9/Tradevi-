@@ -20,7 +20,7 @@ import type { YFCandle } from '../lib/yahooChart';
 import { atr, efficiencyRatio, adx, dmi, fractalPivots, resampleWeekly, resampleMonthly, isoWeekKey } from '../lib/indicators';
 import { computeReadiness, scoreReadiness, gradeFor, newsGate, freshnessGate, type ReadinessInput } from '../lib/readiness';
 import { READINESS_CONFIG } from '../lib/readinessConfig';
-import { computeSelector, equalLevels, htfBias, labelFor, reachability, rollGapFlag, takenAfter, type SelectorItem } from '../lib/selector';
+import { computeSelector, completedDaily, completedWeeks, equalLevels, htfBias, labelFor, reachability, rollGapFlag, takenAfter, type SelectorItem } from '../lib/selector';
 import { dailyCacheKey, weeklyCacheKey } from '../lib/selectorData';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -452,6 +452,19 @@ check('2 hours after CPI is clear', newsGate(new Date('2026-08-12T14:30:00.000Z'
 check('AUD high-impact does not black out CME', newsGate(new Date('2026-08-11T04:25:00.000Z'), week).passed === true);
 check('freshness gate reports age in minutes', freshnessGate(new Date('2025-01-14T15:00:00.000Z'), { interval: '1h', time: Math.floor(new Date('2025-01-14T13:00:00.000Z').getTime() / 1000) }).age === 60);
 check('grade bands: 75→A, 60→B, 59→C', gradeFor(75) === 'A' && gradeFor(60) === 'B' && gradeFor(59) === 'C');
+
+// Review fixes.
+const broken = computeReadiness(readinessInput({ lastPrice: 100, levels: (() => { const l = structureLevels(uptrendCandles, 'up', 100); return { Weekly: l, Daily: l, '4H': l }; })() }));
+check('price through the daily invalidation is never READY', broken.status !== 'READY' && broken.failed.some((f) => /structure broken/.test(f)));
+check('broken structure scores zero on zone and invalidation', broken.components.filter((c) => ['dailyZone', 'fourHZone', 'invalidation', 'rr'].includes(c.key)).every((c) => c.points === 0));
+
+const weeklyOnly = computeReadiness(readinessInput({ reads: { Weekly: { bias: 'up', reason: 'hh/hl' }, Daily: { bias: 'range', reason: 'mixed' }, '4H': { bias: 'range', reason: 'mixed' } } }));
+check('Weekly alone is not a side', weeklyOnly.side === null && weeklyOnly.status === 'WAIT');
+check('Weekly alone earns no weekly / conflict / zone points', weeklyOnly.components.filter((c) => ['weekly', 'conflict', 'dailyZone', 'fourHZone'].includes(c.key)).every((c) => c.points === 0));
+
+const feedDown = newsGate(new Date('2026-08-12T14:30:00.000Z'), [], false);
+check('news gate says so when the calendar feed is down (manual list empty)', feedDown.passed === true && /feed unavailable/.test(feedDown.detail));
+check('no-bars freshness reports null age', freshnessGate(new Date(), null).age === null);
 check('score never exceeds 100', scoreReadiness(readinessInput()).score <= 100);
 
 // ─── Market Selector (lib/selector.ts) ──────────────────────────────────────
@@ -515,7 +528,7 @@ check('not an inside day otherwise', untakenItem.inside_day === false);
 
 // HTF bias on a monotone uptrend: weekly close above prior mid and close above EMA20.
 const upBars = weekdayBars(70, '2026-10-09', (i) => ({ h: 100 + i + 0.5, l: 100 + i - 0.5, c: 100 + i }));
-check('monotone uptrend is Bullish', htfBias(upBars, resampleWeekly(upBars).slice(0, -0 || undefined)) === 'Bullish');
+check('monotone uptrend is Bullish', htfBias(upBars, completedWeeks(resampleWeekly(upBars), new Date('2026-10-10T15:00:00Z'))) === 'Bullish');
 const downBars = weekdayBars(70, '2026-10-09', (i) => ({ h: 200 - i + 0.5, l: 200 - i - 0.5, c: 200 - i }));
 check('monotone downtrend is Bearish', htfBias(downBars, resampleWeekly(downBars)) === 'Bearish');
 check('trend selector scores Trade on a clean line', computeSelector({ symbol: 'T', display: 'T', tradeAs: 'T', daily: upBars, now: new Date('2026-10-10T15:00:00Z') }).er10 === 1);
@@ -524,6 +537,24 @@ check('trend selector scores Trade on a clean line', computeSelector({ symbol: '
 const gapBars = weekdayBars(70, '2026-10-07', (i) => (i >= 66 ? { o: 120, h: 120.5, l: 119.5, c: 120 } : { h: 100 + i * 0.1 + 0.5, l: 100 + i * 0.1 - 0.5, c: 100 + i * 0.1 }));
 check('roll gap flagged inside a roll window', rollGapFlag(gapBars, () => true) === true);
 check('roll gap ignored outside a roll window', rollGapFlag(gapBars, () => false) === false);
+
+// Partial session bar: a bar dated today before 5 PM ET is dropped, after 5 PM it stays.
+const withToday = weekdayBars(70, '2026-10-07', (i) => ({ h: 101, l: 99, c: 100 + i * 0.01 }));
+check('completedDaily drops today\'s bar before the close', completedDaily(withToday, new Date('2026-10-07T13:00:00Z')).length === 69);
+check('completedDaily keeps today\'s bar after the close', completedDaily(withToday, new Date('2026-10-07T22:00:00Z')).length === 70);
+
+// Weekly view: equal highs on completed weeks that this week's daily bars already swept are not draws.
+// Two fractal weekly highs at 120 (weeks of 2026-08-10 and 2026-09-07) and quiet weeks elsewhere; Tuesday 2026-10-06 trades to 125.
+const weeklyEq = weekdayBars(260, '2026-10-07', () => ({ h: 101, l: 99, c: 100 })).map((c) => {
+  const ymd = new Date(c.time * 1000).toISOString().slice(0, 10);
+  if (ymd === '2026-08-12' || ymd === '2026-09-09') return { ...c, high: 120, close: 110 };
+  if (ymd === '2026-10-06') return { ...c, high: 125, close: 112 };
+  return c;
+});
+const weeklySwept = computeSelector({ symbol: 'T', display: 'T', tradeAs: 'T', daily: weeklyEq, now: new Date('2026-10-07T20:00:00Z'), timeframe: 'weekly' });
+check('weekly equal highs swept by this week\'s daily bars are not draws', !weeklySwept.draws.some((d) => d.type === 'equal_highs'));
+const weeklyIntact = computeSelector({ symbol: 'T', display: 'T', tradeAs: 'T', daily: weeklyEq.map((c) => (c.high === 125 ? { ...c, high: 101, close: 100 } : c)), now: new Date('2026-10-07T20:00:00Z'), timeframe: 'weekly' });
+check('weekly equal highs survive when nothing swept them', weeklyIntact.draws.some((d) => d.type === 'equal_highs' && d.price === 120));
 
 // Cache keys.
 check('daily cache key rolls at 8:00 AM ET', dailyCacheKey(new Date('2026-10-07T11:30:00Z')) === '2026-10-06' && dailyCacheKey(new Date('2026-10-07T12:30:00Z')) === '2026-10-07');

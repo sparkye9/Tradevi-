@@ -5,6 +5,7 @@ import SourceTag from '@/components/ui/SourceTag';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import TradingViewButton from '@/components/ui/TradingViewButton';
 import { friendlyDataError } from '@/lib/friendlyError';
+import { fmtPrice } from '@/lib/formatters';
 import { MARKET_UNIVERSE } from '@/lib/marketUniverse';
 import { DRAW_NAMES, type Draw, type SelectorBias, type SelectorItem } from '@/lib/selector';
 import type { SelectorResponse } from '@/lib/selectorData';
@@ -18,10 +19,7 @@ const BIAS_STYLE: Record<SelectorBias, string> = {
   Neutral: 'text-tv-amber',
 };
 
-function fmtPx(n: number): string {
-  const places = n >= 1000 ? 0 : n >= 100 ? 1 : n >= 10 ? 2 : 4;
-  return n.toLocaleString('en-US', { minimumFractionDigits: places, maximumFractionDigits: places });
-}
+const fmtPx = fmtPrice;
 
 function fmtTime(iso: string | undefined): string {
   if (!iso) return '—';

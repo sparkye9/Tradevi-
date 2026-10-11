@@ -127,7 +127,7 @@ function ReadinessBanner({ data }: { data: TrendBiasStackResult }) {
           </span>
         ))}
         <span className="pill border-tv-border text-tv-muted" title="Age of the newest bar used for the live price">
-          data {r.data_age_minutes} min old
+          data {r.data_age_minutes == null ? 'unavailable' : `${r.data_age_minutes} min old`}
         </span>
       </div>
 

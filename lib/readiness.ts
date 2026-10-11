@@ -39,7 +39,8 @@ export interface ReadinessResult {
   blocking_gate: string | null;
   passed: string[];
   failed: string[];
-  data_age_minutes: number;
+  /** Minutes since the newest bar closed; null when no bars came back. */
+  data_age_minutes: number | null;
   updated_at: string;
   /** Extra detail for the UI (not part of the spec contract). */
   side: 'long' | 'short' | null;
@@ -66,6 +67,8 @@ export interface ReadinessInput {
   newestBar: NewestBar | null;
   /** High-impact calendar events (already filtered or not — the engine filters). */
   events: CalendarEvent[];
+  /** False when the calendar feed could not be reached (manual list still applies). */
+  calendarAvailable?: boolean;
 }
 
 const INTERVAL_SECONDS: Record<BarInterval, number> = {
@@ -104,29 +107,32 @@ export function sessionGate(now: Date): { passed: boolean; detail: string } {
   return { passed: true, detail: `${clock.session} — Globex open.` };
 }
 
-export function newsGate(now: Date, events: CalendarEvent[]): { passed: boolean; detail: string } {
+export function newsGate(now: Date, events: CalendarEvent[], calendarAvailable = true): { passed: boolean; detail: string } {
   const cfg = READINESS_CONFIG.news;
   const t = now.getTime();
   const before = cfg.beforeMinutes * 60_000;
   const after = cfg.afterMinutes * 60_000;
   const fromFeed = events.filter((e) => e.impact === 'High' && cfg.countries.includes(e.country));
-  const manual: CalendarEvent[] = cfg.manualEvents.map((m) => ({
-    title: m.title,
-    country: 'USD',
-    impact: 'High',
-    at: new Date(m.at).toISOString(),
-    forecast: '',
-    previous: '',
-    actual: '',
-  }));
-  for (const e of [...fromFeed, ...manual]) {
-    const at = new Date(e.at).getTime();
-    if (Number.isNaN(at)) continue;
-    if (t >= at - before && t <= at + after) {
-      const mins = Math.round((at - t) / 60_000);
+  // Manual list: a bad date in config must not take the engine down — it is skipped.
+  const manual: { title: string; at: number }[] = cfg.manualEvents
+    .map((m) => ({ title: m.title, at: Date.parse(m.at) }))
+    .filter((m) => Number.isFinite(m.at));
+  const all = [...fromFeed.map((e) => ({ title: e.title, at: Date.parse(e.at) })), ...manual];
+  for (const e of all) {
+    if (!Number.isFinite(e.at)) continue;
+    if (t >= e.at - before && t <= e.at + after) {
+      const mins = Math.round((e.at - t) / 60_000);
       const when = mins > 0 ? `in ${mins} min` : mins === 0 ? 'now' : `${-mins} min ago`;
       return { passed: false, detail: `News blackout: ${e.title} ${when}.` };
     }
+  }
+  if (!calendarAvailable) {
+    return {
+      passed: true,
+      detail: manual.length
+        ? 'Calendar feed unavailable — checked the manual event list only.'
+        : 'Calendar feed unavailable and no manual events configured — news gate could not be checked.',
+    };
   }
   return { passed: true, detail: 'No high-impact print inside the blackout window.' };
 }
@@ -137,8 +143,8 @@ export function dataAgeMinutes(now: Date, newest: NewestBar | null): number | nu
   return Math.max(0, Math.round((now.getTime() - closeAt) / 60_000));
 }
 
-export function freshnessGate(now: Date, newest: NewestBar | null): { passed: boolean; detail: string; age: number } {
-  if (!newest) return { passed: false, detail: 'Data stale: no bars returned.', age: -1 };
+export function freshnessGate(now: Date, newest: NewestBar | null): { passed: boolean; detail: string; age: number | null } {
+  if (!newest) return { passed: false, detail: 'Data stale: no bars returned.', age: null };
   const age = dataAgeMinutes(now, newest) ?? 0;
   const limit = READINESS_CONFIG.maxDataAgeMinutes[newest.interval];
   if (age > limit) {
@@ -149,15 +155,21 @@ export function freshnessGate(now: Date, newest: NewestBar | null): { passed: bo
 
 // ─── Scoring ────────────────────────────────────────────────────────────────
 
-function dominantSide(reads: Record<Timeframe, TrendRead>): Bias {
-  const biases = [reads.Weekly.bias, reads.Daily.bias, reads['4H'].bias];
-  const ups = biases.filter((b) => b === 'up').length;
-  const downs = biases.filter((b) => b === 'down').length;
-  if (ups > downs) return 'up';
-  if (downs > ups) return 'down';
-  if (reads.Daily.bias !== 'range') return reads.Daily.bias;
-  if (reads['4H'].bias !== 'range') return reads['4H'].bias;
-  return 'range';
+/**
+ * The side the setup leans to. Daily and 4H carry the lean; Weekly alone is
+ * never a side (it can only add or remove points once Daily or 4H points
+ * somewhere).
+ */
+export function dominantSide(reads: Record<Timeframe, TrendRead>): Bias {
+  const d = reads.Daily.bias;
+  const h = reads['4H'].bias;
+  if (d === 'range' && h === 'range') return 'range';
+  if (d !== 'range' && h !== 'range' && d !== h) {
+    // Daily vs 4H disagree: Weekly breaks the tie, otherwise Daily wins.
+    const w = reads.Weekly.bias;
+    return w === d || w === h ? w : d;
+  }
+  return d !== 'range' ? d : h;
 }
 
 function word(b: Bias): string {
@@ -184,8 +196,11 @@ function zoneComponent(
   const band = READINESS_CONFIG.zoneBandAtr;
   const want = side === 'up' ? 'discount' : 'premium';
   const avoid = side === 'up' ? 'premium' : 'discount';
+  if (side === 'range') {
+    return { key, label: `${tfLabel} zone not scored — no Daily / 4H lean`, points: 0, max, state: 'failed' };
+  }
   if (dist == null) {
-    return { key, label: `${tfLabel} zone unknown (no bias or no ATR)`, points: 0, max, state: 'failed' };
+    return { key, label: `${tfLabel} zone unknown (no equilibrium or no ATR)`, points: 0, max, state: 'failed' };
   }
   if (dist >= band) {
     return {
@@ -277,11 +292,27 @@ export function scoreReadiness(input: ReadinessInput): {
 
   const dailyAtr = atr(input.dailyCandles, 14);
   const fourHAtr = atr(input.fourHCandles, 14);
-  comps.push(zoneComponent('dailyZone', 'Daily', W.dailyZone, zoneDistanceAtr(lastPrice, levels.Daily.equilibrium, dailyAtr, side), side));
-  comps.push(zoneComponent('fourHZone', '4H', W.fourHZone, zoneDistanceAtr(lastPrice, levels['4H'].equilibrium, fourHAtr, side), side));
 
+  // Structure broken: price has already traded through the daily invalidation
+  // (below the last swing low for longs, above the last swing high for shorts).
+  // That is not "deep discount" — it is a failed structure and scores nothing on
+  // zone or invalidation.
   const inv = levels.Daily.invalidation;
-  if (inv == null || lastPrice == null || side === 'range') {
+  const broken =
+    inv != null && lastPrice != null && side !== 'range' && (side === 'up' ? lastPrice < inv : lastPrice > inv);
+
+  if (broken) {
+    const brokenLabel = `Price is through the daily invalidation ${inv!.toFixed(2)} — structure broken, do not ${side === 'up' ? 'buy' : 'sell'} it`;
+    comps.push({ key: 'dailyZone', label: brokenLabel, points: 0, max: W.dailyZone, state: 'failed' });
+    comps.push({ key: 'fourHZone', label: '4H zone not scored while daily structure is broken', points: 0, max: W.fourHZone, state: 'failed' });
+  } else {
+    comps.push(zoneComponent('dailyZone', 'Daily', W.dailyZone, zoneDistanceAtr(lastPrice, levels.Daily.equilibrium, dailyAtr, side), side));
+    comps.push(zoneComponent('fourHZone', '4H', W.fourHZone, zoneDistanceAtr(lastPrice, levels['4H'].equilibrium, fourHAtr, side), side));
+  }
+
+  if (broken) {
+    comps.push({ key: 'invalidation', label: 'Invalidation already hit', points: 0, max: W.invalidation, state: 'failed' });
+  } else if (inv == null || lastPrice == null || side === 'range') {
     comps.push({ key: 'invalidation', label: 'No daily invalidation level', points: 0, max: W.invalidation, state: 'failed' });
   } else {
     const distAtr = dailyAtr && dailyAtr > 0 ? Math.abs(lastPrice - inv) / dailyAtr : null;
@@ -306,12 +337,14 @@ export function scoreReadiness(input: ReadinessInput): {
     state: thin ? 'failed' : 'passed',
   });
 
-  const rr = input.swingSetup.status === 'none' ? null : input.swingSetup.rToTp1;
+  const rr = input.swingSetup.status === 'none' || broken ? null : input.swingSetup.rToTp1;
   const rrPts = rr == null ? 0 : rr >= 1 ? W.rewardToTp1 : rr >= 0.5 ? Math.round(W.rewardToTp1 / 2) : 0;
   comps.push({
     key: 'rr',
     label: rr == null
-      ? 'No swing map (structure disagrees)'
+      ? broken
+        ? 'No swing map while structure is broken'
+        : 'No swing map (structure disagrees)'
       : rr >= 1
       ? `Swing map pays ${rr}R to TP1 at the planned entry`
       : `Swing map pays only ${rr}R to TP1 at the planned entry`,
@@ -332,7 +365,7 @@ export function gradeFor(score: number): Grade {
 
 export function computeReadiness(input: ReadinessInput): ReadinessResult {
   const session = sessionGate(input.now);
-  const news = newsGate(input.now, input.events);
+  const news = newsGate(input.now, input.events, input.calendarAvailable ?? true);
   const fresh = freshnessGate(input.now, input.newestBar);
   const gates = [
     { name: 'Session window', ...session },
@@ -368,7 +401,7 @@ export function computeReadiness(input: ReadinessInput): ReadinessResult {
     blocking_gate: blocking ? `${blocking.name}: ${blocking.detail}` : null,
     passed,
     failed,
-    data_age_minutes: fresh.age < 0 ? 0 : fresh.age,
+    data_age_minutes: fresh.age,
     updated_at: input.now.toISOString(),
     side,
     headline,

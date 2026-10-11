@@ -457,11 +457,27 @@ export function setupQuality(
   };
 }
 
-/** Map the graded readiness onto the legacy TRADE / WAIT / NO_TRADE shape the dashboard reads. */
+/**
+ * Map the graded readiness onto the legacy TRADE / WAIT / NO_TRADE shape the
+ * dashboard reads. READY → TRADE. WATCH, or any hard-gate block (closed
+ * market, news, stale data) → WAIT: the structure may be fine, the moment is
+ * not. Grade C → NO_TRADE.
+ */
 export function qualityFromReadiness(r: ReadinessResult): SetupQuality {
-  const label: QualityLabel = r.status === 'READY' ? 'TRADE' : r.status === 'WATCH' ? 'WAIT' : 'NO_TRADE';
+  const label: QualityLabel = r.status === 'READY' ? 'TRADE' : r.status === 'WATCH' || r.blocking_gate ? 'WAIT' : 'NO_TRADE';
   const reasons = r.blocking_gate ? [r.blocking_gate, ...r.failed.slice(0, 2)] : [...r.passed.slice(0, 3), ...r.failed.slice(0, 2)];
   return { score: r.score, label, headline: r.headline, reasons, missing: [...HONEST_GAPS] };
+}
+
+/** Short-lived memo so the readiness board and the detail panel share one fetch per instrument. */
+const STACK_TTL_MS = 2 * 60 * 1000;
+const stackMemo = new Map<string, { ts: number; promise: Promise<TrendBiasStackResult> }>();
+
+export interface StackOptions {
+  /** High-impact events already fetched by the caller (the board fetches once for all instruments). */
+  calendar?: { events: CalendarEvent[]; available: boolean };
+  /** Bypass the 2-minute memo. */
+  force?: boolean;
 }
 
 /** Newest bar across the fetched series, finest timeframe first (drives the freshness gate). */
@@ -472,12 +488,13 @@ function newestBarOf(fifteen: YFCandle[] | null, hourly: YFCandle[], daily: YFCa
   return null;
 }
 
-async function highImpactEvents(): Promise<CalendarEvent[]> {
+/** High-impact calendar events plus whether the feed actually answered. */
+export async function highImpactCalendar(): Promise<{ events: CalendarEvent[]; available: boolean }> {
   try {
     const cal = await fetchEconomicCalendar();
-    return cal.events.filter((e) => e.impact === 'High');
+    return { events: cal.events.filter((e) => e.impact === 'High'), available: !cal.sourceError };
   } catch {
-    return [];
+    return { events: [], available: false };
   }
 }
 
@@ -492,21 +509,32 @@ function alignment(reads: Record<Timeframe, TrendRead>): string {
   return 'PARTIAL ALIGNMENT. Moderate conviction. Trade the dominant side only.';
 }
 
-/** Compute the Weekly / Daily / 4H trend bias stack for one instrument. */
-export async function trendBiasStack(instrument: string): Promise<TrendBiasStackResult> {
-  const symbol = INSTRUMENT_MAP[instrument.toUpperCase()];
+/** Compute the Weekly / Daily / 4H trend bias stack for one instrument (memoised for 2 minutes). */
+export async function trendBiasStack(instrument: string, opts: StackOptions = {}): Promise<TrendBiasStackResult> {
+  const key = instrument.toUpperCase();
+  const symbol = INSTRUMENT_MAP[key];
   if (!symbol) {
     throw new Error(
       `Unknown instrument "${instrument}". Supported: ${Object.keys(INSTRUMENT_MAP).join(', ')}`
     );
   }
+  const hit = stackMemo.get(key);
+  if (!opts.force && hit && Date.now() - hit.ts < STACK_TTL_MS) return hit.promise;
+  const promise = buildTrendBiasStack(key, symbol, opts).catch((e) => {
+    stackMemo.delete(key); // never memoise a failure
+    throw e;
+  });
+  stackMemo.set(key, { ts: Date.now(), promise });
+  return promise;
+}
 
-  const [weekly, daily, hourly, fifteen, events] = await Promise.all([
+async function buildTrendBiasStack(instrument: string, symbol: string, opts: StackOptions): Promise<TrendBiasStackResult> {
+  const [weekly, daily, hourly, fifteen, calendar] = await Promise.all([
     fetchYahooCandles(symbol, '2y', '1wk'),
     fetchYahooCandles(symbol, '1y', '1d'),
     fetchYahooCandles(symbol, '3mo', '1h'),
     fetchYahooCandles(symbol, '10d', '15m').catch(() => null),
-    highImpactEvents(),
+    opts.calendar ? Promise.resolve(opts.calendar) : highImpactCalendar(),
   ]);
 
   const fourH = resample4h(hourly.candles);
@@ -558,7 +586,8 @@ export async function trendBiasStack(instrument: string): Promise<TrendBiasStack
     fourHCandles: fourH,
     swingSetup,
     newestBar: newestBarOf(fifteen?.candles ?? null, hourly.candles, daily.candles),
-    events,
+    events: calendar.events,
+    calendarAvailable: calendar.available,
   });
 
   return {

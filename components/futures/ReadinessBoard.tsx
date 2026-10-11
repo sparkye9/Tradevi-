@@ -9,6 +9,7 @@ import type { ReadinessBoard as ReadinessBoardData, ReadinessBoardItem } from '@
 import type { SelectorItem } from '@/lib/selector';
 import type { SelectorResponse } from '@/lib/selectorData';
 import { MARKET_UNIVERSE } from '@/lib/marketUniverse';
+import { fmtPrice } from '@/lib/formatters';
 
 const REFRESH_MS = 5 * 60 * 1000;
 const TOGGLE_KEY = 'tradevi.futures.tradeOnly';
@@ -22,11 +23,7 @@ function fmtTime(iso: string | undefined): string {
   }
 }
 
-function fmtPx(n: number | null): string {
-  if (n == null) return '—';
-  const places = n >= 1000 ? 0 : n >= 100 ? 1 : n >= 10 ? 2 : 4;
-  return n.toLocaleString('en-US', { minimumFractionDigits: places, maximumFractionDigits: places });
-}
+const fmtPx = fmtPrice;
 
 /** Selector items are keyed by the universe symbol (NQ); readiness by the desk instrument (MNQ). */
 function selectorFor(item: ReadinessBoardItem, selector: SelectorResponse | null): SelectorItem | null {
@@ -72,7 +69,8 @@ function Row({
             )}
           </div>
           <div className="text-[11px] text-tv-muted mt-1 font-mono">
-            last {fmtPx(item.lastPrice)} · {item.side ? item.side.toUpperCase() : 'no side'} · data {item.data_age_minutes} min
+            last {fmtPx(item.lastPrice)} · {item.side ? item.side.toUpperCase() : 'no side'} · data{' '}
+            {item.data_age_minutes == null ? '—' : `${item.data_age_minutes} min`}
             {sel?.target_draw && (
               <span className="font-sans">
                 {' '}· draw {sel.target_draw.type.replace(/_/g, ' ')} {sel.target_draw.distance_atr.toFixed(1)} ATR {sel.target_draw.side}

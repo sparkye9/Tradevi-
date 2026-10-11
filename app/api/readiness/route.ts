@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { readinessBoard } from '@/lib/readinessBoard';
 
 export const runtime = 'nodejs';
+// Ten instruments × several Yahoo calls can exceed the default function timeout.
+export const maxDuration = 60;
 
 /** GET /api/readiness — graded readiness for every instrument in the universe. */
 export async function GET(request: Request) {

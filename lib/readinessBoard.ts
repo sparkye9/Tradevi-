@@ -3,7 +3,7 @@
  * error isolation, a short in-memory cache and bounded concurrency so a page
  * load does not fire 40 Yahoo requests at once.
  */
-import { trendBiasStack, type TrendBiasStackResult } from './trendBias';
+import { trendBiasStack, highImpactCalendar, type TrendBiasStackResult } from './trendBias';
 import { MARKET_UNIVERSE } from './marketUniverse';
 import type { ReadinessResult } from './readiness';
 
@@ -25,7 +25,8 @@ export interface ReadinessBoard {
 }
 
 const TTL_MS = 5 * 60 * 1000;
-const CONCURRENCY = 3;
+// Each stack fires four Yahoo requests in parallel, so 2 workers = 8 in flight.
+const CONCURRENCY = 2;
 
 let cache: { data: ReadinessBoard; ts: number } | null = null;
 let inFlight: Promise<ReadinessBoard> | null = null;
@@ -44,16 +45,18 @@ function toItem(stack: TrendBiasStackResult): ReadinessBoardItem {
   };
 }
 
-async function build(): Promise<ReadinessBoard> {
+async function build(force: boolean): Promise<ReadinessBoard> {
   const items: ReadinessBoardItem[] = [];
   const errors: ReadinessBoard['errors'] = [];
   const queue = [...MARKET_UNIVERSE];
+  // One calendar fetch for the whole board.
+  const calendar = await highImpactCalendar();
 
   async function worker() {
     while (queue.length) {
       const u = queue.shift()!;
       try {
-        const stack = await trendBiasStack(u.readinessInstrument);
+        const stack = await trendBiasStack(u.readinessInstrument, { calendar, force });
         items.push(toItem(stack));
       } catch (e) {
         errors.push({ instrument: u.readinessInstrument, display: u.display, error: e instanceof Error ? e.message : String(e) });
@@ -71,7 +74,7 @@ async function build(): Promise<ReadinessBoard> {
 export async function readinessBoard(force = false): Promise<ReadinessBoard> {
   if (!force && cache && Date.now() - cache.ts < TTL_MS) return cache.data;
   if (inFlight) return inFlight;
-  inFlight = build()
+  inFlight = build(force)
     .then((data) => {
       // Only cache when at least one instrument came back; otherwise retry next call.
       if (data.items.length) cache = { data, ts: Date.now() };

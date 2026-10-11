@@ -13,6 +13,7 @@ import { fetchYahooCandles, type YFCandle } from '../lib/yahooChart';
 import { classify, structureLevels, swingSuggestion, INSTRUMENT_MAP, READINESS_INSTRUMENTS, type Timeframe, type TrendRead, type StructureLevels } from '../lib/trendBias';
 import { swingSetupFromDaily } from '../lib/futuresSetups';
 import { scoreReadiness, gradeFor, type ReadinessComponent } from '../lib/readiness';
+import { resampleWeekly } from '../lib/indicators';
 
 const SESSIONS = Number(process.argv[2] ?? '30');
 const INSTRUMENTS = (process.argv[3] ?? READINESS_INSTRUMENTS.join(',')).split(',').map((s) => s.trim().toUpperCase());
@@ -90,15 +91,11 @@ interface Series {
 
 async function loadSeries(symbol: string): Promise<Series> {
   try {
-    const [w, d, h] = await Promise.all([
-      fetchYahooCandles(symbol, '2y', '1wk'),
-      fetchYahooCandles(symbol, '2y', '1d'),
-      fetchYahooCandles(symbol, '2y', '1h'),
-    ]);
-    return { weekly: w.candles, daily: d.candles, hourly: h.candles, synthetic: false };
+    const [d, h] = await Promise.all([fetchYahooCandles(symbol, '2y', '1d'), fetchYahooCandles(symbol, '2y', '1h')]);
+    return { weekly: [], daily: d.candles, hourly: h.candles, synthetic: false };
   } catch {
     const hourly = syntheticHourly(20000, 0.013);
-    return { weekly: bucket(hourly, 7 * 86400), daily: bucket(hourly, 86400), hourly, synthetic: true };
+    return { weekly: [], daily: bucket(hourly, 86400), hourly, synthetic: true };
   }
 }
 
@@ -111,9 +108,11 @@ function replay(inst: string, s: Series) {
   let sessions = 0;
   for (let i = from; i < n; i++) {
     const dayEnd = s.daily[i].time + 86400;
-    const weekly = s.weekly.filter((c) => c.time < dayEnd && c.time >= dayEnd - 730 * 86400);
+    // No lookahead: daily bars up to the session, weekly rebuilt from those dailies
+    // (so the in-progress week holds only the days that had closed), 4H by bar close.
     const daily = s.daily.filter((c) => c.time < dayEnd && c.time >= dayEnd - 365 * 86400);
-    const fourH = fourHAll.filter((c) => c.time < dayEnd && c.time >= dayEnd - 90 * 86400);
+    const weekly = resampleWeekly(s.daily.filter((c) => c.time < dayEnd && c.time >= dayEnd - 730 * 86400));
+    const fourH = fourHAll.filter((c) => c.time + 4 * 3600 <= dayEnd && c.time >= dayEnd - 90 * 86400);
     if (weekly.length < 10 || daily.length < 45 || fourH.length < 30) continue;
     const lastPrice = daily[daily.length - 1].close;
     const reads: Record<Timeframe, TrendRead> = { Weekly: classify(weekly), Daily: classify(daily), '4H': classify(fourH) };
