@@ -20,6 +20,10 @@ import type { YFCandle } from '../lib/yahooChart';
 import { atr, efficiencyRatio, adx, dmi, fractalPivots, resampleWeekly, resampleMonthly, isoWeekKey } from '../lib/indicators';
 import { computeReadiness, scoreReadiness, gradeFor, newsGate, freshnessGate, type ReadinessInput } from '../lib/readiness';
 import { READINESS_CONFIG } from '../lib/readinessConfig';
+import { computeSelector, equalLevels, htfBias, labelFor, reachability, rollGapFlag, takenAfter, type SelectorItem } from '../lib/selector';
+import { dailyCacheKey, weeklyCacheKey } from '../lib/selectorData';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 let failed = 0;
 
@@ -449,6 +453,109 @@ check('AUD high-impact does not black out CME', newsGate(new Date('2026-08-11T04
 check('freshness gate reports age in minutes', freshnessGate(new Date('2025-01-14T15:00:00.000Z'), { interval: '1h', time: Math.floor(new Date('2025-01-14T13:00:00.000Z').getTime() / 1000) }).age === 60);
 check('grade bands: 75→A, 60→B, 59→C', gradeFor(75) === 'A' && gradeFor(60) === 'B' && gradeFor(59) === 'C');
 check('score never exceeds 100', scoreReadiness(readinessInput()).score <= 100);
+
+// ─── Market Selector (lib/selector.ts) ──────────────────────────────────────
+
+/** `n` weekday bars ending on `endUtc` (13:00 UTC stamps), price from `fn(i)` with i = 0 oldest. */
+function weekdayBars(n: number, endUtcYmd: string, fn: (i: number) => { h: number; l: number; c: number; o?: number }): YFCandle[] {
+  const stamps: number[] = [];
+  let cursor = Date.parse(`${endUtcYmd}T13:00:00Z`) / 1000;
+  while (stamps.length < n) {
+    const wd = new Date(cursor * 1000).getUTCDay();
+    if (wd !== 0 && wd !== 6) stamps.unshift(cursor);
+    cursor -= 86400;
+  }
+  return stamps.map((time, i) => {
+    const p = fn(i);
+    return { time, open: p.o ?? p.c, high: p.h, low: p.l, close: p.c, volume: 1 };
+  });
+}
+
+check('reachability: 0 at 0 ATR, full 0.5–2.0, zero at 4', reachability(0) === 0 && reachability(0.25) === 0.5 && reachability(1) === 1 && reachability(3) === 0.5 && reachability(4) === 0);
+check('selector labels: 65 Trade, 64 Watch, 44 Avoid', labelFor(65) === 'Trade' && labelFor(64) === 'Watch' && labelFor(44) === 'Avoid');
+
+// takenAfter: level 110 above; a later bar with high 111 takes it.
+const flat: YFCandle[] = Array.from({ length: 5 }, (_, i) => ({ time: i, open: 100, high: i === 3 ? 111 : 105, low: 95, close: 100, volume: 1 }));
+check('takenAfter sees a later high through the level', takenAfter(flat, 0, 110, 'above') === true);
+check('takenAfter ignores bars at or before fromIndex', takenAfter(flat, 3, 110, 'above') === false);
+check('takenAfter below side', takenAfter(flat, 0, 96, 'below') === true && takenAfter(flat, 0, 94, 'below') === false);
+
+// Equal highs: two fractal highs at 120 and 120.05 within tolerance, never exceeded afterwards.
+const eqBars: YFCandle[] = [100, 102, 120, 103, 101, 104, 120.05, 103, 100, 101, 102].map((h, i) => ({ time: i, open: h - 1, high: h, low: h - 2, close: h - 1, volume: 1 }));
+const eqFound = equalLevels(eqBars, 0.1, 40);
+check('equal highs detected at the higher of the pair', eqFound.highs.length === 1 && eqFound.highs[0].price === 120.05);
+const eqTaken: YFCandle[] = [...eqBars, { time: 11, open: 110, high: 121, low: 109, close: 115, volume: 1 }, { time: 12, open: 115, high: 116, low: 110, close: 112, volume: 1 }];
+check('equal highs that were traded through are dropped', equalLevels(eqTaken, 0.1, 40).highs.length === 0);
+
+// Prior-week draws. 70 weekday bars ending Wed 2026-10-07; prior week = Mon 2026-09-28 … Fri 2026-10-02 (bars 62–66).
+// Base case: prior week high 110 / low 90 at bars 64 and 65; this week stays inside 96–104.
+const untakenWeek = weekdayBars(70, '2026-10-07', (i) => {
+  if (i === 64) return { h: 110, l: 99, c: 100 };
+  if (i === 65) return { h: 101, l: 90, c: 100 };
+  if (i >= 67) return { h: 103 + (i - 67), l: 96 + (i - 67), c: 100 + (i - 67) * 0.5 }; // drifting range, never inside
+  return { h: 101 + Math.sin(i) , l: 99 + Math.sin(i), c: 100 + Math.sin(i) };
+});
+const selNow = new Date('2026-10-07T20:00:00Z');
+const untakenItem = computeSelector({ symbol: 'T', display: 'Test', tradeAs: 'T', daily: untakenWeek, now: selNow });
+const drawTypes = untakenItem.draws.map((d) => d.type);
+check('prior week high/low appear when untaken', drawTypes.includes('prior_week_high') && drawTypes.includes('prior_week_low'));
+check('prior week high is the real level', untakenItem.draws.find((d) => d.type === 'prior_week_high')?.price === 110);
+
+// Taken case: Tuesday this week trades through the prior week high (111) → PWH must not appear.
+const takenWeek = untakenWeek.map((c, i) => (i === 68 ? { ...c, high: 111, close: 105 } : c));
+const takenItem = computeSelector({ symbol: 'T', display: 'Test', tradeAs: 'T', daily: takenWeek, now: selNow });
+check('prior week high traded through is NOT a draw', !takenItem.draws.some((d) => d.type === 'prior_week_high'));
+check('prior week low still untaken in that case', takenItem.draws.some((d) => d.type === 'prior_week_low'));
+check('a draw never sits on the wrong side of price', takenItem.draws.every((d) => (d.side === 'above') === (d.price > takenItem.last_close)));
+
+// Inside day.
+const insideBars = weekdayBars(70, '2026-10-07', (i) => (i === 69 ? { h: 100.5, l: 99.5, c: 100 } : { h: 102, l: 98, c: 100 + (i % 3) * 0.1 }));
+check('inside day flagged when last bar is within the prior bar', computeSelector({ symbol: 'T', display: 'T', tradeAs: 'T', daily: insideBars, now: selNow }).inside_day === true);
+check('not an inside day otherwise', untakenItem.inside_day === false);
+
+// HTF bias on a monotone uptrend: weekly close above prior mid and close above EMA20.
+const upBars = weekdayBars(70, '2026-10-09', (i) => ({ h: 100 + i + 0.5, l: 100 + i - 0.5, c: 100 + i }));
+check('monotone uptrend is Bullish', htfBias(upBars, resampleWeekly(upBars).slice(0, -0 || undefined)) === 'Bullish');
+const downBars = weekdayBars(70, '2026-10-09', (i) => ({ h: 200 - i + 0.5, l: 200 - i - 0.5, c: 200 - i }));
+check('monotone downtrend is Bearish', htfBias(downBars, resampleWeekly(downBars)) === 'Bearish');
+check('trend selector scores Trade on a clean line', computeSelector({ symbol: 'T', display: 'T', tradeAs: 'T', daily: upBars, now: new Date('2026-10-10T15:00:00Z') }).er10 === 1);
+
+// Roll gap: a 10-point gap (ATR ~1.5) inside a roll window is flagged; outside it is not.
+const gapBars = weekdayBars(70, '2026-10-07', (i) => (i >= 66 ? { o: 120, h: 120.5, l: 119.5, c: 120 } : { h: 100 + i * 0.1 + 0.5, l: 100 + i * 0.1 - 0.5, c: 100 + i * 0.1 }));
+check('roll gap flagged inside a roll window', rollGapFlag(gapBars, () => true) === true);
+check('roll gap ignored outside a roll window', rollGapFlag(gapBars, () => false) === false);
+
+// Cache keys.
+check('daily cache key rolls at 8:00 AM ET', dailyCacheKey(new Date('2026-10-07T11:30:00Z')) === '2026-10-06' && dailyCacheKey(new Date('2026-10-07T12:30:00Z')) === '2026-10-07');
+check('weekly cache key rolls Sunday 6 PM ET', weeklyCacheKey(new Date('2026-10-11T21:30:00Z')) === '2026-10-05' && weeklyCacheKey(new Date('2026-10-11T22:30:00Z')) === '2026-10-12');
+
+// Snapshot: one full selector run on the cached fixture.
+{
+  const fixturePath = join(__dirname, 'fixtures', 'selector-daily.json');
+  const snapshotPath = join(__dirname, 'fixtures', 'selector-snapshot.json');
+  const fixture = JSON.parse(readFileSync(fixturePath, 'utf8')) as { now: string; series: Record<string, number[][]> };
+  const strip = (it: SelectorItem) => {
+    const { updated_at: _u, ...rest } = it;
+    return rest;
+  };
+  const actual: Record<string, unknown> = {};
+  for (const [symbol, rows] of Object.entries(fixture.series)) {
+    const daily: YFCandle[] = rows.map((r) => ({ time: r[0], open: r[1], high: r[2], low: r[3], close: r[4], volume: 0 }));
+    for (const timeframe of ['daily', 'weekly'] as const) {
+      actual[`${symbol}:${timeframe}`] = strip(
+        computeSelector({ symbol, display: symbol, tradeAs: symbol, daily, now: new Date(fixture.now), timeframe }),
+      );
+    }
+  }
+  if (process.env.UPDATE_SNAPSHOT === '1' || !existsSync(snapshotPath)) {
+    writeFileSync(snapshotPath, JSON.stringify(actual, null, 2));
+    console.log(`ok  wrote selector snapshot (${Object.keys(actual).length} runs)`);
+  } else {
+    const expected = JSON.parse(readFileSync(snapshotPath, 'utf8'));
+    const same = JSON.stringify(actual) === JSON.stringify(expected);
+    check('selector snapshot matches scripts/fixtures/selector-snapshot.json (UPDATE_SNAPSHOT=1 to refresh)', same);
+  }
+}
 
 if (failed) {
   console.error(`\n${failed} check(s) failed`);

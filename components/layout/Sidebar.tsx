@@ -10,6 +10,7 @@ import {
   CalendarDays,
   Layers,
   FlaskConical,
+  Crosshair,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -17,6 +18,7 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/learn', label: 'Learn', icon: GraduationCap },
   { href: '/futures', label: 'Futures', icon: CandlestickChart },
+  { href: '/market-selector', label: 'Selector', icon: Crosshair },
   { href: '/stocks', label: 'Stocks', icon: LineChart },
   { href: '/power-hour', label: 'Power Hour', icon: Timer },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },

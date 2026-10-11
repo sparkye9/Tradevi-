@@ -1,0 +1,192 @@
+{
+  "NQ:daily": {
+    "symbol": "NQ",
+    "display": "NQ",
+    "trade_as": "NQ",
+    "label": "Watch",
+    "score": 45,
+    "bias": "Bearish",
+    "target_draw": {
+      "type": "prior_month_low",
+      "price": 10228.9752,
+      "distance_atr": 7.06,
+      "side": "below"
+    },
+    "alt_draw": null,
+    "er10": 0.031,
+    "adx14": 27.7,
+    "atr14": 200.2911,
+    "inside_day": false,
+    "roll_gap_flag": false,
+    "reasons": [
+      "Inefficient path (ER 0.03) even with ADX 28 — grinding, not clean.",
+      "Bearish. Draw: prior month low 10,229, 7.1 ATR away.",
+      "Draw is far (7.1 ATR); partial reachability credit."
+    ],
+    "last_close": 11643.2274,
+    "last_bar_date": "2026-10-09",
+    "components": {
+      "er": 0,
+      "adx": 20,
+      "reachability": 0,
+      "bias": 15,
+      "not_inside": 10
+    },
+    "draws": [
+      {
+        "type": "prior_week_high",
+        "price": 12449.2219,
+        "distance_atr": 4.02,
+        "side": "above"
+      },
+      {
+        "type": "prior_month_low",
+        "price": 10228.9752,
+        "distance_atr": 7.06,
+        "side": "below"
+      }
+    ],
+    "timeframe": "daily"
+  },
+  "NQ:weekly": {
+    "symbol": "NQ",
+    "display": "NQ",
+    "trade_as": "NQ",
+    "label": "Trade",
+    "score": 80,
+    "bias": "Bearish",
+    "target_draw": {
+      "type": "prior_month_low",
+      "price": 10228.9752,
+      "distance_atr": 2.24,
+      "side": "below"
+    },
+    "alt_draw": null,
+    "er10": 0.317,
+    "adx14": 26.5,
+    "atr14": 631.2011,
+    "inside_day": false,
+    "roll_gap_flag": false,
+    "reasons": [
+      "Mixed tape (ER 0.32, ADX 27).",
+      "Bearish. Draw: prior month low 10,229, 2.2 weekly ATR away.",
+      "Draw is far (2.2 weekly ATR); partial reachability credit."
+    ],
+    "last_close": 11643.2274,
+    "last_bar_date": "2026-10-09",
+    "components": {
+      "er": 13,
+      "adx": 20,
+      "reachability": 22,
+      "bias": 15,
+      "not_inside": 10
+    },
+    "draws": [
+      {
+        "type": "prior_month_low",
+        "price": 10228.9752,
+        "distance_atr": 2.24,
+        "side": "below"
+      }
+    ],
+    "timeframe": "weekly"
+  },
+  "CL:daily": {
+    "symbol": "CL",
+    "display": "CL",
+    "trade_as": "CL",
+    "label": "Watch",
+    "score": 67,
+    "bias": "Bullish",
+    "target_draw": {
+      "type": "prior_week_high",
+      "price": 64.4343,
+      "distance_atr": 1.72,
+      "side": "above"
+    },
+    "alt_draw": null,
+    "er10": 0.117,
+    "adx14": 23.9,
+    "atr14": 1.516,
+    "inside_day": false,
+    "roll_gap_flag": false,
+    "reasons": [
+      "Inefficient path (ER 0.12) even with ADX 24 — grinding, not clean.",
+      "Capped at Watch: ER below 0.25.",
+      "Bullish. Draw: prior week high 64.43, 1.7 ATR away."
+    ],
+    "last_close": 61.8218,
+    "last_bar_date": "2026-10-09",
+    "components": {
+      "er": 0,
+      "adx": 17,
+      "reachability": 25,
+      "bias": 15,
+      "not_inside": 10
+    },
+    "draws": [
+      {
+        "type": "prior_week_low",
+        "price": 59.4094,
+        "distance_atr": 1.59,
+        "side": "below"
+      },
+      {
+        "type": "prior_week_high",
+        "price": 64.4343,
+        "distance_atr": 1.72,
+        "side": "above"
+      },
+      {
+        "type": "equal_lows",
+        "price": 58.9977,
+        "distance_atr": 1.86,
+        "side": "below"
+      },
+      {
+        "type": "prior_month_low",
+        "price": 58.3946,
+        "distance_atr": 2.26,
+        "side": "below"
+      }
+    ],
+    "timeframe": "daily"
+  },
+  "CL:weekly": {
+    "symbol": "CL",
+    "display": "CL",
+    "trade_as": "CL",
+    "label": "Watch",
+    "score": 59,
+    "bias": "Bullish",
+    "target_draw": null,
+    "alt_draw": null,
+    "er10": 0.525,
+    "adx14": 19.4,
+    "atr14": 3.7755,
+    "inside_day": false,
+    "roll_gap_flag": false,
+    "reasons": [
+      "Mixed tape (ER 0.53, ADX 19).",
+      "Bullish, but no untaken draw above price."
+    ],
+    "last_close": 61.8218,
+    "last_bar_date": "2026-10-09",
+    "components": {
+      "er": 30,
+      "adx": 4,
+      "reachability": 0,
+      "bias": 15,
+      "not_inside": 10
+    },
+    "draws": [
+      {
+        "type": "prior_month_low",
+        "price": 58.3946,
+        "distance_atr": 0.91,
+        "side": "below"
+      }
+    ],
+    "timeframe": "weekly"
+  }
+}
