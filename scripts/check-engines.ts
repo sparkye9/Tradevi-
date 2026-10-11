@@ -17,6 +17,9 @@ import { dealingRangeSetup, intradayAction } from '../lib/futuresSetups';
 import { classify, structureLevels, swingSuggestion, setupQuality, type TrendRead, type Timeframe } from '../lib/trendBias';
 import { runBacktest } from '../lib/backtest';
 import type { YFCandle } from '../lib/yahooChart';
+import { atr, efficiencyRatio, adx, dmi, fractalPivots, resampleWeekly, resampleMonthly, isoWeekKey } from '../lib/indicators';
+import { computeReadiness, scoreReadiness, gradeFor, newsGate, freshnessGate, type ReadinessInput } from '../lib/readiness';
+import { READINESS_CONFIG } from '../lib/readinessConfig';
 
 let failed = 0;
 
@@ -328,6 +331,124 @@ check(
     (s) => Number.isFinite(s.winRate) && Number.isFinite(s.expectancyR) && Number.isFinite(s.maxDrawdownR),
   ),
 );
+
+// ─── Indicators (lib/indicators.ts) ─────────────────────────────────────────
+
+/** Straight-line uptrend: every bar is 1 point higher, range 1, no gaps beyond 0.5. */
+const lineUp: YFCandle[] = Array.from({ length: 40 }, (_, i) => ({
+  time: 1_700_000_000 + i * 86400,
+  open: 10 + i,
+  high: 10 + i + 0.5,
+  low: 10 + i - 0.5,
+  close: 10 + i,
+  volume: 1,
+}));
+// TR per bar (after the first) = max(1, |h − prevClose| = 1.5, |l − prevClose| = 0.5) = 1.5 → Wilder ATR → 1.5
+// (the first bar's TR is 1.0, so the smoothed value is within 0.01 of 1.5 after 40 bars).
+check('ATR14 on a constant-range line converges to 1.5', Math.abs((atr(lineUp, 14) ?? 0) - 1.5) < 0.01);
+check('ER10 on a straight line is 1.0', Math.abs((efficiencyRatio(lineUp.map((c) => c.close), 10) ?? 0) - 1) < 1e-9);
+// +DM = 1 every bar, −DM = 0 → +DI = 66.7, −DI = 0, DX = 100 → ADX = 100.
+check('ADX14 on a straight line is 100', Math.abs((adx(lineUp, 14) ?? 0) - 100) < 1e-6);
+const line = dmi(lineUp, 14);
+check('+DI on the line is 66.7 and −DI is 0', Math.abs((line.diPlus[39] ?? 0) - 200 / 3) < 1e-6 && (line.diMinus[39] ?? 1) === 0);
+
+/** Hand-computed Wilder ATR on an irregular 16-bar series. */
+const irregular: YFCandle[] = [
+  [10, 11, 9, 10], [10, 12, 9.5, 11.5], [11.5, 12.5, 11, 11.2], [11.2, 11.8, 10.4, 10.6], [10.6, 11.4, 10.2, 11.3],
+  [11.3, 12.6, 11.1, 12.4], [12.4, 12.9, 12.0, 12.1], [12.1, 12.3, 11.0, 11.1], [11.1, 11.9, 10.8, 11.8], [11.8, 12.2, 11.5, 11.6],
+  [11.6, 11.7, 10.5, 10.6], [10.6, 11.5, 10.4, 11.4], [11.4, 12.0, 11.2, 11.9], [11.9, 12.8, 11.8, 12.7], [12.7, 13.0, 12.1, 12.2],
+  [12.2, 12.6, 11.6, 11.7],
+].map(([open, high, low, close], i) => ({ time: 1_700_000_000 + i * 86400, open, high, low, close, volume: 1 }));
+{
+  // Independent reference: TR list, SMA seed over the first 14, then Wilder recursion.
+  const tr = irregular.map((c, i) =>
+    i === 0 ? c.high - c.low : Math.max(c.high - c.low, Math.abs(c.high - irregular[i - 1].close), Math.abs(c.low - irregular[i - 1].close)),
+  );
+  let ref = tr.slice(0, 14).reduce((a, b) => a + b, 0) / 14;
+  for (let i = 14; i < tr.length; i++) ref = (ref * 13 + tr[i]) / 14;
+  check('ATR14 matches a hand-rolled Wilder recursion', Math.abs((atr(irregular, 14) ?? 0) - ref) < 1e-9);
+}
+// ER10 on a zigzag that ends where it started → 0.
+const zig = [10, 11, 10, 11, 10, 11, 10, 11, 10, 11, 10];
+check('ER10 on a round-trip zigzag is 0', efficiencyRatio(zig, 10) === 0);
+// ER10 hand value: closes 10→15 in 10 steps with one 1-point pullback: net 5, path 7 → 0.714
+const partial = [10, 11, 12, 13, 12, 13, 14, 15, 14, 15, 15];
+{
+  const net = Math.abs(partial[10] - partial[0]);
+  let path = 0;
+  for (let i = 1; i < partial.length; i++) path += Math.abs(partial[i] - partial[i - 1]);
+  check('ER10 on a trend with pullbacks matches net/path', Math.abs((efficiencyRatio(partial, 10) ?? 0) - net / path) < 1e-12);
+}
+check('ADX needs at least 2×period bars', adx(irregular, 14) === null);
+
+const piv = fractalPivots(uptrendCandles, 2, 2);
+check('fractal pivots find the zigzag highs', piv.highs.map((p) => p.price).join(',') === '106,109,112,115');
+// The first low (100) sits on a flat run of equal bars, so it is not a strict pivot — same rule as trendBias.
+check('fractal pivots find the zigzag lows', piv.lows.map((p) => p.price).join(',') === '103,106,109');
+
+// Resampling: 10 daily bars from Mon 2026-10-05 ET (13:00 UTC) → 2 ISO weeks.
+const dailyTwoWeeks: YFCandle[] = Array.from({ length: 10 }, (_, i) => {
+  const dayOffset = i < 5 ? i : i + 2; // skip the weekend
+  const t = Date.UTC(2026, 9, 5, 13) / 1000 + dayOffset * 86400;
+  return { time: t, open: 100 + i, high: 101 + i, low: 99 + i, close: 100.5 + i, volume: 1 };
+});
+const wk = resampleWeekly(dailyTwoWeeks);
+check('weekly resample makes two Monday-keyed weeks', wk.length === 2 && wk[0].key === '2026-10-05' && wk[1].key === '2026-10-12');
+check('weekly bar takes first open / max high / min low / last close', wk[0].open === 100 && wk[0].high === 105 && wk[0].low === 99 && wk[0].close === 104.5 && wk[0].bars === 5);
+check('monthly resample keys by YYYY-MM', resampleMonthly(dailyTwoWeeks).length === 1 && resampleMonthly(dailyTwoWeeks)[0].key === '2026-10');
+check('ISO week key of a Sunday is the previous Monday', isoWeekKey('2026-10-11') === '2026-10-05');
+
+// ─── Readiness (lib/readiness.ts) ───────────────────────────────────────────
+
+const weightTotal = Object.values(READINESS_CONFIG.weights).reduce((a, b) => a + b, 0);
+check('readiness weights total 100', weightTotal === 100);
+
+function readinessInput(overrides: Partial<ReadinessInput> = {}): ReadinessInput {
+  const levels = structureLevels(uptrendCandles, 'up', 110);
+  const trading = new Date('2025-01-14T15:00:00.000Z'); // Tue 10:00 ET, Globex open
+  return {
+    symbol: 'MNQ',
+    now: trading,
+    reads: flatReads,
+    levels: { Weekly: levels, Daily: levels, '4H': levels },
+    lastPrice: 110,
+    dailyCandles: uptrendCandles,
+    fourHCandles: uptrendCandles,
+    swingSetup: dealingRangeSetup({ action: 'LOOK_LONG', lastPrice: 110, high: 115, low: 109, equilibrium: 112, invalidation: 109, zone: 'discount' }),
+    newestBar: { interval: '15m', time: Math.floor(trading.getTime() / 1000) - 15 * 60 },
+    events: [],
+    ...overrides,
+  };
+}
+
+const stackedDiscount = computeReadiness(readinessInput());
+check('stacked long in discount with all gates open is grade A / READY', stackedDiscount.grade === 'A' && stackedDiscount.status === 'READY' && stackedDiscount.score >= 75);
+check('readiness output has the spec fields', Array.isArray(stackedDiscount.passed) && Array.isArray(stackedDiscount.failed) && stackedDiscount.blocking_gate === null && typeof stackedDiscount.data_age_minutes === 'number');
+
+const dailyFourHOnly = computeReadiness(readinessInput({ reads: { ...flatReads, Weekly: { bias: 'range', reason: 'mixed' } } }));
+check('Daily + 4H aligned without Weekly can still be READY', dailyFourHOnly.status === 'READY');
+check('missing Weekly costs exactly the weekly bonus', stackedDiscount.score - dailyFourHOnly.score === READINESS_CONFIG.weights.weeklyAgrees);
+
+const premiumStack = computeReadiness(readinessInput({ lastPrice: 114.9, levels: (() => { const l = structureLevels(uptrendCandles, 'up', 114.9); return { Weekly: l, Daily: l, '4H': l }; })(), swingSetup: dealingRangeSetup({ action: 'LOOK_LONG', lastPrice: 114.9, high: 115, low: 109, equilibrium: 112, invalidation: 109, zone: 'premium' }) }));
+check('stacked long priced in premium is WATCH (B), not READY and not NO TRADE', premiumStack.status === 'WATCH' && premiumStack.grade === 'B');
+check('premium read lists the zone as a failed condition first', /premium/.test(premiumStack.failed[0] ?? ''));
+
+const conflictOut = computeReadiness(readinessInput({ reads: conflictReads }));
+check('Weekly up vs Daily/4H down scores below READY', conflictOut.status !== 'READY' && conflictOut.failed.length > 0);
+
+const weekend = computeReadiness(readinessInput({ now: new Date('2025-01-18T20:00:00.000Z') }));
+check('weekend is WAIT with the session gate blocking', weekend.status === 'WAIT' && (weekend.blocking_gate ?? '').startsWith('Session window'));
+
+const stale = computeReadiness(readinessInput({ newestBar: { interval: '15m', time: Math.floor(new Date('2025-01-14T15:00:00.000Z').getTime() / 1000) - 3 * 3600 } }));
+check('a 3-hour-old 15m bar is WAIT with "Data stale"', stale.status === 'WAIT' && /Data stale/.test(stale.blocking_gate ?? ''));
+
+const cpiNow = newsGate(new Date('2026-08-12T12:20:00.000Z'), week); // CPI at 12:30Z
+check('10 minutes before CPI is a news blackout', cpiNow.passed === false && /CPI/.test(cpiNow.detail));
+check('2 hours after CPI is clear', newsGate(new Date('2026-08-12T14:30:00.000Z'), week).passed === true);
+check('AUD high-impact does not black out CME', newsGate(new Date('2026-08-11T04:25:00.000Z'), week).passed === true);
+check('freshness gate reports age in minutes', freshnessGate(new Date('2025-01-14T15:00:00.000Z'), { interval: '1h', time: Math.floor(new Date('2025-01-14T13:00:00.000Z').getTime() / 1000) }).age === 60);
+check('grade bands: 75→A, 60→B, 59→C', gradeFor(75) === 'A' && gradeFor(60) === 'B' && gradeFor(59) === 'C');
+check('score never exceeds 100', scoreReadiness(readinessInput()).score <= 100);
 
 if (failed) {
   console.error(`\n${failed} check(s) failed`);

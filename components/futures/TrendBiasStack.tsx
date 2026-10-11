@@ -6,25 +6,20 @@ import TradingViewButton from '@/components/ui/TradingViewButton';
 import SetupLevelsCard from '@/components/futures/SetupLevelsCard';
 import type {
   Bias,
-  QualityLabel,
   StructureLevels,
   Timeframe,
   TrendBiasStackResult,
   Zone,
 } from '@/lib/trendBias';
+import type { Grade, ReadinessResult, ReadinessStatus } from '@/lib/readiness';
+import { MARKET_UNIVERSE } from '@/lib/marketUniverse';
 
 const REFRESH_MS = 10 * 60 * 1000;
 
-const INSTRUMENTS = ['MNQ', 'MES', 'MYM', 'M2K', 'GC'] as const;
+const INSTRUMENTS = MARKET_UNIVERSE.map((u) => u.readinessInstrument);
 const TIMEFRAMES: Timeframe[] = ['Weekly', 'Daily', '4H'];
 
-const TV_SYMBOL: Record<(typeof INSTRUMENTS)[number], string> = {
-  MNQ: 'MNQ1!',
-  MES: 'MES1!',
-  MYM: 'MYM1!',
-  M2K: 'M2K1!',
-  GC: 'GC1!',
-};
+const TV_SYMBOL: Record<string, string> = Object.fromEntries(MARKET_UNIVERSE.map((u) => [u.readinessInstrument, u.tv]));
 
 function fmt(n: number | null | undefined): string {
   return n == null ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -55,39 +50,102 @@ function ZonePill({ zone }: { zone: Zone }) {
   return <span className={`text-xs font-semibold uppercase tracking-widest ${styles[zone]}`}>{zone}</span>;
 }
 
-function QualityBanner({ data }: { data: TrendBiasStackResult }) {
-  const q = data.quality;
-  const wrap: Record<QualityLabel, string> = {
-    TRADE:
-      data.suggestion.action === 'LOOK_SHORT'
-        ? 'border-red-500/30 bg-red-500/10 text-red-300'
-        : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
-    WAIT: 'border-amber-500/30 bg-amber-500/10 text-amber-200',
-    NO_TRADE: 'border-gray-500/30 bg-[#141414] text-gray-200',
-  };
-  const tag = q.label === 'TRADE' ? data.suggestion.action.replace('_', ' ') : 'NO TRADE';
+export const STATUS_STYLE: Record<ReadinessStatus, { wrap: string; pill: string }> = {
+  READY: { wrap: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200', pill: 'border-tv-green/40 text-tv-green bg-tv-green/10' },
+  WATCH: { wrap: 'border-amber-500/30 bg-amber-500/10 text-amber-100', pill: 'border-tv-amber/40 text-tv-amber bg-tv-amber/10' },
+  WAIT: { wrap: 'border-gray-500/30 bg-[#141414] text-gray-200', pill: 'border-tv-border text-tv-muted bg-white/5' },
+};
+
+export function GradePill({ grade, score, status }: { grade: Grade; score: number; status: ReadinessStatus }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-xs font-bold ${STATUS_STYLE[status].pill}`}>
+      <span>{grade}</span>
+      <span className="opacity-70">{score}</span>
+    </span>
+  );
+}
+
+/** WAIT / WATCH reason: the blocking gate, else the top two failed conditions. */
+export function readinessReason(r: ReadinessResult): string[] {
+  if (r.blocking_gate) return [r.blocking_gate];
+  return r.failed.slice(0, 2);
+}
+
+function ReadinessBanner({ data }: { data: TrendBiasStackResult }) {
+  const r = data.readiness;
+  const style = STATUS_STYLE[r.status];
+  const side = r.side === 'long' ? 'LONG' : r.side === 'short' ? 'SHORT' : null;
+  const statusWord = r.status === 'READY' ? 'READY' : r.status === 'WATCH' ? 'WATCH' : 'WAIT';
+  const reasons = readinessReason(r);
 
   return (
-    <div className={`border rounded-2xl p-5 ${wrap[q.label]}`}>
+    <div className={`border rounded-2xl p-5 ${style.wrap}`}>
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
+        <div className="min-w-0">
           <div className="text-xs uppercase tracking-widest opacity-70 mb-1">Workstation read</div>
-          <div className="text-2xl font-black tracking-tight">{tag}</div>
-          <div className="font-semibold mt-1">{q.headline}</div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="text-2xl font-black tracking-tight">
+              {statusWord}
+              {side && r.status !== 'WAIT' && <span className="opacity-80"> · {side}</span>}
+            </div>
+            <GradePill grade={r.grade} score={r.score} status={r.status} />
+          </div>
+          <div className="font-semibold mt-1 text-sm">{r.headline}</div>
         </div>
         <div className="text-right">
-          <div className="text-[10px] uppercase tracking-widest opacity-70">Quality</div>
-          <div className="text-3xl font-mono font-black">{q.score}</div>
-          <div className="text-[10px] opacity-70">/ 100</div>
+          <div className="text-[10px] uppercase tracking-widest opacity-70">Grade · Score</div>
+          <div className="text-3xl font-mono font-black">
+            {r.grade} <span className="text-xl opacity-80">{r.score}</span>
+          </div>
+          <div className="text-[10px] opacity-70">A ≥ 75 · B 60–74 · C &lt; 60</div>
         </div>
       </div>
-      <ul className="mt-3 space-y-1">
-        {q.reasons.map((line) => (
-          <li key={line} className="text-xs opacity-80">
-            • {line}
-          </li>
+
+      {r.status !== 'READY' && reasons.length > 0 && (
+        <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
+          <div className="text-[10px] uppercase tracking-widest opacity-70 mb-1">
+            {r.blocking_gate ? 'Blocked by a hard gate' : r.status === 'WATCH' ? 'Why watch, not ready' : 'Why wait'}
+          </div>
+          <ul className="space-y-1">
+            {reasons.map((line) => (
+              <li key={line} className="text-sm">
+                • {line}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {r.gates.map((g) => (
+          <span
+            key={g.name}
+            title={g.detail}
+            className={`pill ${g.passed ? 'border-tv-green/30 text-tv-green bg-tv-green/5' : 'border-tv-red/40 text-tv-red bg-tv-red/10'}`}
+          >
+            {g.passed ? '✓' : '✕'} {g.name}
+          </span>
         ))}
-      </ul>
+        <span className="pill border-tv-border text-tv-muted" title="Age of the newest bar used for the live price">
+          data {r.data_age_minutes} min old
+        </span>
+      </div>
+
+      <details className="mt-3 group">
+        <summary className="cursor-pointer select-none text-xs opacity-70 hover:opacity-100">
+          Score breakdown ({r.passed.length} passed · {r.failed.length} short)
+        </summary>
+        <ul className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+          {r.components.map((c) => (
+            <li key={c.key} className="flex items-start gap-2 text-xs">
+              <span className={`font-mono shrink-0 w-12 text-right ${c.state === 'passed' ? 'text-tv-green' : c.state === 'partial' ? 'text-tv-amber' : 'text-tv-muted'}`}>
+                {c.points}/{c.max}
+              </span>
+              <span className={c.state === 'failed' ? 'opacity-60' : ''}>{c.label}</span>
+            </li>
+          ))}
+        </ul>
+      </details>
     </div>
   );
 }
@@ -122,8 +180,20 @@ function TimeframeCard({ tf, data }: { tf: Timeframe; data: TrendBiasStackResult
   );
 }
 
-export default function TrendBiasStack() {
-  const [instrument, setInstrument] = useState<(typeof INSTRUMENTS)[number]>('MNQ');
+export default function TrendBiasStack({
+  instrument: controlled,
+  onInstrumentChange,
+}: {
+  /** Optional controlled instrument (the readiness board drives this on the Futures page). */
+  instrument?: string;
+  onInstrumentChange?: (instrument: string) => void;
+} = {}) {
+  const [internal, setInternal] = useState<string>('MNQ');
+  const instrument = controlled ?? internal;
+  const setInstrument = (inst: string) => {
+    setInternal(inst);
+    onInstrumentChange?.(inst);
+  };
   const [data, setData] = useState<TrendBiasStackResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -162,7 +232,7 @@ export default function TrendBiasStack() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex rounded-full overflow-hidden border border-[#2a2a2a] bg-[#0d0d0d]">
+        <div className="flex flex-wrap rounded-2xl overflow-hidden border border-[#2a2a2a] bg-[#0d0d0d]">
           {INSTRUMENTS.map((inst) => (
             <button
               key={inst}
@@ -177,7 +247,7 @@ export default function TrendBiasStack() {
             </button>
           ))}
         </div>
-        <TradingViewButton symbol={TV_SYMBOL[instrument]} label={`Confirm ${instrument} on TradingView`} />
+        <TradingViewButton symbol={TV_SYMBOL[instrument] ?? `${instrument}1!`} label={`Confirm ${instrument} on TradingView`} />
         {data && <SourceTag source={`Yahoo Finance (${data.dataSymbol})`} lastUpdated={data.asOf} />}
         {loading && <span className="text-gray-500 text-sm">Loading...</span>}
       </div>
@@ -205,7 +275,7 @@ export default function TrendBiasStack() {
 
       {data && (
         <>
-          <QualityBanner data={data} />
+          <ReadinessBanner data={data} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             <SetupLevelsCard
@@ -215,8 +285,8 @@ export default function TrendBiasStack() {
             />
             {data.intraday ? (
               <SetupLevelsCard
-                title="Intraday setup · 15m"
-                subtitle={`15-minute HH/HL. Refreshes every ${data.intraday.refreshMinutes} minutes. Verify on your chart before acting.`}
+                title="Intraday map · 15m · Confirm on TradingView"
+                subtitle={`15-minute HH/HL on delayed data (about 15–20 min behind). Refreshes every ${data.intraday.refreshMinutes} minutes. Levels are a map, not a trigger — confirm every one on your chart.`}
                 setup={data.intraday.setup}
               />
             ) : (

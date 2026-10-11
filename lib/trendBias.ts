@@ -18,20 +18,23 @@ import {
   intradaySetupFromLevels,
   swingSetupFromDaily,
 } from './futuresSetups';
+import { MARKET_UNIVERSE } from './marketUniverse';
+import { computeReadiness, type NewestBar, type ReadinessResult } from './readiness';
+import { fetchEconomicCalendar, type CalendarEvent } from './economicCalendar';
 
-// Instrument -> free data symbol. MNQ reads NQ=F (same underlying index,
-// 1/10 size), MES reads ES=F, MYM reads YM=F, M2K reads RTY=F.
-export const INSTRUMENT_MAP: Record<string, string> = {
-  MNQ: 'NQ=F',
-  NQ: 'NQ=F',
-  MES: 'ES=F',
-  ES: 'ES=F',
-  MYM: 'YM=F',
-  YM: 'YM=F',
-  M2K: 'RTY=F',
-  RTY: 'RTY=F',
-  GC: 'GC=F',
-};
+// Instrument -> free data symbol, driven by lib/marketUniverse.ts. MNQ reads
+// NQ=F (same underlying index, 1/10 size), MES reads ES=F, and so on. Aliases
+// (NQ, ES, MGC…) resolve to the same stack.
+export const INSTRUMENT_MAP: Record<string, string> = Object.fromEntries(
+  MARKET_UNIVERSE.flatMap((u) => [
+    [u.readinessInstrument, u.yahoo],
+    [u.symbol, u.yahoo],
+    ...u.aliases.map((a) => [a, u.yahoo] as [string, string]),
+  ]),
+);
+
+/** Every instrument the readiness board grades (one per universe row). */
+export const READINESS_INSTRUMENTS: string[] = MARKET_UNIVERSE.map((u) => u.readinessInstrument);
 
 /** Instruments shown in the UI (aliases like NQ/ES stay in the map for the API). */
 export const DISPLAY_INSTRUMENTS = ['MNQ', 'MES', 'MYM', 'M2K', 'GC'] as const;
@@ -108,7 +111,10 @@ export interface TrendBiasStackResult {
   levels: Record<Timeframe, StructureLevels>;
   alignment: string;
   suggestion: SwingSuggestion;
+  /** Legacy label shape, now derived from `readiness` (READY→TRADE, WATCH→WAIT, WAIT→NO_TRADE). */
   quality: SetupQuality;
+  /** Hard gates + weighted score. This is what the Futures page shows. */
+  readiness: ReadinessResult;
   swingSetup: TradeSetup;
   intraday: IntradaySetupResult | null;
   asOf: string;
@@ -370,9 +376,9 @@ const HONEST_GAPS = [
 ];
 
 /**
- * Workstation quality: stacked + correct dealing-range zone can be a trade.
- * Anything weaker is WAIT or NO TRADE. Chasing premium longs / discount shorts
- * is not a trade even when the stack agrees.
+ * LEGACY all-AND quality label (stacked + correct zone = TRADE, else WAIT /
+ * NO TRADE). Kept for reference and the engine checks; the live app now uses
+ * lib/readiness.ts and derives `quality` from it via qualityFromReadiness().
  */
 export function setupQuality(
   suggestion: SwingSuggestion,
@@ -451,6 +457,30 @@ export function setupQuality(
   };
 }
 
+/** Map the graded readiness onto the legacy TRADE / WAIT / NO_TRADE shape the dashboard reads. */
+export function qualityFromReadiness(r: ReadinessResult): SetupQuality {
+  const label: QualityLabel = r.status === 'READY' ? 'TRADE' : r.status === 'WATCH' ? 'WAIT' : 'NO_TRADE';
+  const reasons = r.blocking_gate ? [r.blocking_gate, ...r.failed.slice(0, 2)] : [...r.passed.slice(0, 3), ...r.failed.slice(0, 2)];
+  return { score: r.score, label, headline: r.headline, reasons, missing: [...HONEST_GAPS] };
+}
+
+/** Newest bar across the fetched series, finest timeframe first (drives the freshness gate). */
+function newestBarOf(fifteen: YFCandle[] | null, hourly: YFCandle[], daily: YFCandle[]): NewestBar | null {
+  if (fifteen && fifteen.length) return { interval: '15m', time: fifteen[fifteen.length - 1].time };
+  if (hourly.length) return { interval: '1h', time: hourly[hourly.length - 1].time };
+  if (daily.length) return { interval: '1d', time: daily[daily.length - 1].time };
+  return null;
+}
+
+async function highImpactEvents(): Promise<CalendarEvent[]> {
+  try {
+    const cal = await fetchEconomicCalendar();
+    return cal.events.filter((e) => e.impact === 'High');
+  } catch {
+    return [];
+  }
+}
+
 /** Turn the three timeframe biases into a single conviction read. */
 function alignment(reads: Record<Timeframe, TrendRead>): string {
   const biases = Object.values(reads).map((r) => r.bias);
@@ -471,11 +501,12 @@ export async function trendBiasStack(instrument: string): Promise<TrendBiasStack
     );
   }
 
-  const [weekly, daily, hourly, fifteen] = await Promise.all([
+  const [weekly, daily, hourly, fifteen, events] = await Promise.all([
     fetchYahooCandles(symbol, '2y', '1wk'),
     fetchYahooCandles(symbol, '1y', '1d'),
     fetchYahooCandles(symbol, '3mo', '1h'),
     fetchYahooCandles(symbol, '10d', '15m').catch(() => null),
+    highImpactEvents(),
   ]);
 
   const fourH = resample4h(hourly.candles);
@@ -516,6 +547,20 @@ export async function trendBiasStack(instrument: string): Promise<TrendBiasStack
     };
   }
 
+  const now = new Date();
+  const readiness = computeReadiness({
+    symbol: instrument.toUpperCase(),
+    now,
+    reads,
+    levels,
+    lastPrice,
+    dailyCandles: daily.candles,
+    fourHCandles: fourH,
+    swingSetup,
+    newestBar: newestBarOf(fifteen?.candles ?? null, hourly.candles, daily.candles),
+    events,
+  });
+
   return {
     instrument: instrument.toUpperCase(),
     dataSymbol: symbol,
@@ -524,9 +569,10 @@ export async function trendBiasStack(instrument: string): Promise<TrendBiasStack
     levels,
     alignment: alignment(reads),
     suggestion,
-    quality: setupQuality(suggestion, reads, levels.Daily),
+    quality: qualityFromReadiness(readiness),
+    readiness,
     swingSetup,
     intraday,
-    asOf: new Date().toISOString(),
+    asOf: now.toISOString(),
   };
 }
