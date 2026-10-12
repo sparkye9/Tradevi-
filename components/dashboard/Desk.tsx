@@ -261,6 +261,8 @@ export default function Desk() {
   const waitPhrase =
     action !== 'WAIT'
       ? null
+      : stack?.readiness?.blocking_gate
+      ? 'WAIT'
       : stack?.suggestion.action === 'LOOK_LONG'
       ? 'WAITING FOR DISCOUNT'
       : stack?.suggestion.action === 'LOOK_SHORT'
