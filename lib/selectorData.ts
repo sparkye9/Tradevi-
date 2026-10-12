@@ -10,7 +10,8 @@
  *   The cache is per server instance (Vercel lambdas are ephemeral), so an
  *   extra recompute after a cold start is possible and harmless.
  */
-import { fetchYahooCandles, type YFCandle } from './yahooChart';
+import type { YFCandle } from './yahooChart';
+import { fetchDailyBars, BAR_SOURCE_LABEL, type BarSource } from './dailyBars';
 import { MARKET_UNIVERSE, inRollWindow, type UniverseInstrument } from './marketUniverse';
 import { computeSelector, rankSelector, type SelectorItem, type SelectorTimeframe } from './selector';
 import { etDate, isoWeekKey } from './indicators';
@@ -19,6 +20,14 @@ export interface SelectorError {
   symbol: string;
   display: string;
   error: string;
+}
+
+/** Which feed answered for each instrument, so the UI can say so. */
+export interface SelectorSource {
+  source: BarSource;
+  label: string;
+  /** Set when the primary feed failed and a fallback answered. */
+  fallbackReason?: string;
 }
 
 export interface SelectorResponse {
@@ -31,11 +40,13 @@ export interface SelectorResponse {
   /** When this view will next recompute (cache boundary). */
   next_recompute: string;
   source: string;
+  /** Per-instrument feed actually used, keyed by symbol. */
+  sources: Record<string, SelectorSource>;
   cache_key: string;
 }
 
 const CONCURRENCY = 3;
-const SOURCE = 'Yahoo Finance daily bars (delayed), weekly/monthly resampled in-app';
+const SOURCE = 'Free daily bars (Yahoo delayed, Stooq end-of-day fallback), weekly/monthly resampled in-app';
 
 function etParts(now: Date) {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -80,6 +91,7 @@ function nextWeeklyRecompute(): string {
 interface BarCache {
   key: string;
   bars: Map<string, YFCandle[]>;
+  sources: Map<string, SelectorSource>;
   errors: SelectorError[];
 }
 let barCache: BarCache | null = null;
@@ -87,22 +99,23 @@ let barInFlight: Promise<BarCache> | null = null;
 
 async function fetchBars(key: string): Promise<BarCache> {
   const bars = new Map<string, YFCandle[]>();
+  const sources = new Map<string, SelectorSource>();
   const errors: SelectorError[] = [];
   const queue: UniverseInstrument[] = [...MARKET_UNIVERSE];
   async function worker() {
     while (queue.length) {
       const u = queue.shift()!;
       try {
-        const { candles } = await fetchYahooCandles(u.yahoo, '2y', '1d');
-        if (candles.length < 60) throw new Error(`only ${candles.length} daily bars returned`);
+        const { candles, source, fallbackReason } = await fetchDailyBars(u, '2y');
         bars.set(u.symbol, candles);
+        sources.set(u.symbol, { source, label: BAR_SOURCE_LABEL[source], fallbackReason });
       } catch (e) {
         errors.push({ symbol: u.symbol, display: u.display, error: e instanceof Error ? e.message : String(e) });
       }
     }
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
-  return { key, bars, errors };
+  return { key, bars, sources, errors };
 }
 
 async function barsFor(key: string, force: boolean): Promise<BarCache> {
@@ -154,6 +167,7 @@ function buildView(view: SelectorTimeframe, bars: BarCache, now: Date, key: stri
     updated_at: now.toISOString(),
     next_recompute: view === 'daily' ? nextDailyRecompute(now) : nextWeeklyRecompute(),
     source: SOURCE,
+    sources: Object.fromEntries(bars.sources),
     cache_key: key,
   };
 }

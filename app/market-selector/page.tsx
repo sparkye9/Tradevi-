@@ -8,7 +8,7 @@ import { friendlyDataError } from '@/lib/friendlyError';
 import { fmtPrice } from '@/lib/formatters';
 import { MARKET_UNIVERSE } from '@/lib/marketUniverse';
 import { DRAW_NAMES, type Draw, type SelectorBias, type SelectorItem } from '@/lib/selector';
-import type { SelectorResponse } from '@/lib/selectorData';
+import type { SelectorResponse, SelectorSource } from '@/lib/selectorData';
 import LabelPill, { LABEL_STYLE } from '@/components/selector/LabelPill';
 
 const REFRESH_MS = 15 * 60 * 1000;
@@ -50,7 +50,7 @@ function DrawLine({ draw, unit, prefix }: { draw: Draw | null; unit: string; pre
   );
 }
 
-function InstrumentRow({ item, rank, unit }: { item: SelectorItem; rank: number; unit: string }) {
+function InstrumentRow({ item, rank, unit, src }: { item: SelectorItem; rank: number; unit: string; src?: SelectorSource }) {
   const tv = MARKET_UNIVERSE.find((u) => u.symbol === item.symbol)?.tv ?? `${item.symbol}1!`;
   return (
     <div className={`card card-hover border ${LABEL_STYLE[item.label].wrap}`}>
@@ -113,7 +113,14 @@ function InstrumentRow({ item, rank, unit }: { item: SelectorItem; rank: number;
       </ul>
 
       <div className="mt-3 flex items-center justify-between gap-2 flex-wrap">
-        <span className="text-[10px] text-gray-600 font-mono">last {fmtPx(item.last_close)} · bar {item.last_bar_date}</span>
+        <span className="text-[10px] text-gray-600 font-mono">
+          last {fmtPx(item.last_close)} · bar {item.last_bar_date}
+          {src?.fallbackReason && (
+            <span className="text-tv-amber font-sans" title={src.fallbackReason}>
+              {' '}· via {src.label}
+            </span>
+          )}
+        </span>
         <TradingViewButton symbol={tv} label={`Check ${item.symbol} on TradingView`} />
       </div>
     </div>
@@ -219,7 +226,7 @@ export default function MarketSelectorPage() {
         {daily.data && daily.data.items.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {daily.data.items.map((item, i) => (
-              <InstrumentRow key={item.symbol} item={item} rank={i + 1} unit="ATR" />
+              <InstrumentRow key={item.symbol} item={item} rank={i + 1} unit="ATR" src={daily.data?.sources?.[item.symbol]} />
             ))}
           </div>
         )}
@@ -242,7 +249,7 @@ export default function MarketSelectorPage() {
         {weekly.data && (weekly.data.top3?.length ?? 0) > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
             {weekly.data.top3!.map((item, i) => (
-              <InstrumentRow key={item.symbol} item={item} rank={i + 1} unit="wATR" />
+              <InstrumentRow key={item.symbol} item={item} rank={i + 1} unit="wATR" src={weekly.data?.sources?.[item.symbol]} />
             ))}
           </div>
         )}

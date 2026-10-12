@@ -17,13 +17,15 @@ import { dealingRangeSetup, intradayAction } from '../lib/futuresSetups';
 import { classify, structureLevels, swingSuggestion, setupQuality, type TrendRead, type Timeframe } from '../lib/trendBias';
 import { runBacktest } from '../lib/backtest';
 import type { YFCandle } from '../lib/yahooChart';
-import { atr, efficiencyRatio, adx, dmi, fractalPivots, resampleWeekly, resampleMonthly, isoWeekKey } from '../lib/indicators';
+import { atr, efficiencyRatio, adx, dmi, etDate, fractalPivots, resampleWeekly, resampleMonthly, isoWeekKey } from '../lib/indicators';
 import { computeReadiness, scoreReadiness, gradeFor, newsGate, freshnessGate, type ReadinessInput } from '../lib/readiness';
 import { READINESS_CONFIG } from '../lib/readinessConfig';
 import { computeSelector, completedDaily, completedWeeks, equalLevels, htfBias, labelFor, reachability, rollGapFlag, takenAfter, type SelectorItem } from '../lib/selector';
 import { dailyCacheKey, weeklyCacheKey } from '../lib/selectorData';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseStooqCsv } from '../lib/stooq';
+import { MARKET_UNIVERSE } from '../lib/marketUniverse';
 
 let failed = 0;
 
@@ -555,6 +557,44 @@ const weeklySwept = computeSelector({ symbol: 'T', display: 'T', tradeAs: 'T', d
 check('weekly equal highs swept by this week\'s daily bars are not draws', !weeklySwept.draws.some((d) => d.type === 'equal_highs'));
 const weeklyIntact = computeSelector({ symbol: 'T', display: 'T', tradeAs: 'T', daily: weeklyEq.map((c) => (c.high === 125 ? { ...c, high: 101, close: 100 } : c)), now: new Date('2026-10-07T20:00:00Z'), timeframe: 'weekly' });
 check('weekly equal highs survive when nothing swept them', weeklyIntact.draws.some((d) => d.type === 'equal_highs' && d.price === 120));
+
+// ─── Stooq CSV fallback (lib/stooq.ts) ──────────────────────────────────────
+
+const stooqCsv = [
+  'Date,Open,High,Low,Close,Volume',
+  '2026-10-06,24750.25,24880.00,24700.50,24812.75,142133',
+  '2026-10-07,24812.75,24950.00,24780.00,24900.00,151020',
+  '2026-10-08,24900.00,24910.00,24600.00,24655.25,163900',
+].join('\n');
+const stooqBars = parseStooqCsv(stooqCsv);
+check('Stooq CSV parses every row oldest first', stooqBars.length === 3 && stooqBars[0].close === 24812.75 && stooqBars[2].close === 24655.25);
+check('Stooq bars are stamped inside the right New York day', etDate(stooqBars[0].time) === '2026-10-06' && etDate(stooqBars[2].time) === '2026-10-08');
+check('Stooq OHLC maps to the right fields', stooqBars[1].open === 24812.75 && stooqBars[1].high === 24950 && stooqBars[1].low === 24780 && stooqBars[1].volume === 151020);
+
+// Column order must come from the header, not a fixed position.
+const reordered = ['Close,Date,Low,Open,High', '112.50,2026-10-06,111.90,112.00,112.75'].join('\n');
+check('Stooq parser reads columns by header name', parseStooqCsv(reordered)[0].high === 112.75);
+// Volume is absent for some series.
+check('Stooq parser tolerates a missing volume column', parseStooqCsv(['Date,Open,High,Low,Close', '2026-10-06,1,2,0.5,1.5'].join('\n'))[0].volume === 0);
+// Junk rows are skipped, not fatal.
+const withJunk = ['Date,Open,High,Low,Close', '2026-10-06,1,2,0.5,1.5', 'bad,row,here,x,y', '2026-10-07,1.5,2.5,1,2'].join('\n');
+check('Stooq parser skips malformed rows', parseStooqCsv(withJunk).length === 2);
+// Stooq answers its rate limit as plain text, which must raise rather than parse as a bar.
+let stooqThrew = false;
+try {
+  parseStooqCsv('Exceeded the daily hits limit');
+} catch {
+  stooqThrew = true;
+}
+check('Stooq rate-limit text throws instead of parsing', stooqThrew);
+let noRowsThrew = false;
+try {
+  parseStooqCsv('Date,Open,High,Low,Close\n2026-10-06,0,0,0,0');
+} catch {
+  noRowsThrew = true;
+}
+check('Stooq all-zero rows throw rather than returning fake bars', noRowsThrew);
+check('every universe row declares a Stooq symbol or an explicit null', MARKET_UNIVERSE.every((u) => u.stooq === null || (typeof u.stooq === 'string' && u.stooq.length > 0)));
 
 // Cache keys.
 check('daily cache key rolls at 8:00 AM ET', dailyCacheKey(new Date('2026-10-07T11:30:00Z')) === '2026-10-06' && dailyCacheKey(new Date('2026-10-07T12:30:00Z')) === '2026-10-07');

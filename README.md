@@ -64,7 +64,16 @@ npm test          # clock, quality, indicator, readiness and selector checks (+ 
 npx tsc --noEmit  # typecheck
 npx tsx scripts/validate-readiness.ts 30      # A/B/C grade distribution over the last 30 sessions
 npx tsx scripts/make-selector-fixture.ts      # refresh the selector fixture, then UPDATE_SNAPSHOT=1 npm test
+npx tsx scripts/verify-data-sources.ts        # check every instrument against Yahoo and Stooq
 ```
+
+## Futures data sources
+
+Daily bars for the Market Selector come from Yahoo first and fall back to Stooq's free end-of-day CSV per instrument when Yahoo errors or returns too little history (`lib/dailyBars.ts`). The selector response reports which feed answered for each symbol, and the page says "via Stooq" on any row that fell back. Both feeds are free and unofficial, so either can refuse at any time.
+
+The Stooq symbols in `lib/marketUniverse.ts` are unverified for Russell, Euro FX and the 10-year note — run `scripts/verify-data-sources.ts` with network access and correct or null them. Euro FX is `null` on purpose: spot EURUSD is not a substitute for the future, because the basis moves the highs and lows the draws are built from.
+
+The Weekly / Daily / 4H trend stack still reads Yahoo only, since Stooq has no intraday history.
 
 Futures readiness config (session window, news blackout, data-age limits, weights) lives in `lib/readinessConfig.ts`. The instrument universe for both the readiness board and the Market Selector lives in `lib/marketUniverse.ts`.
 
