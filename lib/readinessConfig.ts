@@ -41,6 +41,11 @@ export const READINESS_CONFIG = {
      * merged in). Keep it short: FOMC, CPI, NFP. Past dates are ignored.
      */
     manualEvents: [] as ManualHighImpactEvent[],
+    /**
+     * When the calendar feed is down and the manual list is empty the gate
+     * cannot know whether CPI / FOMC is minutes away. true = force WAIT.
+     */
+    failClosedWhenUnavailable: true,
   },
 
   /** Maximum age of the newest bar before the engine refuses to grade. */

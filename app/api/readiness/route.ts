@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rateLimit';
 import { readinessBoard } from '@/lib/readinessBoard';
 
 export const runtime = 'nodejs';
@@ -7,6 +8,8 @@ export const maxDuration = 60;
 
 /** GET /api/readiness — graded readiness for every instrument in the universe. */
 export async function GET(request: Request) {
+  const limited = rateLimit(request, 'readiness', { capacity: 20, perMinute: 10 });
+  if (limited) return limited;
   const { searchParams } = new URL(request.url);
   const force = searchParams.get('refresh') === '1';
   try {

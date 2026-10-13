@@ -66,7 +66,7 @@ check('Good Friday 2025 is CME closed', isCmeClosed('2025-04-18'));
 check('NYD 2025 is CME closed', isCmeClosed('2025-01-01'));
 check('MLK 2025 is cash holiday not CME close', isUsCashHoliday('2025-01-20') && !isCmeClosed('2025-01-20'));
 check('random Tuesday is not a holiday', holidayOn('2025-01-14') === null);
-check('2028 NYD observed Friday 2027-12-31', isCmeClosed('2027-12-31'));
+check('2027-12-31 is a normal session (NYSE does not observe a Saturday NYD on Friday)', !isCmeClosed('2027-12-31') && holidayOn('2027-12-31') === null);
 
 // Clock windows (ISO instants chosen so ET is unambiguous)
 const xmas = marketClock(new Date('2025-12-25T20:00:00.000Z')); // Thu 15:00 EST
@@ -465,7 +465,7 @@ check('Weekly alone is not a side', weeklyOnly.side === null && weeklyOnly.statu
 check('Weekly alone earns no weekly / conflict / zone points', weeklyOnly.components.filter((c) => ['weekly', 'conflict', 'dailyZone', 'fourHZone'].includes(c.key)).every((c) => c.points === 0));
 
 const feedDown = newsGate(new Date('2026-08-12T14:30:00.000Z'), [], false);
-check('news gate says so when the calendar feed is down (manual list empty)', feedDown.passed === true && /feed unavailable/.test(feedDown.detail));
+check('news gate fails closed when the calendar feed is down (manual list empty)', feedDown.passed === false && /feed unavailable/.test(feedDown.detail));
 check('no-bars freshness reports null age', freshnessGate(new Date(), null).age === null);
 check('score never exceeds 100', scoreReadiness(readinessInput()).score <= 100);
 

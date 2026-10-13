@@ -6,37 +6,64 @@
  * (dealingRangeSetup) the live app would show, places the resulting entry as a
  * limit order, then simulates the fill and exit against the bars that follow.
  *
- * Honest scope:
- *  - This tests the DAILY dealing-range mechanics — entry / stop / TP / the new
- *    R:R gate — which is the logic that was changed. The live app additionally
- *    gates on a Weekly / Daily / 4H stack; here we apply a lighter Weekly filter
- *    (don't fight the weekly bias) because Yahoo only serves ~10 days of intraday
- *    history, so a faithful 4H replay isn't possible. Live signal frequency will
- *    therefore be more selective than the raw daily numbers below.
- *  - Within a single bar that spans both stop and target, we assume the STOP is
- *    hit first (conservative). No slippage, no commission, no partial fills.
+ * Execution assumptions (all conservative, all listed in `notes`):
+ *  - Limit entry fills at the limit price when a later bar trades through it.
+ *    A gap through the limit still fills at the limit (no price improvement).
+ *  - Fill bar: only the STOP can trigger on the bar that filled the order. A
+ *    daily bar cannot tell us whether the target traded before or after the
+ *    fill, so targets are only credited from the next bar on.
+ *  - Any bar that spans both stop and target counts as the stop.
+ *  - Time-stop: a position still open after `maxBarsInTrade` bars is closed at
+ *    that bar's close (marked to market — not scored as 0R).
+ *  - One position at a time: the next signal is evaluated only after the
+ *    position is fully closed under the slowest exit rule.
+ *  - Optional costs: round-trip fees and stop / time-exit slippage in ticks,
+ *    converted to R with the contract's tick size and point value.
+ *
+ * Scope: this tests the DAILY mechanics. The live app also gates on a 4H stack
+ * and on session / news / freshness, which daily bars cannot replay. Yahoo's
+ * continuous series rolls contracts on its own schedule; roll gaps are in the
+ * data as-is (see marketUniverse.rollWindows).
  */
 import type { YFCandle } from './yahooChart';
 import { classify, structureLevels, type Bias } from './trendBias';
 import { dealingRangeSetup, type TradeSide } from './futuresSetups';
+import { resampleWeekly, etDate } from './indicators';
+import { contractSpec } from './contracts';
 
 const K = 2;                 // swing strictness — matches SWING_STRICTNESS in trendBias
 const WARMUP = 40;           // bars needed before the structure read is meaningful
 const MAX_BARS_TO_FILL = 10; // cancel a resting limit if unfilled after N bars
 const MAX_BARS_IN_TRADE = 40;// time-stop an open trade after N bars
+/** Below this many filled trades the stats are flagged as not meaningful. */
+export const MIN_MEANINGFUL_TRADES = 30;
+/** Share of the filled trades (by time) used as in-sample. */
+const IN_SAMPLE_SHARE = 0.7;
 
 export type ExitReason = 'tp1' | 'tp2' | 'stop' | 'timeout' | 'cancelled';
+
+export interface BacktestCosts {
+  /** Contract symbol for tick size / point value (e.g. 'MNQ'). */
+  contract: string;
+  /** Round-trip fees per contract in dollars. */
+  feesRoundTrip: number;
+  /** Adverse slippage in ticks on stop and time exits. */
+  slippageTicks: number;
+}
 
 export interface BacktestTrade {
   side: TradeSide;
   signalStatus: 'look' | 'wait';
   signalTime: number;
   fillTime: number | null;
+  exitTime: number | null;
   entry: number;
   stop: number;
   tp1: number;
   tp2: number;
   risk: number;
+  /** Planned reward:risk to TP1 at the entry. */
+  plannedRR: number;
   exitReason: ExitReason;
   rToTp1Exit: number | null;    // R multiple under a "exit all at TP1" rule
   rToTp2Exit: number | null;    // R multiple under a "exit all at TP2" rule
@@ -51,15 +78,29 @@ export interface StrategyStats {
   trades: number;
   wins: number;
   losses: number;
-  winRate: number;         // 0–100
+  scratches: number;
+  winRate: number;         // 0–100, wins / trades
   expectancyR: number;     // average R per trade
   profitFactor: number | null;
   totalR: number;
   maxDrawdownR: number;
   avgWinR: number;
   avgLossR: number;
+  maxConsecutiveLosses: number;
   avgHoldBars: number;     // average trading days in a trade
   medianHoldBars: number;  // median trading days in a trade
+}
+
+export interface MonthRow {
+  month: string;
+  trades: number;
+  totalR: number;
+}
+
+export interface SplitStats {
+  inSample: StrategyStats;
+  outOfSample: StrategyStats;
+  splitDate: string | null;
 }
 
 export interface BacktestResult {
@@ -74,6 +115,15 @@ export interface BacktestResult {
   tp1Strategy: StrategyStats;
   tp2Strategy: StrategyStats;
   hybridStrategy: StrategyStats;
+  /** In-sample (first 70% of fills) vs out-of-sample (last 30%), TP1 exit rule. */
+  split: SplitStats;
+  /** Monthly R under the TP1 exit rule (by exit month, New York date). */
+  monthly: MonthRow[];
+  avgPlannedRR: number;
+  costsApplied: boolean;
+  /** Dollar value of 1R per contract is trade-specific; this is total TP1-rule P&L for 1 contract, when a contract is set. */
+  netProfitPerContractTp1: number | null;
+  sampleWarning: string | null;
   maxHoldBars: number;
   trades: BacktestTrade[];
   notes: string[];
@@ -81,51 +131,37 @@ export interface BacktestResult {
 }
 
 function weeklyBiasUpTo(daily: YFCandle[]): Bias {
-  // Resample the daily slice into weekly buckets (7-day) and classify.
-  const bucket = 7 * 86400;
-  const map = new Map<number, YFCandle[]>();
-  for (const c of daily) {
-    const key = Math.floor(c.time / bucket) * bucket;
-    const g = map.get(key);
-    if (g) g.push(c);
-    else map.set(key, [c]);
-  }
-  const weekly = Array.from(map.keys()).sort((a, b) => a - b).map((k) => {
-    const g = map.get(k)!;
-    return {
-      time: k,
-      open: g[0].open,
-      high: Math.max(...g.map((x) => x.high)),
-      low: Math.min(...g.map((x) => x.low)),
-      close: g[g.length - 1].close,
-      volume: g.reduce((s, x) => s + x.volume, 0),
-    };
-  });
-  return classify(weekly, K).bias;
+  // ISO Monday-start weeks on New York dates (not epoch-aligned 7-day blocks).
+  return classify(resampleWeekly(daily), K).bias;
 }
 
-function statsFor(label: string, rs: number[], holds: number[] = []): StrategyStats {
+function round(n: number, p = 2): number {
+  const f = 10 ** p;
+  return Math.round(n * f) / f;
+}
+
+export function statsFor(label: string, rs: number[], holds: number[] = []): StrategyStats {
   const trades = rs.length;
   const wins = rs.filter((r) => r > 0);
-  const losses = rs.filter((r) => r <= 0);
+  const losses = rs.filter((r) => r < 0);
+  const scratches = trades - wins.length - losses.length;
   const totalR = rs.reduce((s, r) => s + r, 0);
   const grossWin = wins.reduce((s, r) => s + r, 0);
   const grossLoss = Math.abs(losses.reduce((s, r) => s + r, 0));
 
   const holdsClean = holds.filter((h) => h != null && !Number.isNaN(h));
-  const avgHoldBars = holdsClean.length
-    ? Math.round((holdsClean.reduce((s, h) => s + h, 0) / holdsClean.length) * 10) / 10 : 0;
+  const avgHoldBars = holdsClean.length ? round(holdsClean.reduce((s, h) => s + h, 0) / holdsClean.length, 1) : 0;
   const sortedHolds = [...holdsClean].sort((a, b) => a - b);
-  const medianHoldBars = sortedHolds.length
-    ? sortedHolds[Math.floor(sortedHolds.length / 2)] : 0;
+  const medianHoldBars = sortedHolds.length ? sortedHolds[Math.floor(sortedHolds.length / 2)] : 0;
 
-  // Max drawdown of the running R equity curve.
-  let peak = 0, equity = 0, maxDd = 0;
+  // Max drawdown of the running R equity curve, and the longest losing streak.
+  let peak = 0, equity = 0, maxDd = 0, streak = 0, maxStreak = 0;
   for (const r of rs) {
     equity += r;
     if (equity > peak) peak = equity;
-    const dd = peak - equity;
-    if (dd > maxDd) maxDd = dd;
+    maxDd = Math.max(maxDd, peak - equity);
+    streak = r < 0 ? streak + 1 : 0;
+    maxStreak = Math.max(maxStreak, streak);
   }
 
   return {
@@ -133,15 +169,90 @@ function statsFor(label: string, rs: number[], holds: number[] = []): StrategySt
     trades,
     wins: wins.length,
     losses: losses.length,
-    winRate: trades ? Math.round((wins.length / trades) * 1000) / 10 : 0,
-    expectancyR: trades ? Math.round((totalR / trades) * 100) / 100 : 0,
-    profitFactor: grossLoss > 0 ? Math.round((grossWin / grossLoss) * 100) / 100 : (grossWin > 0 ? null : 0),
-    totalR: Math.round(totalR * 10) / 10,
-    maxDrawdownR: Math.round(maxDd * 10) / 10,
-    avgWinR: wins.length ? Math.round((grossWin / wins.length) * 100) / 100 : 0,
-    avgLossR: losses.length ? Math.round((grossLoss / losses.length) * 100) / 100 : 0,
+    scratches,
+    winRate: trades ? round((wins.length / trades) * 100, 1) : 0,
+    expectancyR: trades ? round(totalR / trades) : 0,
+    profitFactor: grossLoss > 0 ? round(grossWin / grossLoss) : grossWin > 0 ? null : 0,
+    totalR: round(totalR, 1),
+    maxDrawdownR: round(maxDd, 1),
+    avgWinR: wins.length ? round(grossWin / wins.length) : 0,
+    avgLossR: losses.length ? round(grossLoss / losses.length) : 0,
+    maxConsecutiveLosses: maxStreak,
     avgHoldBars,
     medianHoldBars,
+  };
+}
+
+interface Exit {
+  idx: number;
+  /** Gross R before costs. */
+  r: number;
+  /** True when the exit is a market order (stop / time) that pays slippage. */
+  market: boolean;
+  reason: 'stop' | 'target' | 'timeout' | 'breakeven';
+}
+
+/**
+ * Exit under a single-target rule. Fill bar: stop only. Same bar stop+target → stop.
+ */
+export function singleTargetExit(
+  candles: YFCandle[], side: TradeSide, entry: number, stop: number, target: number,
+  fillIdx: number, lastIdx: number,
+): Exit {
+  const risk = Math.abs(entry - stop);
+  for (let j = fillIdx; j <= lastIdx; j++) {
+    const b = candles[j];
+    const stopHit = side === 'long' ? b.low <= stop : b.high >= stop;
+    if (stopHit) return { idx: j, r: -1, market: true, reason: 'stop' };
+    if (j === fillIdx) continue; // target order on the fill bar is ambiguous
+    const tHit = side === 'long' ? b.high >= target : b.low <= target;
+    if (tHit) return { idx: j, r: Math.abs(target - entry) / risk, market: false, reason: 'target' };
+  }
+  const close = candles[lastIdx].close;
+  const r = (side === 'long' ? close - entry : entry - close) / risk;
+  return { idx: lastIdx, r, market: true, reason: 'timeout' };
+}
+
+/** Hybrid: half at TP1, stop to breakeven, runner to TP2. */
+function hybridExit(
+  candles: YFCandle[], side: TradeSide, entry: number, stop: number, tp1: number, tp2: number,
+  fillIdx: number, lastIdx: number,
+): Exit & { halfAtTp1: boolean } {
+  const risk = Math.abs(entry - stop);
+  const first = singleTargetExit(candles, side, entry, stop, tp1, fillIdx, lastIdx);
+  if (first.reason !== 'target') return { ...first, halfAtTp1: false };
+  const rTp1 = first.r;
+  for (let j = first.idx + 1; j <= lastIdx; j++) {
+    const b = candles[j];
+    const beHit = side === 'long' ? b.low <= entry : b.high >= entry;
+    if (beHit) return { idx: j, r: 0.5 * rTp1, market: true, reason: 'breakeven', halfAtTp1: true };
+    const t2 = side === 'long' ? b.high >= tp2 : b.low <= tp2;
+    if (t2) return { idx: j, r: 0.5 * rTp1 + 0.5 * (Math.abs(tp2 - entry) / risk), market: false, reason: 'target', halfAtTp1: true };
+  }
+  const close = candles[lastIdx].close;
+  const runner = (side === 'long' ? close - entry : entry - close) / risk;
+  return { idx: lastIdx, r: 0.5 * rTp1 + 0.5 * runner, market: true, reason: 'timeout', halfAtTp1: true };
+}
+
+/** Cost of a round trip in R for one contract. */
+function costR(costs: BacktestCosts | undefined, riskPoints: number, market: boolean): number {
+  if (!costs) return 0;
+  const spec = contractSpec(costs.contract);
+  if (!spec || riskPoints <= 0) return 0;
+  const feePts = costs.feesRoundTrip / spec.pointValue;
+  const slipPts = market ? costs.slippageTicks * spec.tickSize : 0;
+  return (feePts + slipPts) / riskPoints;
+}
+
+function emptyResult(instrument: string, dataSymbol: string, bars: number, maxHold: number, notes: string[], error: string): BacktestResult {
+  const z = (l: string) => statsFor(l, []);
+  return {
+    instrument, dataSymbol, bars, fromDate: null, toDate: null,
+    signalsGenerated: 0, ordersFilled: 0, fillRate: 0,
+    tp1Strategy: z('Exit at TP1'), tp2Strategy: z('Exit at TP2'), hybridStrategy: z('Hybrid (½ TP1 + runner)'),
+    split: { inSample: z('In-sample'), outOfSample: z('Out-of-sample'), splitDate: null },
+    monthly: [], avgPlannedRR: 0, costsApplied: false, netProfitPerContractTp1: null,
+    sampleWarning: 'No trades.', maxHoldBars: maxHold, trades: [], notes, error,
   };
 }
 
@@ -152,34 +263,31 @@ export function runBacktest(opts: {
   candles: YFCandle[];
   useWeeklyFilter?: boolean;
   maxBarsInTrade?: number;
+  costs?: BacktestCosts;
 }): BacktestResult {
-  const { instrument, dataSymbol, candles } = opts;
+  const { instrument, dataSymbol, candles, costs } = opts;
   const useWeeklyFilter = opts.useWeeklyFilter ?? true;
-  const maxHold = Math.max(1, opts.maxBarsInTrade ?? MAX_BARS_IN_TRADE);
+  const maxHold = Math.max(1, Math.min(250, opts.maxBarsInTrade ?? MAX_BARS_IN_TRADE));
 
   const notes = [
     'No lookahead: every setup is built only from bars up to and including the signal bar.',
-    'Conservative fills: a bar spanning both stop and target counts as a stop.',
-    'No slippage or commission. Futures points converted to R multiples (R = entry→stop distance).',
-    'Hybrid = half off at TP1, stop to breakeven, runner to TP2 (breakeven if it comes back first).',
-    `Max hold: positions time-stop after ${maxHold} trading days.`,
+    'Fill bar: only the stop can trigger on the bar that fills the limit — targets count from the next bar (daily bars cannot show the order).',
+    'A bar spanning both stop and target counts as the stop.',
+    `Time-stop after ${maxHold} trading days, closed at that bar's close (marked to market).`,
+    'One position at a time — the next signal waits until the open trade has fully exited.',
+    'Hybrid = half off at TP1, stop to breakeven, runner to TP2.',
+    costs
+      ? `Costs ON: $${costs.feesRoundTrip} round-trip fees and ${costs.slippageTicks} tick(s) slippage on stop / time exits (${costs.contract}).`
+      : 'Costs OFF: no commission or slippage — results are gross.',
     useWeeklyFilter
-      ? 'Weekly filter ON: longs skipped when the weekly bias is down, shorts when it is up.'
+      ? 'Weekly filter ON: longs skipped when the weekly bias is down, shorts when it is up (ISO weeks, NY dates).'
       : 'Weekly filter OFF: daily bias only.',
+    `In-sample = first ${Math.round(IN_SAMPLE_SHARE * 100)}% of filled trades by date, out-of-sample = the rest. Rules were not fit on either part; the split shows stability, not an optimised edge.`,
+    'Session breakdown is not available: daily bars carry no intraday session.',
   ];
 
   if (candles.length < WARMUP + 10) {
-    return {
-      instrument, dataSymbol, bars: candles.length,
-      fromDate: null, toDate: null,
-      signalsGenerated: 0, ordersFilled: 0, fillRate: 0,
-      tp1Strategy: statsFor('Exit at TP1', []),
-      tp2Strategy: statsFor('Exit at TP2', []),
-      hybridStrategy: statsFor('Hybrid (½ TP1 + runner)', []),
-      maxHoldBars: maxHold,
-      trades: [], notes,
-      error: 'Not enough history to backtest.',
-    };
+    return emptyResult(instrument, dataSymbol, candles.length, maxHold, notes, 'Not enough history to backtest.');
   }
 
   const trades: BacktestTrade[] = [];
@@ -217,23 +325,23 @@ export function runBacktest(opts: {
       i++; continue;
     }
 
-    signalsGenerated++;
     const side: TradeSide = setup.side === 'short' ? 'short' : 'long';
     const entry = setup.entry, stop = setup.stop, tp1 = setup.tp1, tp2 = setup.tp2;
     const risk = Math.abs(entry - stop);
     if (risk < 1e-9) { i++; continue; }
+    signalsGenerated++;
+    const plannedRR = round(Math.abs(tp1 - entry) / risk);
 
-    // Resolve the resting limit + trade against subsequent bars.
-    let filled = false, fillIdx = -1;
+    let fillIdx = -1;
     for (let j = i + 1; j <= Math.min(i + MAX_BARS_TO_FILL, candles.length - 1); j++) {
       const b = candles[j];
-      if (b.low <= entry && entry <= b.high) { filled = true; fillIdx = j; break; }
+      if (b.low <= entry && entry <= b.high) { fillIdx = j; break; }
     }
 
-    if (!filled) {
+    if (fillIdx < 0) {
       trades.push({
         side, signalStatus: setup.status, signalTime: slice[slice.length - 1].time,
-        fillTime: null, entry, stop, tp1, tp2, risk,
+        fillTime: null, exitTime: null, entry, stop, tp1, tp2, risk, plannedRR,
         exitReason: 'cancelled', rToTp1Exit: null, rToTp2Exit: null, rHybridExit: null,
         holdBarsTp1: null, holdBarsTp2: null, holdBarsHybrid: null,
       });
@@ -241,108 +349,81 @@ export function runBacktest(opts: {
     }
 
     ordersFilled++;
-    // Manage the position from the fill bar forward, recording the bar index at
-    // which each level is first reached so we can measure hold duration.
-    let exitReason: ExitReason = 'timeout';
-    let stopIdx = -1, tp1Idx = -1, tp2Idx = -1;
     const lastIdx = Math.min(fillIdx + maxHold, candles.length - 1);
-    for (let j = fillIdx; j <= lastIdx; j++) {
-      const b = candles[j];
-      const stopHit = side === 'long' ? b.low <= stop : b.high >= stop;
-      const tp1Hit = side === 'long' ? b.high >= tp1 : b.low <= tp1;
-      const tp2Hit = side === 'long' ? b.high >= tp2 : b.low <= tp2;
-      if (stopHit) { stopIdx = j; break; }               // conservative: stop before target in same bar
-      if (tp2Hit) { tp2Idx = j; if (tp1Idx < 0) tp1Idx = j; break; }
-      if (tp1Hit && tp1Idx < 0) tp1Idx = j;              // keep running toward tp2
-    }
-    const hitStop = stopIdx >= 0, hitTp1 = tp1Idx >= 0, hitTp2 = tp2Idx >= 0;
+    const a = singleTargetExit(candles, side, entry, stop, tp1, fillIdx, lastIdx);
+    const b = singleTargetExit(candles, side, entry, stop, tp2, fillIdx, lastIdx);
+    const h = hybridExit(candles, side, entry, stop, tp1, tp2, fillIdx, lastIdx);
 
-    const rTp1 = Math.abs(tp1 - entry) / risk;
-    const rTp2 = Math.abs(tp2 - entry) / risk;
-
-    // Strategy A — exit everything at TP1.
-    let rToTp1Exit: number;
-    if (hitStop && !hitTp1) rToTp1Exit = -1;
-    else if (hitTp1) rToTp1Exit = rTp1;
-    else rToTp1Exit = 0; // timeout flat-ish (no target, no stop)
-
-    // Strategy B — exit everything at TP2 (ignore TP1).
-    let rToTp2Exit: number;
-    if (hitStop && !hitTp2) rToTp2Exit = -1;
-    else if (hitTp2) rToTp2Exit = rTp2;
-    else rToTp2Exit = 0;
-
-    // Strategy C — hybrid: half off at TP1, stop to breakeven, runner to TP2.
-    // If TP1 never hits, it behaves exactly like the TP1 exit (stop = -1, else 0).
-    let rHybridExit: number;
-    let hybridExitIdx: number;
-    if (hitStop && !hitTp1) {
-      rHybridExit = -1;
-      hybridExitIdx = stopIdx;
-    } else if (hitTp1) {
-      const firstHalf = 0.5 * rTp1;
-      // Manage the runner from the bar AFTER TP1: breakeven stop at entry vs TP2.
-      let secondHalf = 0;                 // default: timeout → flat at breakeven
-      hybridExitIdx = lastIdx;
-      for (let j = tp1Idx + 1; j <= lastIdx; j++) {
-        const b = candles[j];
-        const beHit = side === 'long' ? b.low <= entry : b.high >= entry;
-        const tp2Hit = side === 'long' ? b.high >= tp2 : b.low <= tp2;
-        if (beHit) { secondHalf = 0; hybridExitIdx = j; break; }   // conservative: breakeven before TP2
-        if (tp2Hit) { secondHalf = 0.5 * rTp2; hybridExitIdx = j; break; }
-      }
-      rHybridExit = firstHalf + secondHalf;
-    } else {
-      rHybridExit = 0; // timeout, never reached TP1 or stop
-      hybridExitIdx = lastIdx;
-    }
-
-    // Hold duration (trading days) for each exit rule = fill bar → resolving bar.
-    const tp1ExitIdx = hitTp1 ? tp1Idx : hitStop ? stopIdx : lastIdx;
-    const tp2ExitIdx = hitTp2 ? tp2Idx : hitStop ? stopIdx : lastIdx;
-    const holdBarsTp1 = tp1ExitIdx - fillIdx;
-    const holdBarsTp2 = tp2ExitIdx - fillIdx;
-    const holdBarsHybrid = hybridExitIdx - fillIdx;
-
-    if (hitStop) exitReason = 'stop';
-    else if (hitTp2) exitReason = 'tp2';
-    else if (hitTp1) exitReason = 'tp1';
-    else exitReason = 'timeout';
+    const net = (e: Exit) => e.r - costR(costs, risk, e.market);
+    const exitReason: ExitReason =
+      b.reason === 'target' ? 'tp2' : a.reason === 'target' ? 'tp1' : a.reason === 'stop' ? 'stop' : 'timeout';
+    const exitIdx = Math.max(a.idx, b.idx, h.idx);
 
     trades.push({
       side, signalStatus: setup.status, signalTime: slice[slice.length - 1].time,
-      fillTime: candles[fillIdx].time, entry, stop, tp1, tp2, risk,
+      fillTime: candles[fillIdx].time, exitTime: candles[exitIdx].time,
+      entry, stop, tp1, tp2, risk, plannedRR,
       exitReason,
-      rToTp1Exit: Math.round(rToTp1Exit * 100) / 100,
-      rToTp2Exit: Math.round(rToTp2Exit * 100) / 100,
-      rHybridExit: Math.round(rHybridExit * 100) / 100,
-      holdBarsTp1,
-      holdBarsTp2,
-      holdBarsHybrid,
+      rToTp1Exit: round(net(a)),
+      rToTp2Exit: round(net(b)),
+      rHybridExit: round(net(h)),
+      holdBarsTp1: a.idx - fillIdx,
+      holdBarsTp2: b.idx - fillIdx,
+      holdBarsHybrid: h.idx - fillIdx,
     });
 
-    // Jump past the trade so we don't overlap positions.
-    i = fillIdx + 1;
+    // Flat under every exit rule before looking for the next signal.
+    i = exitIdx + 1;
   }
 
-  const filledTrades = trades.filter((t) => t.exitReason !== 'cancelled');
-  const tp1Rs = filledTrades.map((t) => t.rToTp1Exit ?? 0);
-  const tp2Rs = filledTrades.map((t) => t.rToTp2Exit ?? 0);
-  const tp1Holds = filledTrades.map((t) => t.holdBarsTp1 ?? 0);
-  const tp2Holds = filledTrades.map((t) => t.holdBarsTp2 ?? 0);
-  const hybridRs = filledTrades.map((t) => t.rHybridExit ?? 0);
-  const hybridHolds = filledTrades.map((t) => t.holdBarsHybrid ?? 0);
+  const filled = trades.filter((t) => t.exitReason !== 'cancelled');
+  const tp1Rs = filled.map((t) => t.rToTp1Exit ?? 0);
+
+  const splitAt = Math.floor(filled.length * IN_SAMPLE_SHARE);
+  const inS = filled.slice(0, splitAt);
+  const outS = filled.slice(splitAt);
+
+  const months = new Map<string, MonthRow>();
+  for (const t of filled) {
+    const m = etDate(t.exitTime ?? t.fillTime ?? t.signalTime).slice(0, 7);
+    const row = months.get(m) ?? { month: m, trades: 0, totalR: 0 };
+    row.trades += 1;
+    row.totalR = round(row.totalR + (t.rToTp1Exit ?? 0));
+    months.set(m, row);
+  }
+
+  const spec = costs ? contractSpec(costs.contract) : null;
+  const netProfitPerContractTp1 = spec
+    ? round(filled.reduce((s, t) => s + (t.rToTp1Exit ?? 0) * t.risk * spec.pointValue, 0))
+    : null;
+
+  const sampleWarning =
+    filled.length === 0
+      ? 'No filled trades — nothing can be concluded.'
+      : filled.length < MIN_MEANINGFUL_TRADES
+      ? `Only ${filled.length} filled trades (< ${MIN_MEANINGFUL_TRADES}). Win rate and expectancy are not statistically meaningful at this sample size.`
+      : null;
 
   return {
     instrument, dataSymbol, bars: candles.length,
-    fromDate: candles.length ? new Date(candles[0].time * 1000).toISOString().slice(0, 10) : null,
-    toDate: candles.length ? new Date(candles[candles.length - 1].time * 1000).toISOString().slice(0, 10) : null,
+    fromDate: etDate(candles[0].time),
+    toDate: etDate(candles[candles.length - 1].time),
     signalsGenerated,
     ordersFilled,
-    fillRate: signalsGenerated ? Math.round((ordersFilled / signalsGenerated) * 1000) / 10 : 0,
-    tp1Strategy: statsFor('Exit at TP1', tp1Rs, tp1Holds),
-    tp2Strategy: statsFor('Exit at TP2', tp2Rs, tp2Holds),
-    hybridStrategy: statsFor('Hybrid (½ TP1 + runner)', hybridRs, hybridHolds),
+    fillRate: signalsGenerated ? round((ordersFilled / signalsGenerated) * 100, 1) : 0,
+    tp1Strategy: statsFor('Exit at TP1', tp1Rs, filled.map((t) => t.holdBarsTp1 ?? 0)),
+    tp2Strategy: statsFor('Exit at TP2', filled.map((t) => t.rToTp2Exit ?? 0), filled.map((t) => t.holdBarsTp2 ?? 0)),
+    hybridStrategy: statsFor('Hybrid (½ TP1 + runner)', filled.map((t) => t.rHybridExit ?? 0), filled.map((t) => t.holdBarsHybrid ?? 0)),
+    split: {
+      inSample: statsFor('In-sample (TP1 rule)', inS.map((t) => t.rToTp1Exit ?? 0)),
+      outOfSample: statsFor('Out-of-sample (TP1 rule)', outS.map((t) => t.rToTp1Exit ?? 0)),
+      splitDate: outS.length && outS[0].fillTime ? etDate(outS[0].fillTime) : null,
+    },
+    monthly: Array.from(months.values()).sort((x, y) => x.month.localeCompare(y.month)),
+    avgPlannedRR: filled.length ? round(filled.reduce((s, t) => s + t.plannedRR, 0) / filled.length) : 0,
+    costsApplied: Boolean(costs),
+    netProfitPerContractTp1,
+    sampleWarning,
     maxHoldBars: maxHold,
     trades,
     notes,

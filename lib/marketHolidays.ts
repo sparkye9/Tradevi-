@@ -60,7 +60,9 @@ const HOLIDAYS: MarketHoliday[] = [
   { date: "2027-09-06", name: LAB, kind: "cash_closed" },
   { date: "2027-11-25", name: THX, kind: "cash_closed" },
   { date: "2027-12-24", name: `${XMAS} (observed)`, kind: "cme_closed" },
-  { date: "2027-12-31", name: `${NYD} (observed)`, kind: "cme_closed" },
+  // 2028-01-01 falls on a Saturday. NYSE does NOT close the prior Friday for
+  // New Year's Day (year-end accounting exception — markets were open on
+  // Fri 2021-12-31 for the same reason), so 2027-12-31 is a normal session.
   // 2028
   { date: "2028-01-01", name: NYD, kind: "cme_closed" },
   { date: "2028-01-17", name: MLK, kind: "cash_closed" },
@@ -75,6 +77,30 @@ const HOLIDAYS: MarketHoliday[] = [
 ];
 
 const BY_DATE = new Map(HOLIDAYS.map((h) => [h.date, h]));
+
+/**
+ * NYSE early-close days (cash closes 1:00 PM ET; CME equity index closes
+ * 12:15 PM CT / 1:15 PM ET). Only dates published or following the fixed
+ * rule (day after Thanksgiving; Dec 24 and Jul 3 on a weekday that is not
+ * itself the observed holiday) are listed — confirm against the NYSE / CME
+ * holiday calendars each year.
+ */
+const EARLY_CLOSES: { date: string; name: string }[] = [
+  { date: "2025-07-03", name: "Independence Day eve" },
+  { date: "2025-11-28", name: "Day after Thanksgiving" },
+  { date: "2025-12-24", name: "Christmas Eve" },
+  { date: "2026-11-27", name: "Day after Thanksgiving" },
+  { date: "2026-12-24", name: "Christmas Eve" },
+  { date: "2027-11-26", name: "Day after Thanksgiving" },
+  { date: "2028-07-03", name: "Independence Day eve" },
+  { date: "2028-11-24", name: "Day after Thanksgiving" },
+];
+const EARLY_BY_DATE = new Map(EARLY_CLOSES.map((h) => [h.date, h]));
+
+/** Early-close day for the US cash session, or null. */
+export function earlyCloseOn(ymd: string): { date: string; name: string } | null {
+  return EARLY_BY_DATE.get(ymd) ?? null;
+}
 
 export function holidayOn(ymd: string): MarketHoliday | null {
   return BY_DATE.get(ymd) ?? null;

@@ -7,6 +7,19 @@ interface Future {
   price: number | null;
   changePercent: number | null;
   direction: 'up' | 'down' | 'flat' | null;
+  state?: 'live' | 'delayed' | 'stale' | 'closed' | 'unavailable';
+  detail?: string;
+  clsLabel?: string;
+  quoteTime?: string | null;
+}
+
+interface QuoteRowLite {
+  symbol: string;
+  price: number | null;
+  changePercent: number | null;
+  clsLabel: string;
+  quoteTime: string | null;
+  freshness: { state: Future['state']; detail: string };
 }
 
 const SYMBOLS = ['ES', 'NQ', 'YM', 'RTY', 'VIX', 'GC'];
@@ -17,6 +30,11 @@ const PLACEHOLDERS: Future[] = SYMBOLS.map((symbol) => ({
   changePercent: null,
   direction: null,
 }));
+
+function directionOf(chg: number | null): Future['direction'] {
+  if (chg == null) return null;
+  return chg > 0.05 ? 'up' : chg < -0.05 ? 'down' : 'flat';
+}
 
 function formatET(d: Date): string {
   return d.toLocaleTimeString('en-US', {
@@ -35,24 +53,44 @@ export default function FuturesBar() {
   const [clock, setClock] = useState<MarketClock | null>(null);
   const [loaded, setLoaded] = useState(false);
 
+  const [feedError, setFeedError] = useState<string | null>(null);
+
   useEffect(() => {
-    const timer = setTimeout(async () => {
+    let cancelled = false;
+    async function load() {
       try {
-        const res = await fetch('/api/finviz/futures');
+        const res = await fetch('/api/quotes');
         const json = await res.json();
-        const data: Future[] = (json.data ?? []).filter((f: Future) => SYMBOLS.includes(f.symbol));
-        // Merge with placeholders so we always show all 5 symbols
+        const rows: QuoteRowLite[] = json.rows ?? [];
         const merged = SYMBOLS.map((sym) => {
-          const found = data.find((f) => f.symbol === sym);
-          return found ?? { symbol: sym, price: null, changePercent: null, direction: null };
+          const r = rows.find((x) => x.symbol === sym);
+          if (!r) return { symbol: sym, price: null, changePercent: null, direction: null, state: 'unavailable' as const };
+          return {
+            symbol: sym,
+            price: r.price,
+            changePercent: r.changePercent,
+            direction: directionOf(r.changePercent),
+            state: r.freshness.state,
+            detail: r.freshness.detail,
+            clsLabel: r.clsLabel,
+            quoteTime: r.quoteTime,
+          };
         });
-        setFutures(merged);
+        if (!cancelled) {
+          setFutures(merged);
+          setFeedError(json.feedError ?? (res.ok ? null : `HTTP ${res.status}`));
+        }
       } catch {
-        // Keep placeholders
+        if (!cancelled) {
+          setFeedError('Quote feed unreachable');
+          setFutures(PLACEHOLDERS.map((p) => ({ ...p, state: 'unavailable' as const })));
+        }
       }
-      setLoaded(true);
-    }, 0);
-    return () => clearTimeout(timer);
+      if (!cancelled) setLoaded(true);
+    }
+    load();
+    const id = setInterval(load, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
   }, []);
 
   useEffect(() => {
@@ -105,10 +143,13 @@ export default function FuturesBar() {
         const chgArrow = isUp ? '▲' : isDown ? '▼' : '';
         const isPlaceholder = !loaded || f.price === null;
         const label = f.symbol === 'GC' ? 'Gold' : f.symbol;
+        const dim = f.state === 'stale' || f.state === 'closed';
+        const qt = f.quoteTime ? new Date(f.quoteTime).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) + ' ET' : 'no time';
         return (
           <div
             key={f.symbol}
-            className="flex items-center gap-1.5 whitespace-nowrap shrink-0"
+            className={`flex items-center gap-1.5 whitespace-nowrap shrink-0 ${dim ? 'opacity-50' : ''}`}
+            title={`${f.clsLabel ?? ''} · Yahoo Finance · last trade ${qt}${f.detail ? ` · ${f.detail}` : ''}`}
           >
             <span className="text-tv-muted font-mono text-xs">{label}</span>
             {!isPlaceholder ? (
@@ -121,11 +162,17 @@ export default function FuturesBar() {
             ) : (
               <span className="text-gray-600 font-mono text-xs">--</span>
             )}
+            {f.state === 'stale' && <span className="text-[9px] font-bold text-tv-amber">STALE</span>}
           </div>
         );
       })}
 
-      <div className="ml-auto flex items-center shrink-0">
+      <div className="ml-auto flex items-center gap-2 shrink-0">
+        {feedError ? (
+          <span className="text-[10px] font-bold text-tv-red" title={feedError}>FEED DISCONNECTED</span>
+        ) : (
+          <span className="text-[10px] text-gray-600" title="Yahoo Finance quotes are delayed. Hover a symbol for its last trade time.">Yahoo · delayed</span>
+        )}
         <span className="text-[10px] text-tv-purple/70 font-bold tracking-widest">TRADEVI</span>
       </div>
     </div>

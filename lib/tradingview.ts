@@ -22,8 +22,25 @@ export interface TvAlertPayload {
   [key: string]: unknown;
 }
 
+import { createHash, timingSafeEqual } from 'node:crypto';
+
+/** Constant-time compare (hashing first makes both buffers the same length). */
+function safeEqual(a: string, b: string): boolean {
+  const ha = createHash('sha256').update(a).digest();
+  const hb = createHash('sha256').update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
+
 export function verifyTradingViewSecret(payload: TvAlertPayload): boolean {
   const expected = process.env.TRADINGVIEW_WEBHOOK_SECRET;
   if (!expected) return false;
-  return payload.secret === expected;
+  if (typeof payload.secret !== 'string') return false;
+  return safeEqual(payload.secret, expected);
+}
+
+/** The payload with the shared secret removed — never persist the secret. */
+export function redactPayload(payload: TvAlertPayload): Record<string, unknown> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { secret: _secret, ...rest } = payload;
+  return rest;
 }

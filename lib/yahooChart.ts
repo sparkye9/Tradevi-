@@ -68,20 +68,35 @@ export async function fetchYahooCandles(
   const closes:  (number | null)[] = quote.close  ?? [];
   const volumes: (number | null)[] = quote.volume ?? [];
 
-  const candles: YFCandle[] = timestamps
-    .map((ts, i) => ({
-      time:   ts,
-      open:   opens[i]   ?? 0,
-      high:   highs[i]   ?? 0,
-      low:    lows[i]    ?? 0,
-      close:  closes[i]  ?? 0,
-      volume: volumes[i] ?? 0,
-    }))
-    .filter(c => c.open > 0 && c.close > 0);
+  const candles = parseYahooBars(timestamps, opens, highs, lows, closes, volumes);
 
   if (candles.length === 0) {
     throw new Error(`No valid candles for ${symbol} — market may be closed`);
   }
 
   return { candles, dataSource: 'yahoo_delayed' };
+}
+
+/**
+ * Build candles from Yahoo's parallel arrays. A bar is kept only when all four
+ * prices are finite and positive and high ≥ max(open, close) ≥ min(open, close)
+ * ≥ low — a null high/low used to slip through as 0 and corrupt swings / ATR.
+ */
+export function parseYahooBars(
+  timestamps: number[],
+  opens: (number | null)[],
+  highs: (number | null)[],
+  lows: (number | null)[],
+  closes: (number | null)[],
+  volumes: (number | null)[],
+): YFCandle[] {
+  const out: YFCandle[] = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    const o = opens[i], h = highs[i], l = lows[i], c = closes[i];
+    if (o == null || h == null || l == null || c == null) continue;
+    if (![o, h, l, c].every((n) => Number.isFinite(n) && n > 0)) continue;
+    if (h < Math.max(o, c) - 1e-9 || l > Math.min(o, c) + 1e-9 || h < l) continue;
+    out.push({ time: timestamps[i], open: o, high: h, low: l, close: c, volume: volumes[i] ?? 0 });
+  }
+  return out;
 }
