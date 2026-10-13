@@ -115,7 +115,7 @@ All items marked **Fixed** / **Added** above are implemented and covered by `npm
 3. **Contract roll** is Yahoo's: there is no explicit front-month/rollover mapping, and roll gaps remain in historical series (flagged by the Market Selector's roll windows, not removed).
 4. **Holiday calendar** is a static list through 2028, plus early closes for known dates; CME special-session hours (e.g. reduced Good Friday sessions) are not modelled.
 5. **Legacy readiness stack** still uses epoch-aligned 4H bars and treats the forming daily bar as closed (kept so its snapshot and A/B/C history stay comparable). The new Structure / Setup / Power Hour engines use session-aligned bars and drop forming bars.
-6. **Backtest** covers the daily swing engine only. Intraday setups (structure, Power Hour) are not backtested — Yahoo serves ≤ 60 days of 5m/15m history, too little for out-of-sample validation. No walk-forward re-optimisation exists because no parameter is optimised.
+6. **Backtest**: the daily swing engine runs on Yahoo; the Power Hour rules can be replayed on Databento 1-minute history (local download + in-browser run). The structure setup cards are not yet backtested, and the Power Hour replay cannot apply the news rule (no historical calendar). No walk-forward re-optimisation exists because no parameter is optimised.
 7. **Setup and readiness scores are unvalidated** checklist totals, not probabilities.
 8. **Prop-firm, journal and checklist data live in browser localStorage** — no sync, no server backup (export manually). Screenshots are capped to ~3 MB total.
 9. **Rate limiting is per serverless instance** (burst protection, not a global quota).

@@ -14,6 +14,7 @@ import { takeToken } from '../lib/rateLimit';
 import { redactPayload } from '../lib/tradingview';
 import { runSection as propFirmChecks } from './check-propfirm';
 import { runSection as structureChecks } from './check-structure';
+import { runSection as databentoChecks } from './check-databento';
 
 let failed = 0;
 export function check(name: string, cond: boolean) {
@@ -186,6 +187,7 @@ check('2027-12-31 is not a holiday', holidayOn('2027-12-31') === null);
 
 propFirmChecks(check);
 structureChecks(check);
+databentoChecks(check);
 
 if (failed) {
   console.error(`\n${failed} trading check(s) failed`);

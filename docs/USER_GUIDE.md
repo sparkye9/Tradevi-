@@ -62,3 +62,19 @@ Tradevi is decision support. It does not place orders, does not connect to a bro
 - **Costs ON** applies $1.50 round-trip and 1 tick of slippage on stops, priced on the micro contract.
 - Check the **sample-size warning** and whether **out-of-sample** agrees with in-sample before reading anything into the result.
 - A positive number is not proof of an edge.
+
+## Intraday backtest with Databento
+
+Databento's historical data is at least 24 hours old, so it is for **testing**, not for the live pages.
+
+1. Keep your API key on your own computer. Do not paste it into chat, commit it, or add it to Vercel.
+2. In a terminal inside the project folder:
+   ```bash
+   export DATABENTO_API_KEY=db-...          # PowerShell: $env:DATABENTO_API_KEY="db-..."
+   npx tsx scripts/databento-download.ts --symbol MNQ --start 2025-10-01 --end 2026-10-01
+   ```
+   This only prints Databento's **cost estimate**. Re-run with `--yes` to download. It refuses anything over `--max-usd` (default $5). The file is saved under `data/databento/`, which git ignores.
+3. On **Backtesting → Intraday Power Hour backtest**, choose the CSV. It runs in your browser. Or use `npx tsx scripts/backtest-power-hour.ts <file> --instrument MNQ`.
+4. Read the "Why days were NO TRADE" counts, the sample-size warning, and whether the out-of-sample results agree with the in-sample ones.
+
+A CSV exported from the Databento web portal (schema `ohlcv-1m`, CSV encoding) works too.

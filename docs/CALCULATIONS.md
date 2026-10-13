@@ -167,7 +167,24 @@ The default window is entry 14:38–14:45 and exit 15:15–15:20 ET. It is edita
 
 - **VWAP** = Σ(typical price × volume) / Σ volume over today's 09:30+ bars. It is null when the feed carries no volume.
 - **Entry zone** = from max(VWAP, last 5m swing low) up 0.5 × 5m ATR for a long (mirror for a short).
-- **CONFIRMED** = a 5m bar *closing* inside the entry window beyond the zone's far edge, without touching invalidation.
+- **CONFIRMED** = a 5m bar *closing* inside the entry window beyond the zone's far edge, without touching invalidation, **and** still leaving ≥ 1.5R from that close to the target. A late confirmation that leaves less reward stays CANDIDATE.
+
+## 7a. Intraday Power Hour backtest — `lib/powerHourBacktest.ts`
+
+Input: 1-minute bars (Databento `ohlcv-1m` CSV, parsed by `lib/databentoCsv.ts`). If a file holds several contracts, the one with the most volume each session is used; prices are not back-adjusted.
+
+- 5m and 15m bars are aggregated from the 1m bars, aligned to the clock.
+- For each session, `powerHour()` (the live function) runs at every 5m close inside the entry window, using only the bars that existed at that moment.
+- **Entry**: at the confirmation bar's close, plus slippage. The trade is skipped if less than 1.5R remains after slippage.
+- **Exit**: managed on 1m bars from the next minute. If one minute touches both stop and target, it counts as the stop. Otherwise the position is flat at the last 1m close by the end of the exit window.
+- **Limits**: at most one trade per day. Holidays and early closes are skipped.
+- **News**: the news rule is **not** applied, because no historical calendar is available, and the report says so.
+- **Output**:
+  - Outcome per day: traded, NO TRADE, candidate never confirmed, no data, or holiday.
+  - How often each rule blocked a trade.
+  - Win rate, expectancy, PF, max DD, losing streak and $ per contract.
+  - Split into the first 70% and last 30% of trades.
+  - Monthly table.
 
 ## 8. Readiness grade (existing) — `lib/readiness.ts`
 

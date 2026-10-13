@@ -24,7 +24,8 @@
  *                  that swing; stop = swing ± stopBufferAtr × ATR, on the tick.
  *  Confirmation    A 5-minute bar that CLOSES inside the entry window, in the
  *                  trade direction, beyond the entry zone's far edge
- *                  (above the zone for longs, below for shorts).
+ *                  (above the zone for longs, below for shorts), AND still
+ *                  leaves ≥ minRR from that close to the target.
  */
 import type { Candle } from './indicators';
 import { atr } from './indicators';
@@ -98,6 +99,8 @@ export interface PowerHourResult {
     target: number;
     targetName: string;
     rr: number;
+    /** R:R measured from the confirmation bar's close (set once one prints). */
+    rrAtConfirmation?: number;
   } | null;
   rules: PhRule[];
   reasons: string[];
@@ -290,8 +293,17 @@ export function powerHour(opts: {
       const s = sessionStamp(b.time + 300); // bar CLOSE time
       return s.session === todaySession && s.etMins > cfg.entryStart && s.etMins <= cfg.entryEnd;
     });
-    const confirmed = inWindow.some((b) => (direction === 'long' ? b.close > plan!.entryZone[1] && b.low > plan!.invalidation : b.close < plan!.entryZone[0] && b.high < plan!.invalidation));
-    if (confirmed) status = 'CONFIRMED';
+    const confBar = inWindow.find((b) => (direction === 'long' ? b.close > plan!.entryZone[1] && b.low > plan!.invalidation : b.close < plan!.entryZone[0] && b.high < plan!.invalidation));
+    if (confBar) {
+      // The trade is entered at the confirmation close, not the zone midpoint —
+      // re-check the reward from there so a late confirmation can't pay ~0R.
+      const risk = Math.abs(confBar.close - plan.stop);
+      const reward = direction === 'long' ? plan.target - confBar.close : confBar.close - plan.target;
+      const rrAtEntry = risk > 0 ? Math.round((reward / risk) * 100) / 100 : 0;
+      plan.rrAtConfirmation = rrAtEntry;
+      if (rrAtEntry >= cfg.minRR) status = 'CONFIRMED';
+      else notes.push(`Confirmation printed at ${confBar.close}, but only ${rrAtEntry}R remains to ${plan.targetName} from there (need ${cfg.minRR}R) — not confirmed.`);
+    }
   }
 
   return {

@@ -120,7 +120,7 @@ export default function PowerHourFutures() {
               <div><div className="label">Invalidation</div>{data.plan.invalidation}</div>
               <div><div className="label">Stop</div><span className="text-tv-red">{data.plan.stop}</span></div>
               <div><div className="label">Target</div><span className="text-tv-green">{data.plan.target}</span> <span className="text-gray-500">{data.plan.targetName}</span></div>
-              <div><div className="label">R:R</div>{data.plan.rr}</div>
+              <div><div className="label">R:R</div>{data.plan.rr}{data.plan.rrAtConfirmation != null && <span className="text-gray-500"> · {data.plan.rrAtConfirmation} from confirmation</span>}</div>
               <p className="col-span-full text-gray-400 font-sans"><b className="text-gray-200">Confirmation:</b> {data.confirmation}</p>
             </div>
           )}

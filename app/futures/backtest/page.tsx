@@ -1,6 +1,8 @@
 'use client';
 import { friendlyDataError } from '@/lib/friendlyError';
 import { useEffect, useState, useCallback } from 'react';
+import ClientOnly from '@/components/ClientOnly';
+import IntradayBacktest from '@/components/futures/IntradayBacktest';
 
 interface StrategyStats {
   label: string;
@@ -242,6 +244,8 @@ export default function BacktestPage() {
       )}
 
       {!loading && data?.results?.map((r) => <ResultCard key={r.instrument} r={r} />)}
+
+      <ClientOnly><IntradayBacktest /></ClientOnly>
 
       {!loading && data && (
         <p className="text-[10px] text-gray-700">
