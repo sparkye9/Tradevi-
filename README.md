@@ -19,6 +19,12 @@ Open to everyone — no accounts or subscriptions. A Learn section plus five des
 | **Stocks** | Volume + SMA tape with a hard NO TRADE. Sub-desks: Discovery, Swing, Intraday, Options, Small Account |
 | **Power Hour** | Globex clock (Asia / London / New York) plus 3:00–4:00 PM ET cash Power Hour |
 | **Calendar** | This week’s economic prints from Forex Factory’s public weekly export |
+| **Command Center** | Pre-market checklist, max daily risk, session status, next news, account room, quote freshness, post-session review |
+| **Market Structure** | BOS / CHOCH (close or wick), FVGs with mitigation, liquidity (PDH/PDL, PWH/PWL, overnight, Asia/London/NY, equal highs/lows, sweeps), 1D→1m multi-timeframe view, explainable setup cards |
+| **Power Hour (futures)** | Your 2:38–2:45 / 3:15–3:20 ET window with VWAP, prior-session levels, volume, volatility, eight explicit rules and a NO TRADE status |
+| **Prop Firm Manager** | Per-account rules you enter (with source + verified date), drawdown (static / EOD / intraday trailing), consistency (selectable formula), payout planner |
+| **Risk Calculator** | Contract-aware sizing (tick/point values for 18 contracts), fees, slippage, floor rounding |
+| **Journal** | Trades with reasoning, rule compliance, mistakes, lessons, screenshots (browser-only) |
 
 Each desk has a collapsible “What am I looking at?” explainer for students. A contact form still exists at `/chat` (emails TheOptionaltrader@gmail.com) but is not linked from the navigation.
 
@@ -26,9 +32,9 @@ Each desk has a collapsible “What am I looking at?” explainer for students. 
 
 ## Honesty
 
-This app does **not** compute CHOCH, BOS, FVG, or VWAP. Confirm structure on TradingView.
+CHOCH, BOS, FVG, liquidity and VWAP are computed with written rules (see `docs/CALCULATIONS.md`) — they label what the bars did, they do not predict. Confirm structure on your own chart.
 
-Yahoo / Finviz tape is delayed. There is no live last-sale feed and no letter grades. The economic calendar is Forex Factory’s weekly export (this week only), not a live BLS/Fed feed and not a fake “LIVE” badge.
+Yahoo / Finviz tape is delayed and labelled as such; each quote carries its provider timestamp and a fresh / stale / closed / disconnected state. There is no live last-sale feed. No prop-firm rules are shipped — you enter and verify them. The economic calendar is Forex Factory’s weekly export (this week only), not a live BLS/Fed feed and not a fake “LIVE” badge.
 
 The Globex clock uses observed NYSE/CME holiday dates (not a live exchange calendar). CME equity-index futures are treated as fully closed on New Year’s Day, Good Friday, and Christmas. Other US cash holidays: Globex can stay open; Power Hour is off.
 
@@ -60,7 +66,7 @@ npm run dev
 ```
 
 ```bash
-npm test          # clock, quality, indicator, readiness and selector checks (+ snapshot)
+npm test          # engine checks + trading checks (risk, prop firm, backtest, structure, power hour)
 npx tsc --noEmit  # typecheck
 npx tsx scripts/validate-readiness.ts 30      # A/B/C grade distribution over the last 30 sessions
 npx tsx scripts/make-selector-fixture.ts      # refresh the selector fixture, then UPDATE_SNAPSHOT=1 npm test
@@ -76,6 +82,15 @@ The Stooq symbols in `lib/marketUniverse.ts` are unverified for Russell, Euro FX
 The Weekly / Daily / 4H trend stack still reads Yahoo only, since Stooq has no intraday history.
 
 Futures readiness config (session window, news blackout, data-age limits, weights) lives in `lib/readinessConfig.ts`. The instrument universe for both the readiness board and the Market Selector lives in `lib/marketUniverse.ts`.
+
+---
+
+## Docs
+
+- `docs/AUDIT.md` — audit findings, severities, repair plan
+- `docs/CALCULATIONS.md` — every formula and rule
+- `docs/USER_GUIDE.md` — daily workflow and prop-account setup
+- `docs/DEPLOYMENT.md` — validate, preview, deploy, rollback
 
 ---
 

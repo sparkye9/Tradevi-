@@ -634,7 +634,7 @@ export default function Desk() {
       </div>
 
       <p className="text-[11px] text-gray-600 text-center">
-        Protect your capital. Structure confirmed on TradingView only — CHOCH, BOS, FVG, VWAP not computed here.
+        Protect your capital. This card uses the HH/HL stack only — BOS / CHOCH / FVG live on Market Structure, VWAP on Power Hour. Confirm on your chart.
       </p>
     </div>
   );

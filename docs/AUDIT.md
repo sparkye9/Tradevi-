@@ -101,3 +101,24 @@ Severity key: **Critical** = can produce a wrong number that someone would trade
 7. **Tests and docs.** `scripts/check-trading.ts`, `docs/CALCULATIONS.md`, `docs/USER_GUIDE.md`, `docs/DEPLOYMENT.md`.
 
 Nothing is deployed. Production stays on `main` until you approve a merge.
+
+---
+
+## 4. Status after this branch
+
+All items marked **Fixed** / **Added** above are implemented and covered by `npm test` (deterministic fixtures; 129 pre-existing engine checks + the new trading checks). `tsc --noEmit` and `next build` pass. Pages were rendered headless at 1366 px and 390 px with no runtime errors and no horizontal overflow.
+
+### Remaining limitations
+
+1. **No real-time futures data.** Everything is Yahoo's delayed continuous front-month series. A licensed feed (CME via a broker or vendor API) is the only fix; until then intraday rules run on delayed bars and the UI says so.
+2. **Live data was not verifiable from the build sandbox** (Yahoo, Stooq and Forex Factory were unreachable). Engines are verified on fixtures only; check `/market-structure` and `/power-hour` on the Vercel preview during market hours.
+3. **Contract roll** is Yahoo's: there is no explicit front-month/rollover mapping, and roll gaps remain in historical series (flagged by the Market Selector's roll windows, not removed).
+4. **Holiday calendar** is a static list through 2028, plus early closes for known dates; CME special-session hours (e.g. reduced Good Friday sessions) are not modelled.
+5. **Legacy readiness stack** still uses epoch-aligned 4H bars and treats the forming daily bar as closed (kept so its snapshot and A/B/C history stay comparable). The new Structure / Setup / Power Hour engines use session-aligned bars and drop forming bars.
+6. **Backtest** covers the daily swing engine only. Intraday setups (structure, Power Hour) are not backtested — Yahoo serves ≤ 60 days of 5m/15m history, too little for out-of-sample validation. No walk-forward re-optimisation exists because no parameter is optimised.
+7. **Setup and readiness scores are unvalidated** checklist totals, not probabilities.
+8. **Prop-firm, journal and checklist data live in browser localStorage** — no sync, no server backup (export manually). Screenshots are capped to ~3 MB total.
+9. **Rate limiting is per serverless instance** (burst protection, not a global quota).
+10. **ESLint is not configured** in the repo (`next lint` prompts for setup); not changed here.
+11. **Dead code** listed in L-1 is untouched pending your decision.
+12. **XAUUSD, NAS100 and US30** have no free feed and are shown as unavailable rather than substituted.
