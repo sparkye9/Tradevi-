@@ -8,7 +8,11 @@ export async function GET(req: NextRequest) {
   const symbols = symbolsParam
     .split(',')
     .map((s) => s.trim().toUpperCase())
-    .filter(Boolean);
+    .filter((s) => /^[A-Z][A-Z0-9.\-]{0,9}$/.test(s));
+
+  if (symbols.length > 50) {
+    return NextResponse.json({ quotes: [], sourceError: 'Too many symbols (max 50).', lastUpdated: new Date().toISOString() }, { status: 400 });
+  }
 
   const result = await fetchTradierQuotes(symbols);
   return NextResponse.json(result);

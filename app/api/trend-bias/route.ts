@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rateLimit';
 import { trendBiasStack, INSTRUMENT_MAP } from '@/lib/trendBias';
 
 export async function GET(request: Request) {
+  const limited = rateLimit(request, 'trend', { capacity: 20, perMinute: 10 });
+  if (limited) return limited;
   const { searchParams } = new URL(request.url);
   const instrument = searchParams.get('instrument') ?? 'MNQ';
 

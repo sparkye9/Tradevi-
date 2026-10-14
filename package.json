@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "npx tsx scripts/check-engines.ts"
+    "test": "npx tsx scripts/check-engines.ts && npx tsx scripts/check-trading.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

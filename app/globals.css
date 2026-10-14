@@ -39,6 +39,15 @@
   .skeleton { @apply bg-tv-panel rounded animate-pulse; }
   .scrollbar-none { scrollbar-width: none; }
   .scrollbar-none::-webkit-scrollbar { display: none; }
+  .input {
+    @apply w-full bg-tv-bg border border-tv-border rounded-lg px-2.5 py-1.5 text-sm text-white font-mono
+      focus:outline-none focus:border-tv-purple/60 focus-visible:ring-1 focus-visible:ring-tv-purple/50;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-tv-border
+      bg-tv-panel text-gray-200 hover:bg-white/5 focus:outline-none focus-visible:ring-1 focus-visible:ring-tv-purple/60 disabled:opacity-40;
+  }
+  .btn-primary { @apply border-tv-purple/50 bg-tv-purple/15 text-tv-purple hover:bg-tv-purple/25; }
   .pill {
     @apply text-[10px] font-semibold tracking-widest uppercase px-2.5 py-1 rounded-full border;
   }

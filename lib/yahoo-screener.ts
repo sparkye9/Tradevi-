@@ -87,7 +87,7 @@ async function getYahooCrumb(): Promise<{ crumb: string; cookie: string } | null
   }
 }
 
-interface YahooQuoteRaw {
+export interface YahooQuoteRaw {
   symbol: string;
   regularMarketPrice?: number;
   regularMarketChangePercent?: number;
@@ -104,6 +104,13 @@ interface YahooQuoteRaw {
   sector?: string;
   industry?: string;
   shortName?: string;
+  /** Unix seconds of the last trade Yahoo knows about. */
+  regularMarketTime?: number;
+  /** REGULAR / PRE / POST / CLOSED … as Yahoo reports it. */
+  marketState?: string;
+  /** Yahoo's stated delay for the exchange, in minutes (0 = real-time per Yahoo). */
+  exchangeDataDelayedBy?: number;
+  quoteSourceName?: string;
 }
 
 const YAHOO_FIELDS = [
@@ -122,6 +129,10 @@ const YAHOO_FIELDS = [
   'sector',
   'industry',
   'shortName',
+  'regularMarketTime',
+  'marketState',
+  'exchangeDataDelayedBy',
+  'quoteSourceName',
 ].join(',');
 
 export async function fetchYahooQuotes(symbols: string[]): Promise<YahooQuoteRaw[]> {

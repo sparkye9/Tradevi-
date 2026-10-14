@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit } from '@/lib/rateLimit';
 import { selectorView } from '@/lib/selectorData';
 
 export const runtime = 'nodejs';
@@ -7,6 +8,8 @@ export const maxDuration = 60;
 
 /** GET /api/selector/daily — today's ranked list (Trade / Watch / Avoid). */
 export async function GET(request: Request) {
+  const limited = rateLimit(request, 'selector', { capacity: 20, perMinute: 10 });
+  if (limited) return limited;
   const { searchParams } = new URL(request.url);
   const force = searchParams.get('refresh') === '1';
   try {

@@ -1,5 +1,6 @@
 'use client';
 import LearnBox from '@/components/ui/LearnBox';
+import PowerHourFutures from '@/components/futures/PowerHourFutures';
 import { friendlyDataError } from '@/lib/friendlyError';
 import ClientOnly from '@/components/ClientOnly';
 import { useEffect, useState } from 'react';
@@ -344,6 +345,10 @@ function PowerHourContent() {
         ]}
         learnHref="/learn"
       />
+
+      <PowerHourFutures />
+
+      <h2 className="text-lg font-bold text-white pt-2">Stocks Power Hour (3:00–4:00 PM ET)</h2>
 
       <div className={`border rounded-2xl p-5 ${sessionWrap}`}>
         <div className="flex items-start justify-between gap-4 flex-wrap">

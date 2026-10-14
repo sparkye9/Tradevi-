@@ -127,11 +127,11 @@ export function newsGate(now: Date, events: CalendarEvent[], calendarAvailable =
     }
   }
   if (!calendarAvailable) {
+    if (manual.length) return { passed: true, detail: 'Calendar feed unavailable — checked the manual event list only.' };
+    // Fail closed: an unknown news schedule is not the same as "no news".
     return {
-      passed: true,
-      detail: manual.length
-        ? 'Calendar feed unavailable — checked the manual event list only.'
-        : 'Calendar feed unavailable and no manual events configured — news gate could not be checked.',
+      passed: !cfg.failClosedWhenUnavailable,
+      detail: 'Calendar feed unavailable and no manual events configured — news could not be checked. Check Forex Factory before trading.',
     };
   }
   return { passed: true, detail: 'No high-impact print inside the blackout window.' };
