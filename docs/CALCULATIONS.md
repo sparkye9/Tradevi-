@@ -201,3 +201,35 @@ Unchanged, except for one rule: when the calendar feed is down and there is no m
 | live | The provider reports 0 delay and the quote is fresh. |
 
 Only `live` and `delayed` are usable in calculations.
+
+## 9a. Stock quote freshness — `lib/marketData/freshness.ts`
+
+US stocks and ETFs are judged against the equity session calendar (`lib/marketData/session.ts`: pre-market 4:00–9:30, regular 9:30–16:00 or 13:00 on early-close days, after-hours until 20:00 or 17:00, all America/New_York so DST is handled), the security registry (`lib/securities/registry.ts`) and the listing venue (`lib/securities/exchanges.ts`). Futures, FX and crypto rows stay on §9.
+
+| State | When | Usable |
+|---|---|---|
+| inactive | A reviewed registry record says the ticker was delisted, acquired, merged or renamed. Checked first, so a fresh-looking quote cannot revive it. | No |
+| unverified | Venue unknown, or not on the US equity calendar (e.g. SET). | No |
+| unavailable | No valid price or timestamp, or the timestamp is further in the future than the skew limit. | No |
+| live | Regular session, provider delay is 0, age ≤ live limit. | Yes |
+| delayed | Within the session's age limit, but delayed, delay not stated, or older than the live limit. | Yes |
+| closed | Market shut (or extended hours with no extended trade, or the open-grace window) and the last trade is from the latest completed session. | Yes |
+| stale | Anything outside the limits below. | No |
+
+A quote whose provider venue disagrees with the registry's reviewed venue is also not usable (`exchangeMismatch`).
+
+### Limits
+
+Defaults live in `DEFAULT_FRESHNESS_LIMITS`. Each can be set by environment variable (whole numbers; an invalid value is ignored with a warning) or passed to `resolveFreshnessLimits(overrides)` (an invalid value throws).
+
+| Limit | Default | Env var | Meaning |
+|---|---|---|---|
+| regularMaxAgeSec | 900 (15 min) | `MARKET_DATA_REGULAR_MAX_AGE_SEC` | Regular session: older is stale. |
+| extendedMaxAgeSec | 3600 (60 min) | `MARKET_DATA_EXTENDED_MAX_AGE_SEC` | Pre/after-hours: max age of an extended-hours trade. |
+| liveMaxAgeSec | 60 | `MARKET_DATA_LIVE_MAX_AGE_SEC` | Regular session: at or under this, with 0 delay, is live. Must be ≤ regularMaxAgeSec. |
+| openGraceSec | 300 (5 min) | `MARKET_DATA_OPEN_GRACE_SEC` | After 9:30, the prior close is "awaiting first trade", not stale. |
+| closedMaxSessionsBehind | 0 | `MARKET_DATA_CLOSED_MAX_SESSIONS_BEHIND` | Market shut: completed sessions the last trade may lag. |
+| maxFutureSkewSec | 120 | `MARKET_DATA_MAX_FUTURE_SKEW_SEC` | Future timestamps up to this are clamped to age 0; beyond is rejected. |
+| maxDeclaredDelaySec | 1200 (20 min) | `MARKET_DATA_MAX_DECLARED_DELAY_SEC` | A provider-declared delay above this is stale. |
+
+Limits are inclusive: a quote exactly at the limit is still within it. Tests: `scripts/check-market-data.ts`.
