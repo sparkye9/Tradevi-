@@ -19,6 +19,7 @@ import {
   NotebookPen,
   Settings,
   ShieldAlert,
+  ListChecks,
   Target,
   History,
   MoreHorizontal,
@@ -50,6 +51,7 @@ const GROUPS: { title: string | null; items: NavItem[] }[] = [
     items: [
       { href: '/crash-intelligence', label: 'Crash Intelligence', icon: ShieldAlert },
       { href: '/put-hunter', label: 'Put Hunter', icon: Target },
+      { href: '/crash-setups', label: 'Put Setups', icon: ListChecks },
       { href: '/crash-simulator', label: 'Crash Simulator', icon: History },
     ],
   },
