@@ -53,12 +53,13 @@ export function marketSummary(view: MarketView): Sentence[] {
     out.push({ text: 'Not enough data reached Tradevi to score the market today.', tone: 'gray' });
   } else {
     const tone: SentenceTone = s.score >= 60 ? 'red' : s.score >= 30 ? 'amber' : 'green';
-    out.push({ text: `Risk is ${(s.band ?? 'unrated').toLowerCase()}: ${Math.round(s.score)} out of 100 warning points.`, tone });
+    out.push({ text: `Crash risk score: ${Math.round(s.score)} out of 100 warning points (${(s.band ?? 'unrated').toLowerCase()}).`, tone });
     if (s.coverage < 0.8) out.push({ text: `Only ${pct(s.coverage)} of the data arrived, so treat the score with extra care.`, tone: 'amber' });
   }
 
   if (f.spyDrawdown != null) {
-    const dd = f.spyDrawdown;
+    // drawdownFromHigh is a positive fraction (0.115 = 11.5% below the high).
+    const dd = -Math.abs(f.spyDrawdown);
     const lower = f.spyLowerLow ? ', and it has broken below its recent lows' : '';
     if (dd <= -0.2) out.push({ text: `The S&P 500 (SPY) is in a bear market, ${pct(dd)} below its high${lower}.`, tone: 'red' });
     else if (dd <= -0.1) out.push({ text: `The S&P 500 (SPY) is in a correction, ${pct(dd)} below its high${lower}.`, tone: 'red' });
