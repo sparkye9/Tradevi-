@@ -87,7 +87,8 @@ export async function buildDataset(opts: DatasetOptions): Promise<MarketDataset>
   }
 
   const data: MarketDataset = { series, errors };
-  cache.set(key, { at: Date.now(), data });
+  // Don't pin an outage in the cache: only keep results that have the core series.
+  if (series.SPY && series.VIX) cache.set(key, { at: Date.now(), data });
   return data;
 }
 

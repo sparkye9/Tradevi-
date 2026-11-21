@@ -53,6 +53,8 @@ export interface RegimeFacts {
 
 export interface RegimeResult {
   regime: Regime;
+  /** True when there was too little data to classify; `regime` is then only a placeholder. */
+  insufficient: boolean;
   why: string[];
   facts: RegimeFacts;
 }
@@ -100,18 +102,18 @@ export function classifyRegime(
   if (f.vix != null && (f.vix >= cfg.panicVix || (f.vixPercentile != null && f.vixPercentile >= cfg.panicVixPercentile && inverted))) {
     why.push(`VIX ${f.vix.toFixed(1)}${f.vixPercentile != null ? ` (top ${Math.round((1 - f.vixPercentile) * 100)}% of its past year)` : ''}`);
     if (inverted) why.push(`VIX term structure inverted (${f.termRatio!.toFixed(2)})`);
-    return { regime: 'PANIC / LATE ENTRY', why, facts };
+    return { regime: 'PANIC / LATE ENTRY', insufficient: false, why, facts };
   }
   if (f.vix != null && ((f.vixChange10d != null && f.vixChange10d >= cfg.expansionVixChange10d && f.vix >= cfg.expansionMinVix) || inverted)) {
     if (f.vixChange10d != null) why.push(`VIX ${f.vixChange10d >= 0 ? 'up' : 'down'} ${Math.abs(Math.round(f.vixChange10d * 100))}% in 10 sessions`);
     if (inverted) why.push(`VIX above VIX3M (${f.termRatio!.toFixed(2)})`);
-    return { regime: 'VOLATILITY EXPANSION', why, facts };
+    return { regime: 'VOLATILITY EXPANSION', insufficient: false, why, facts };
   }
   if ((f.spyBelow200 && f.spyLowerLow) || (f.spyDrawdown != null && f.spyDrawdown >= cfg.breakdownDrawdown)) {
     if (f.spyBelow200) why.push('SPY below its 200-day average');
     if (f.spyLowerLow) why.push('SPY closed below its 50-session low');
     if (f.spyDrawdown != null) why.push(`SPY ${Math.round(f.spyDrawdown * 100)}% below its 52-week high`);
-    return { regime: 'BREAKDOWN CONFIRMED', why, facts };
+    return { regime: 'BREAKDOWN CONFIRMED', insufficient: false, why, facts };
   }
   if (
     f.deteriorating.length >= cfg.preCrashMinCategories &&
@@ -121,17 +123,20 @@ export function classifyRegime(
     why.push(`${f.deteriorating.length} independent categories deteriorating (${f.deteriorating.join(', ')})`);
     why.push(`Volatility still subdued (VIX ${f.vix?.toFixed(1) ?? '—'})`);
     if (f.spyDrawdown != null) why.push(`SPY only ${(f.spyDrawdown * 100).toFixed(1)}% off its high`);
-    return { regime: 'PRE-CRASH WATCH', why, facts };
+    return { regime: 'PRE-CRASH WATCH', insufficient: false, why, facts };
   }
   if (score != null && score >= riskCfg.bands.elevated) {
     why.push(`Risk score ${Math.round(score)} (≥ ${riskCfg.bands.elevated})`);
-    return { regime: 'ELEVATED RISK', why, facts };
+    return { regime: 'ELEVATED RISK', insufficient: false, why, facts };
   }
   if ((score != null && score >= riskCfg.bands.early) || f.deteriorating.length >= 2) {
     if (score != null) why.push(`Risk score ${Math.round(score)}`);
     if (f.deteriorating.length) why.push(`Deteriorating: ${f.deteriorating.join(', ')}`);
-    return { regime: 'EARLY WARNING', why, facts };
+    return { regime: 'EARLY WARNING', insufficient: false, why, facts };
   }
-  why.push(score != null ? `Risk score ${Math.round(score)}` : 'Not enough data to score');
-  return { regime: 'NORMAL', why, facts };
+  if (score == null && f.vix == null && f.spyDrawdown == null) {
+    return { regime: 'NORMAL', insufficient: true, why: ['Not enough market data to classify the regime'], facts };
+  }
+  why.push(score != null ? `Risk score ${Math.round(score)}` : 'Risk score unavailable');
+  return { regime: 'NORMAL', insufficient: score == null, why, facts };
 }

@@ -17,7 +17,7 @@ import { addDays, nextWeekday, type Bar, type BarSeries, type LevelPoint, type L
 
 const UA = 'Mozilla/5.0 (compatible; Tradevi/3.0)';
 
-async function getText(url: string, timeoutMs = 15000): Promise<string> {
+async function getText(url: string, timeoutMs = 8000): Promise<string> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {

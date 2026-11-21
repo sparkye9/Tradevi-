@@ -134,6 +134,11 @@ const panic: MarketDataset = { errors: [], series: { ...narrow.series, VIX: leve
 const sPanic = computeRiskScore(panic);
 check('VIX 45 → PANIC / LATE ENTRY', classifyRegime(regimeFacts(panic, sPanic.asOf, 'close', sPanic), sPanic.score).regime === 'PANIC / LATE ENTRY');
 
+const empty: MarketDataset = { errors: [], series: {} };
+const sEmpty = computeRiskScore(empty, { asOf: '2026-11-20' });
+const rEmpty = classifyRegime(regimeFacts(empty, '2026-11-20', 'close', sEmpty), sEmpty.score);
+check('no data → score null, regime flagged insufficient (not "NORMAL")', sEmpty.score === null && rEmpty.insufficient);
+
 // ─── Point-in-time guard ────────────────────────────────────────────────────
 const cut = D[400];
 const pit = new PointInTime(narrow, cut, 'close');

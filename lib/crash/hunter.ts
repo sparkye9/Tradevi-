@@ -135,6 +135,9 @@ export async function huntPuts(args: {
   });
   rows.sort((a, b) => LABEL_ORDER.indexOf(a.setup.label) - LABEL_ORDER.indexOf(b.setup.label) || (b.setup.setup ?? 0) - (a.setup.setup ?? 0));
 
+  if (args.market.regime.insufficient) {
+    return { ...base, scanned: puts.length, passing: passing.length, rows: rows.slice(0, 60), rejectionCounts: counts, noTrade: true, noTradeReason: 'Market data is unavailable, so the environment cannot be judged. Contracts are listed for reference only.' };
+  }
   const actionable = rows.filter((r) => r.setup.label === 'STRONG WATCH' || r.setup.label === 'WATCH');
   return {
     ...base,

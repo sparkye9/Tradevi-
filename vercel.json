@@ -2,5 +2,9 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "framework": "nextjs",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "crons": [
+    { "path": "/api/crash/snapshot", "schedule": "50 19 * * 1-5" },
+    { "path": "/api/crash/snapshot", "schedule": "50 20 * * 1-5" }
+  ]
 }
