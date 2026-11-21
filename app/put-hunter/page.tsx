@@ -5,6 +5,10 @@ import LearnBox from '@/components/ui/LearnBox';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import CrashSubnav from '@/components/crash/CrashSubnav';
 import ContractDetail from '@/components/crash/ContractDetail';
+import TodayBox from '@/components/crash/TodayBox';
+import { ViewToggle, useViewMode } from '@/components/crash/ViewMode';
+import Term from '@/components/ui/Term';
+import { huntSummary } from '@/lib/crash/plainEnglish';
 import { LabelBadge, Pill, RegimeBadge, TONE_TEXT, fmtDate, fmtEt, pctFmt, qualityTone, scoreTone, usd } from '@/components/crash/ui';
 import { LEAPS_FILTERS, LONG_TERM_FILTERS, PUT_HUNTER_UNDERLYINGS, SHORT_TERM_FILTERS, type ScreenFilters } from '@/lib/crash/config';
 import type { HuntResult, HuntRow } from '@/lib/crash/hunter';
@@ -51,6 +55,24 @@ function save(key: string, v: unknown) {
   }
 }
 
+function SimpleRow({ r, onOpen }: { r: HuntRow; onOpen: () => void }) {
+  const { ev, setup } = r;
+  const c = ev.contract;
+  return (
+    <tr className="border-t border-white/[0.04] hover:bg-white/[0.03] cursor-pointer" onClick={onOpen}>
+      <td className="py-2 pr-2"><LabelBadge label={setup.label} /></td>
+      <td className="py-2 pr-2 text-white whitespace-nowrap">
+        ${c.strike} put
+        <div className="text-[11px] text-tv-muted">expires {fmtDate(c.expiration)} · {c.dte} days left</div>
+      </td>
+      <td className="py-2 pr-2 font-mono text-right">{usd(ev.costAtAsk, 0)}</td>
+      <td className="py-2 pr-2 font-mono text-right whitespace-nowrap">{usd(ev.breakevenAtAsk)}<div className="text-[11px] text-tv-muted font-sans">{ev.declineToBreakeven != null ? `${pctFmt(ev.declineToBreakeven)} drop` : ''}</div></td>
+      <td className="py-2 pr-2 font-mono text-right hidden sm:table-cell">{usd(ev.thetaDollarsPerDay, 0)}</td>
+      <td className={`py-2 font-mono text-right font-bold ${TONE_TEXT[qualityTone(ev.quality)]}`}>{ev.quality ?? '—'}</td>
+    </tr>
+  );
+}
+
 function Row({ r, onOpen }: { r: HuntRow; onOpen: () => void }) {
   const { ev, setup } = r;
   const c = ev.contract;
@@ -78,6 +100,7 @@ function Row({ r, onOpen }: { r: HuntRow; onOpen: () => void }) {
 }
 
 export default function PutHunterPage() {
+  const [mode] = useViewMode();
   const [symbol, setSymbol] = useState('SPY');
   const [input, setInput] = useState('');
   const [horizon, setHorizon] = useState<Horizon>('short');
@@ -147,11 +170,14 @@ export default function PutHunterPage() {
   return (
     <div className="space-y-5 max-w-6xl">
       <div className="space-y-3">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Put Hunter · Downside opportunities</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Inexpensive puts judged on quality, not just price, and on whether the market environment supports them. Research only — Tradevi never places orders.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-white">Put Hunter</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Is there a put worth buying today, what does it cost, and where does it start paying off? Research only. Tradevi never places orders.
+            </p>
+          </div>
+          <ViewToggle />
         </div>
         <CrashSubnav />
       </div>
@@ -236,6 +262,8 @@ export default function PutHunterPage() {
         </div>
       )}
 
+      {!loading && data && <TodayBox sentences={huntSummary(data, data.market?.regime ?? null)} />}
+
       {loading && <div className="skeleton h-40" />}
       {!loading && data?.error && !data.rows?.length && <DataUnavailable reason={data.error} />}
 
@@ -256,23 +284,47 @@ export default function PutHunterPage() {
             </div>
             {data.partialErrors.length > 0 && <p className="px-4 text-[11px] text-tv-amber">Some data missing: {data.partialErrors.slice(0, 3).join('; ')}</p>}
             <div className="overflow-x-auto mt-2">
+              {mode === 'simple' ? (
+                <table className="w-full text-xs">
+                  <thead className="text-tv-muted text-[10px] uppercase tracking-wider">
+                    <tr className="text-right">
+                      <th className="text-left py-2 pl-4 pr-2"><Term k="watch">Verdict</Term></th>
+                      <th className="text-left py-2 pr-2"><Term k="put">Contract</Term></th>
+                      <th className="py-2 pr-2"><Term k="cost">Cost (max loss)</Term></th>
+                      <th className="py-2 pr-2"><Term k="breakeven">Pays off below</Term></th>
+                      <th className="py-2 pr-2 hidden sm:table-cell"><Term k="theta">Time cost / day</Term></th>
+                      <th className="py-2 pr-4"><Term k="quality">Quality</Term></th>
+                    </tr>
+                  </thead>
+                  <tbody className="[&>tr>td:first-child]:pl-4 [&>tr>td:last-child]:pr-4">
+                    {data.rows.slice(0, 15).map((r) => (
+                      <SimpleRow key={r.ev.contract.symbol} r={r} onOpen={() => setOpen(r)} />
+                    ))}
+                    {!data.rows.length && (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-tv-muted">No contracts passed the safety checks.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              ) : (
               <table className="w-full text-xs">
                 <thead className="text-tv-muted text-[10px] uppercase tracking-wider">
                   <tr className="text-right">
                     <th className="text-left py-2 pl-4 pr-2">Label</th>
                     <th className="text-left py-2 pr-2">Contract</th>
                     <th className="py-2 pr-2">Bid / Ask</th>
-                    <th className="py-2 pr-2">Cost</th>
-                    <th className="py-2 pr-2">Δ</th>
-                    <th className="py-2 pr-2 hidden md:table-cell">Γ</th>
-                    <th className="py-2 pr-2">Θ/day</th>
-                    <th className="py-2 pr-2 hidden md:table-cell">IV +5</th>
-                    <th className="py-2 pr-2">IV</th>
-                    <th className="py-2 pr-2 hidden lg:table-cell">OI</th>
-                    <th className="py-2 pr-2 hidden lg:table-cell">Spread</th>
-                    <th className="py-2 pr-2">Breakeven</th>
-                    <th className="py-2 pr-2">Quality</th>
-                    <th className="py-2 pr-4">Setup</th>
+                    <th className="py-2 pr-2"><Term k="cost">Cost</Term></th>
+                    <th className="py-2 pr-2"><Term k="delta">Δ</Term></th>
+                    <th className="py-2 pr-2 hidden md:table-cell"><Term k="gamma">Γ</Term></th>
+                    <th className="py-2 pr-2"><Term k="theta">Θ/day</Term></th>
+                    <th className="py-2 pr-2 hidden md:table-cell"><Term k="vega">IV +5</Term></th>
+                    <th className="py-2 pr-2"><Term k="iv">IV</Term></th>
+                    <th className="py-2 pr-2 hidden lg:table-cell"><Term k="oi">OI</Term></th>
+                    <th className="py-2 pr-2 hidden lg:table-cell"><Term k="spread">Spread</Term></th>
+                    <th className="py-2 pr-2"><Term k="breakeven">Breakeven</Term></th>
+                    <th className="py-2 pr-2"><Term k="quality">Quality</Term></th>
+                    <th className="py-2 pr-4"><Term k="setup">Setup</Term></th>
                   </tr>
                 </thead>
                 <tbody className="[&>tr>td:first-child]:pl-4 [&>tr>td:last-child]:pr-4">
@@ -286,11 +338,12 @@ export default function PutHunterPage() {
                   )}
                 </tbody>
               </table>
+              )}
             </div>
-            <p className="px-4 py-3 text-[10px] text-tv-muted">Tap a row for Greeks, scenarios and sizing. Mid is not a guaranteed fill; cost and breakeven use the ask.</p>
+            <p className="px-4 py-3 text-[10px] text-tv-muted">{mode === 'simple' && data.rows.length > 15 ? `Showing the best 15 of ${data.rows.length}; Detailed view lists up to 60. ` : ''}Tap a row for Greeks, scenarios and sizing. Mid is not a guaranteed fill; cost and breakeven use the ask.</p>
           </div>
 
-          {rejections.length > 0 && (
+          {rejections.length > 0 && mode === 'detailed' && (
             <div className="card">
               <h3 className="text-sm font-bold text-white mb-2">Why contracts were rejected</h3>
               <div className="flex flex-wrap gap-1.5">

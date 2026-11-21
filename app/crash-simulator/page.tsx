@@ -4,6 +4,8 @@ import { ChevronLeft, ChevronRight, Eye, EyeOff, Pause, Play, RotateCcw, SkipBac
 import { Area, ComposedChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import LearnBox from '@/components/ui/LearnBox';
 import CrashSubnav from '@/components/crash/CrashSubnav';
+import { DetailedOnly, MoreInDetailed, SimpleOnly, ViewToggle } from '@/components/crash/ViewMode';
+import Term from '@/components/ui/Term';
 import { DirectionTag, Meter, Pill, RegimeBadge, SectionTitle, Stat, TONE_TEXT, fmtDate, pctFmt, riskTone, scoreTone, usd } from '@/components/crash/ui';
 import HistoricalHunter, { type SelectedContract } from '@/components/crash/sim/HistoricalHunter';
 import PerformancePanel, { DEFAULT_EVAL_PARAMS, type EvalParams } from '@/components/crash/sim/PerformancePanel';
@@ -218,11 +220,32 @@ export default function CrashSimulatorPage() {
     <div className="space-y-4 pb-16">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">Historical Crash Simulator</h1>
-          <p className="text-sm text-tv-muted">Would Tradevi have seen it, using only what was known at the time?</p>
+          <h1 className="text-2xl font-bold text-white">Crash Simulator</h1>
+          <p className="text-sm text-tv-muted">Replay a past crash day by day, seeing only what was known then. Decide, then reveal what happened.</p>
         </div>
-        <CrashSubnav />
+        <div className="flex flex-wrap items-center gap-2">
+          <ViewToggle />
+          <CrashSubnav />
+        </div>
       </div>
+      <SimpleOnly>
+        <ol className="grid gap-2 sm:grid-cols-3">
+          {[
+            ['Pick a crash', 'Choose a research window such as 2008 or COVID 2020 below.'],
+            ['Press Play', 'Watch the risk score and the market move one trading day at a time. Pause whenever you would act.'],
+            ['Decide, then reveal', 'Record what you would do with only what you can see. Then reveal what happened next.'],
+          ].map(([t, d], i) => (
+            <li key={t} className="rounded-xl border border-tv-purple/30 bg-tv-purple/[0.07] p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-tv-purple">Step {i + 1}</div>
+              <div className="text-sm font-bold text-white">{t}</div>
+              <p className="text-xs text-gray-300 mt-0.5">{d}</p>
+            </li>
+          ))}
+        </ol>
+        <p className="text-xs text-tv-amber">
+          <Pill tone="amber">THEORETICAL</Pill> Option prices in this simulator are calculated from past prices and the VIX, because real historical option quotes are not loaded. {criteria.filter((c) => c.state !== 'met').length} of {criteria.length} research checks are only theoretical or unmet; see Detailed view.
+        </p>
+      </SimpleOnly>
       <LearnBox
         summary="Travel back to a date, see only what was known then, decide, then reveal what happened."
         items={[
@@ -257,6 +280,7 @@ export default function CrashSimulatorPage() {
           <label className="text-[11px] text-tv-muted">Speed
             <select className="input mt-0.5 block" value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>{SPEEDS.map((s) => <option key={s.ms} value={s.ms}>{s.label}</option>)}</select>
           </label>
+          <DetailedOnly>
           <label className="text-[11px] text-tv-muted">Underlying
             <select className="input mt-0.5 block" value={symbol} onChange={(e) => setSymbol(e.target.value)}>{SIM_SYMBOLS.map((s) => <option key={s}>{s}</option>)}</select>
           </label>
@@ -265,7 +289,9 @@ export default function CrashSimulatorPage() {
           </label>
           <button className={`btn ${noHindsight ? 'btn-primary' : ''}`} onClick={() => setNoHindsight((v) => !v)}>{noHindsight ? <EyeOff size={14} /> : <Eye size={14} />}<span className="ml-1">No Hindsight {noHindsight ? 'ON' : 'OFF'}</span></button>
           <button className={`btn ${bigShort ? 'btn-primary' : ''}`} onClick={() => (bigShort ? setBigShort(false) : enterBigShort())}>2008 BIG SHORT MODE</button>
+          </DetailedOnly>
         </div>
+        <DetailedOnly>
         <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
           <span className="text-tv-muted">Compare:</span>
           {SIM_SYMBOLS.map((s) => (
@@ -273,6 +299,10 @@ export default function CrashSimulatorPage() {
           ))}
           {data && <span className="ml-auto text-tv-muted">Showing {fmtDate(data.date)} {mode === 'close' ? 'after the close' : 'before the open'}{loading ? ' · loading…' : ''}</span>}
         </div>
+        </DetailedOnly>
+        <SimpleOnly>
+          {data && <p className="text-[11px] text-tv-muted">Showing {fmtDate(data.date)} after the close · <Term k="noHindsight">No Hindsight</Term> {noHindsight ? 'on' : 'off'}{loading ? ' · loading…' : ''}</p>}
+        </SimpleOnly>
         {win && <p className="text-[11px] text-tv-muted">{win.label}: {fmtDate(win.start)} – {fmtDate(win.end)} · focus: {win.focus.join(', ')}. A research window, not a pre-labelled signal.</p>}
       </div>
 
@@ -285,13 +315,15 @@ export default function CrashSimulatorPage() {
           <div className="card p-4">
             <SectionTitle title="Market conditions on this date" subtitle={`Score coverage ${pctFmt(data.score.coverage, 0)} · confidence ${data.score.confidence}`} right={<RegimeBadge regime={data.regime.regime} insufficient={data.regime.insufficient} large />} />
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-              <Stat label="Crash Risk Score" value={data.score.score != null ? Math.round(data.score.score) : '—'} tone={scoreTone(data.score.score)} sub={data.score.band ?? 'insufficient data'} />
+              <Stat label={<Term k="riskScore">Crash Risk Score</Term>} value={data.score.score != null ? Math.round(data.score.score) : '—'} tone={scoreTone(data.score.score)} sub={data.score.band ?? 'insufficient data'} />
               {data.conditions.filter((c) => ['SPY', 'QQQ'].includes(c.symbol)).map((c) => <Stat key={c.symbol} label={c.symbol} value={c.close != null ? usd(c.close) : '—'} sub={c.date ? `close ${fmtDate(c.date)}` : 'no data'} />)}
-              <Stat label="VIX" value={data.vix ? data.vix.value.toFixed(2) : '—'} sub={data.vix ? fmtDate(data.vix.date) : 'no data'} />
+              <Stat label={<Term k="vix">VIX</Term>} value={data.vix ? data.vix.value.toFixed(2) : '—'} sub={data.vix ? fmtDate(data.vix.date) : 'no data'} />
+              <DetailedOnly>
               {['breadth', 'credit', 'volatility'].map((id) => {
                 const c = cat(id);
                 return <Stat key={id} label={CATEGORY_LABEL[id as keyof typeof CATEGORY_LABEL]} value={c?.risk != null ? Math.round(c.risk * 100) : '—'} tone={riskTone(c?.risk)} sub={c?.insufficient ? 'insufficient data' : <DirectionTag d={c?.direction5 ?? null} />} />;
               })}
+              </DetailedOnly>
             </div>
             {data.regime.why.length > 0 && <p className="text-xs text-tv-muted mt-2">Why: {data.regime.why.join(' · ')}</p>}
             <p className="text-[11px] text-tv-muted mt-1">The score measures accumulated risk signals. It is not a probability of a crash.</p>
@@ -316,6 +348,7 @@ export default function CrashSimulatorPage() {
               </ResponsiveContainer>
             </div>
             <div className="grid lg:grid-cols-2 gap-4 text-xs">
+              <DetailedOnly>
               <div>
                 <div className="text-tv-muted mb-1">First appearance of each classification in this window{noHindsight ? ' (so far)' : ''}</div>
                 {data.regimeFirst ? (
@@ -324,6 +357,7 @@ export default function CrashSimulatorPage() {
                   </ul>
                 ) : <p className="text-tv-muted">Pick a research window to see first-appearance dates.</p>}
               </div>
+              </DetailedOnly>
               <div>
                 <div className="text-tv-muted mb-1">Headlines known by this date</div>
                 <ul className="space-y-0.5 max-h-40 overflow-y-auto">
@@ -331,6 +365,8 @@ export default function CrashSimulatorPage() {
                 </ul>
               </div>
             </div>
+            <MoreInDetailed what="every indicator and data source on this date" />
+            <DetailedOnly>
             <details>
               <summary className="cursor-pointer text-xs font-semibold text-white">Indicators on this date ({data.score.indicators.filter((i) => i.status === 'ok').length} of {data.score.indicators.length} available)</summary>
               <div className="overflow-x-auto mt-2">
@@ -372,6 +408,7 @@ export default function CrashSimulatorPage() {
                 </table>
               </div>
             </details>
+            </DetailedOnly>
           </div>
 
           {bigShort && bigShortAnswers && (
@@ -424,11 +461,13 @@ export default function CrashSimulatorPage() {
                 <div className="flex gap-1 col-span-2 sm:col-span-4 lg:col-span-7">
                   {(['Buy put', 'Watch', 'Wait', 'Avoid'] as Decision[]).map((d) => <button key={d} className={`btn text-xs ${draft.decision === d ? 'btn-primary' : ''}`} onClick={() => setDraft({ ...draft, decision: d })}>{d}</button>)}
                 </div>
+                <DetailedOnly>
                 <label>Contract<input className="input w-full mt-0.5" placeholder={selected ? `${selected.strike}P ${selected.expiration}` : 'select above'} value={draft.contract} onChange={(e) => setDraft({ ...draft, contract: e.target.value })} /></label>
                 <label>Entry price<input className="input w-full mt-0.5" placeholder={selected?.ask != null ? String(selected.ask) : ''} value={draft.entryPrice} onChange={(e) => setDraft({ ...draft, entryPrice: e.target.value })} /></label>
                 <label>Expected hold (days)<input className="input w-full mt-0.5" value={draft.holdDays} onChange={(e) => setDraft({ ...draft, holdDays: e.target.value })} /></label>
                 <label>Profit target<input className="input w-full mt-0.5" placeholder="+100%" value={draft.profitTarget} onChange={(e) => setDraft({ ...draft, profitTarget: e.target.value })} /></label>
                 <label>Max acceptable loss<input className="input w-full mt-0.5" placeholder="−50%" value={draft.maxLoss} onChange={(e) => setDraft({ ...draft, maxLoss: e.target.value })} /></label>
+                </DetailedOnly>
                 <label className="col-span-2">Reason<input className="input w-full mt-0.5" value={draft.reason} onChange={(e) => setDraft({ ...draft, reason: e.target.value })} /></label>
                 <button className="btn btn-primary self-end" onClick={recordDecision}>Record decision</button>
               </div>
@@ -463,11 +502,14 @@ export default function CrashSimulatorPage() {
         </>
       )}
 
+      <DetailedOnly>
       <PerformancePanel params={evalParams} setParams={setEvalParams} onResult={setLastEval} noHindsight={noHindsight && !recorded} />
       {lastEval && <div className="-mt-2 flex justify-end"><button className="btn text-xs" onClick={() => save('evaluate')}>Save this report</button></div>}
       <StrategyLab params={labParams} setParams={setLabParams} onResult={setLastLab} noHindsight={noHindsight && !recorded} />
       {lastLab && <div className="-mt-2 flex justify-end"><button className="btn text-xs" onClick={() => save('lab')}>Save this lab run</button></div>}
       <RunsPanel status={status} criteria={criteria} onLoad={loadRun} />
+      </DetailedOnly>
+      <MoreInDetailed what="the research tools: the warning report, the strategy lab, saved runs and data checks" />
       <p className={`text-[11px] ${TONE_TEXT.gray}`}>Research and education only. Tradevi never places orders. Historical and theoretical results do not predict future results.</p>
     </div>
   );

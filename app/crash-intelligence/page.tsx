@@ -7,6 +7,11 @@ import LearnBox from '@/components/ui/LearnBox';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import CrashSubnav from '@/components/crash/CrashSubnav';
 import BreadthImport, { loadImports } from '@/components/crash/BreadthImport';
+import TodayBox from '@/components/crash/TodayBox';
+import StartHere from '@/components/crash/StartHere';
+import { DetailedOnly, MoreInDetailed, SimpleOnly, ViewToggle } from '@/components/crash/ViewMode';
+import Term from '@/components/ui/Term';
+import { marketSummary } from '@/lib/crash/plainEnglish';
 import {
   DirectionTag,
   LabelBadge,
@@ -92,6 +97,53 @@ function CategoryCard({ c, readings }: { c: CategoryResult; readings: IndicatorR
         {readings.map((r) => (
           <IndicatorRow key={r.id} r={r} />
         ))}
+      </div>
+    </div>
+  );
+}
+
+const CAT_PLAIN: Record<string, { name: string; about: string }> = {
+  breadth: { name: 'How many stocks are joining in', about: 'Breadth: are most stocks and sectors healthy, or only a few big names?' },
+  technical: { name: 'Price trends', about: 'Is the S&P 500 above its averages and holding its lows?' },
+  volatility: { name: 'Fear and volatility', about: 'How nervous is the options market, and how much are prices swinging?' },
+  credit: { name: 'Credit markets', about: 'Are lenders demanding more to lend to risky companies?' },
+  macro: { name: 'Rates and the economy', about: 'Yield curve, financial stress indexes, interest-rate shocks and the dollar.' },
+};
+
+function statusWord(risk: number | null): string {
+  if (risk == null) return 'No data';
+  if (risk >= 0.6) return 'Warning';
+  if (risk >= 0.3) return 'Watch';
+  return 'Calm';
+}
+
+function CategoryBars({ view }: { view: MarketView }) {
+  return (
+    <div className="card">
+      <SectionTitle title="What is driving the score" subtitle="Five areas, each worth up to 20 points. Longer red bars mean more warning signs." />
+      <div className="space-y-3">
+        {view.score.categories.map((c) => {
+          const tone = riskTone(c.risk);
+          const plain = CAT_PLAIN[c.id];
+          return (
+            <div key={c.id}>
+              <div className="flex items-baseline justify-between gap-2 text-xs">
+                <span className="text-white font-semibold">{plain?.name ?? c.label}</span>
+                <span className={`font-semibold ${TONE_TEXT[tone]}`}>
+                  {statusWord(c.risk)}
+                  {!c.insufficient && c.points != null ? ` · ${c.points.toFixed(0)} pts` : ''}
+                </span>
+              </div>
+              <div className="mt-1">
+                <Meter value={c.risk} tone={tone} />
+              </div>
+              <div className="text-[11px] text-tv-muted mt-0.5">{plain?.about}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3">
+        <MoreInDetailed what="all 30 readings behind these bars" />
       </div>
     </div>
   );
@@ -237,15 +289,20 @@ export default function CrashIntelligencePage() {
           <div>
             <h1 className="text-2xl font-bold text-white">Crash Intelligence</h1>
             <p className="text-sm text-gray-500 mt-1">
-              Is downside risk building beneath the surface, and is protection still cheap? Every reading shows its source, its date and why it matters.
+              How risky is the stock market right now, and is protection still cheap? Start with the summary below.
             </p>
           </div>
-          <button className="btn text-xs inline-flex items-center gap-1.5" onClick={() => load(imports, true)} disabled={loading}>
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <ViewToggle />
+            <button className="btn text-xs inline-flex items-center gap-1.5" onClick={() => load(imports, true)} disabled={loading}>
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+            </button>
+          </div>
         </div>
         <CrashSubnav />
       </div>
+
+      <StartHere />
 
       <LearnBox
         summary="a transparent 0–100 score of accumulated risk signals, and what stage the market seems to be in."
@@ -269,22 +326,30 @@ export default function CrashIntelligencePage() {
 
       {view && (
         <>
+          <TodayBox
+            sentences={marketSummary(view)}
+            footer={
+              <>
+                As of the {fmtDate(view.score.asOf)} close · {pctFmt(view.score.coverage, 0)} of the data available · updated {fmtEt(view.generatedAt)}. Research only, not a forecast.
+              </>
+            }
+          />
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div className="card">
-              <div className="label">Crash risk score</div>
+              <div className="label"><Term k="riskScore">Crash risk score</Term></div>
               <div className="flex items-baseline gap-2 mt-1">
                 <span className={`font-mono text-4xl font-black ${TONE_TEXT[scoreTone(view.score.score)]}`}>{view.score.score == null ? '—' : Math.round(view.score.score)}</span>
                 <span className="text-tv-muted text-sm">/ 100</span>
               </div>
               <div className="text-xs text-gray-300 mt-1">{view.score.band ?? 'Not enough data'}</div>
               <div className="text-[11px] text-tv-muted mt-1">
-                Coverage {pctFmt(view.score.coverage, 0)} · confidence {view.score.confidence} · as of {fmtDate(view.score.asOf)} close
+                <Term k="coverage">Coverage</Term> {pctFmt(view.score.coverage, 0)} · confidence {view.score.confidence} · as of {fmtDate(view.score.asOf)} close
               </div>
               <div className="text-[10px] text-tv-muted mt-1">Accumulated risk signals, not a probability. Updated {fmtEt(view.generatedAt)}.</div>
             </div>
 
             <div className="card">
-              <div className="label">Market regime</div>
+              <div className="label"><Term k="regime">Market regime</Term></div>
               <div className="mt-2">
                 <RegimeBadge regime={view.regime.regime} insufficient={view.regime.insufficient} large />
               </div>
@@ -299,7 +364,7 @@ export default function CrashIntelligencePage() {
             </div>
 
             <div className="card">
-              <div className="label">Pre-crash watch</div>
+              <div className="label"><Term k="preCrash">Pre-crash watch</Term></div>
               <div className="mt-2 text-sm font-bold text-white">
                 {view.regime.regime === 'PRE-CRASH WATCH' ? 'ACTIVE' : 'Not active'}
               </div>
@@ -312,12 +377,13 @@ export default function CrashIntelligencePage() {
               <div className="text-[11px] text-gray-300">Volatility subdued: {view.regime.facts.subduedVol == null ? 'unknown' : view.regime.facts.subduedVol ? 'yes' : 'no'}</div>
             </div>
 
+            <DetailedOnly>
             <div className="card">
               <div className="label">Volatility</div>
               <div className="grid grid-cols-3 gap-2 mt-2">
-                <Stat label="VIX" value={vix?.display ?? '—'} tone={riskTone(vix?.risk)} sub={view.regime.facts.vixPercentile != null ? `${Math.round(view.regime.facts.vixPercentile * 100)}th pct (1y)` : undefined} />
-                <Stat label="VIX/VIX3M" value={term?.display ?? '—'} tone={riskTone(term?.risk)} sub={term?.interpretation} />
-                <Stat label="SPY 20d RV" value={rv?.display ?? '—'} tone={riskTone(rv?.risk)} />
+                <Stat label={<Term k="vix">VIX</Term>} value={vix?.display ?? '—'} tone={riskTone(vix?.risk)} sub={view.regime.facts.vixPercentile != null ? `${Math.round(view.regime.facts.vixPercentile * 100)}th pct (1y)` : undefined} />
+                <Stat label={<Term k="vixTerm">VIX/VIX3M</Term>} value={term?.display ?? '—'} tone={riskTone(term?.risk)} sub={term?.interpretation} />
+                <Stat label={<Term k="realizedVol">SPY 20d RV</Term>} value={rv?.display ?? '—'} tone={riskTone(rv?.risk)} />
               </div>
             </div>
 
@@ -333,10 +399,15 @@ export default function CrashIntelligencePage() {
               <div className="label">Credit stress</div>
               <div className="grid grid-cols-2 gap-2 mt-2">
                 <Stat label="Category" value={creditCat?.insufficient ? 'n/a' : `${creditCat?.points?.toFixed(1)} pts`} tone={riskTone(creditCat?.risk)} sub={`${creditCat?.clustersAvailable ?? 0}/${creditCat?.clustersTotal ?? 0} groups`} />
-                <Stat label="High-yield OAS" value={hy?.status === 'ok' ? hy.display.split(' ')[0] : '—'} tone={riskTone(hy?.risk)} sub={hy?.status === 'ok' ? hy.display.split(' ').slice(1).join(' ') : hy?.missingReason} />
+                <Stat label={<Term k="oas">High-yield OAS</Term>} value={hy?.status === 'ok' ? hy.display.split(' ')[0] : '—'} tone={riskTone(hy?.risk)} sub={hy?.status === 'ok' ? hy.display.split(' ').slice(1).join(' ') : hy?.missingReason} />
               </div>
             </div>
+            </DetailedOnly>
           </div>
+
+          <SimpleOnly>
+            <CategoryBars view={view} />
+          </SimpleOnly>
 
           <PutSummary view={view} />
 
@@ -345,6 +416,18 @@ export default function CrashIntelligencePage() {
             <ScoreHistory view={view} />
           </div>
 
+          <SimpleOnly>
+            {view.catalysts[0] && (
+              <div className="card text-xs text-gray-300">
+                <span className="label">Next big scheduled event</span>
+                <div className="mt-1">
+                  <span className="text-white font-semibold">{view.catalysts[0].title}</span> on {view.catalysts[0].at ? fmtEt(view.catalysts[0].at) : fmtDate(view.catalysts[0].date)}. {view.catalysts[0].relevance}
+                </div>
+              </div>
+            )}
+          </SimpleOnly>
+
+          <DetailedOnly>
           <div className="grid gap-3 lg:grid-cols-2">
             {view.score.categories.map((c) => (
               <CategoryCard key={c.id} c={c} readings={byCat.get(c.id) ?? []} />
@@ -418,6 +501,7 @@ export default function CrashIntelligencePage() {
               </table>
             </div>
           </details>
+          </DetailedOnly>
         </>
       )}
     </div>

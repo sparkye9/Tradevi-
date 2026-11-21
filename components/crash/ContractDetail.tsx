@@ -1,4 +1,6 @@
 'use client';
+import Term from '@/components/ui/Term';
+import { DetailedOnly } from '@/components/crash/ViewMode';
 import { useMemo, useState } from 'react';
 import { X, Plus } from 'lucide-react';
 import { IV_SHOCKS, PRICE_SHOCKS } from '@/lib/crash/config';
@@ -81,9 +83,9 @@ export default function ContractDetail({
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="card !p-3"><div className="label">Bid / Ask</div><div className="value">{usd(c.bid)} / {usd(c.ask)}</div><div className="text-[11px] text-tv-muted">Mid {usd(ev.mid)} (not a guaranteed fill)</div></div>
+          <div className="card !p-3"><div className="label"><Term k="bidask">Bid / Ask</Term></div><div className="value">{usd(c.bid)} / {usd(c.ask)}</div><div className="text-[11px] text-tv-muted">Mid {usd(ev.mid)} (not a guaranteed fill)</div></div>
           <div className="card !p-3"><div className="label">Cost per contract</div><div className="value">{usd(ev.costAtAsk)}</div><div className="text-[11px] text-tv-muted">at the ask, before fees</div></div>
-          <div className="card !p-3"><div className="label">Breakeven at expiry</div><div className="value">{usd(ev.breakevenAtAsk)}</div><div className="text-[11px] text-tv-muted">{pctFmt(ev.declineToBreakeven)} below {usd(S)}</div></div>
+          <div className="card !p-3"><div className="label"><Term k="breakeven">Breakeven at expiry</Term></div><div className="value">{usd(ev.breakevenAtAsk)}</div><div className="text-[11px] text-tv-muted">{pctFmt(ev.declineToBreakeven)} below {usd(S)}</div></div>
           <div className="card !p-3"><div className="label">Max loss</div><div className="value text-tv-red">{usd(ev.costAtAsk)}</div><div className="text-[11px] text-tv-muted">if it expires worthless</div></div>
         </div>
 
@@ -97,16 +99,16 @@ export default function ContractDetail({
 
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="card">
-            <div className="label">Market risk</div>
+            <div className="label"><Term k="riskScore">Market risk</Term></div>
             <div className={`font-mono text-2xl font-black ${TONE_TEXT[scoreTone(market.score)]}`}>{market.score == null ? '—' : Math.round(market.score)}</div>
             <div className="text-[11px] text-tv-muted">{market.regime} · coverage {pctFmt(market.coverage, 0)}</div>
           </div>
           <div className="card">
-            <div className="label">Contract quality</div>
+            <div className="label"><Term k="quality">Contract quality</Term></div>
             <div className={`font-mono text-2xl font-black ${TONE_TEXT[qualityTone(ev.quality)]}`}>{ev.quality ?? '—'}</div>
           </div>
           <div className="card">
-            <div className="label">Trade setup</div>
+            <div className="label"><Term k="setup">Trade setup</Term></div>
             <div className={`font-mono text-2xl font-black ${TONE_TEXT[qualityTone(setup.setup)]}`}>{setup.setup ?? '—'}</div>
           </div>
         </div>
@@ -135,6 +137,7 @@ export default function ContractDetail({
           </div>
         </div>
 
+        <DetailedOnly>
         <div className="card">
           <SectionTitle title="Quality breakdown" />
           <div className="space-y-2">
@@ -147,6 +150,8 @@ export default function ContractDetail({
             ))}
           </div>
         </div>
+
+        </DetailedOnly>
 
         <div className="card space-y-3">
           <SectionTitle title="Scenarios" subtitle={`Estimated value after ${holdDays} days (${scen ? scen.daysRemainingAtHold : '—'} days left), American binomial model`} />
