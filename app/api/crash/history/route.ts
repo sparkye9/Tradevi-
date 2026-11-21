@@ -26,7 +26,8 @@ import type { ExitRules } from '@/lib/crash/history/trade';
 
 export const runtime = 'nodejs';
 // A cold start fetches ~45 full-history series and scores every session since 1993/2005.
-export const maxDuration = 60;
+// The first request on a fresh server replays ~20 years of real data.
+export const maxDuration = 300;
 
 const SIM_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA', 'XLF', 'KRE'];
 const ymd = (v: unknown, fallback: string) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : fallback);

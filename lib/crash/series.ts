@@ -232,11 +232,16 @@ export function percentileRank(values: readonly number[], window: number): numbe
 
 /** Ratio series of two close series aligned by date. */
 export function ratioCloses(a: readonly { date: string; close: number }[], b: readonly { date: string; close: number }[]): number[] {
-  const m = new Map(b.map((x) => [x.date, x.close]));
+  // Both inputs are sorted by date: merge instead of building a map per call
+  // (this runs for every session of the 20-year replay).
   const out: number[] = [];
+  let j = 0;
   for (const x of a) {
-    const y = m.get(x.date);
-    if (y && y > 0) out.push(x.close / y);
+    while (j < b.length && b[j].date < x.date) j++;
+    if (j < b.length && b[j].date === x.date) {
+      const y = b[j].close;
+      if (y && y > 0) out.push(x.close / y);
+    }
   }
   return out;
 }

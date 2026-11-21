@@ -3,7 +3,8 @@ import { rateLimit } from '@/lib/rateLimit';
 import { liveSetups } from '@/lib/crash/history/liveSetups';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+// The first request on a fresh server replays ~20 years of real data.
+export const maxDuration = 300;
 
 const SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA'];
 

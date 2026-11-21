@@ -124,7 +124,7 @@ export interface LiveSetupsResult {
   evidenceError?: string;
 }
 
-export async function liveSetups(symbol: string, evidenceWaitMs = 35_000): Promise<LiveSetupsResult> {
+export async function liveSetups(symbol: string, evidenceWaitMs = 240_000): Promise<LiveSetupsResult> {
   const live = await buildDataset({ scope: 'live' });
   const market = await buildMarketView(live);
   const today = scoreDate(live, market.score.asOf);

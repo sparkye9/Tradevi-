@@ -107,12 +107,18 @@ export function americanPrice(p: PricingInput, steps = 200): number {
   const pu = (Math.exp((r - q) * dt) - d) / (u - d);
   if (!(pu > 0 && pu < 1)) return blackScholes(p).price; // degenerate tree, fall back
   const pd = 1 - pu;
+  // Node prices S·u^k for k = −n…n, computed once (the same Math.pow values
+  // the loop would otherwise recompute O(n²) times).
+  const nodeS = new Float64Array(2 * n + 1);
+  for (let k = -n; k <= n; k++) nodeS[k + n] = S * Math.pow(u, k);
+  const isPut = type === 'put';
   const values = new Float64Array(n + 1);
-  for (let i = 0; i <= n; i++) values[i] = intrinsic(type, S * Math.pow(u, n - 2 * i), K);
+  for (let i = 0; i <= n; i++) values[i] = intrinsic(type, nodeS[2 * n - 2 * i], K);
   for (let step = n - 1; step >= 0; step--) {
     for (let i = 0; i <= step; i++) {
       const cont = disc * (pu * values[i] + pd * values[i + 1]);
-      const ex = intrinsic(type, S * Math.pow(u, step - 2 * i), K);
+      const Sn = nodeS[step - 2 * i + n];
+      const ex = isPut ? (K > Sn ? K - Sn : 0) : (Sn > K ? Sn - K : 0);
       values[i] = cont > ex ? cont : ex;
     }
   }
