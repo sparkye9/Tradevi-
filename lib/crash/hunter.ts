@@ -4,7 +4,7 @@
  * needs the Tradier token; the scoring itself is pure.
  */
 import { equitySession } from '../marketData/session';
-import { DIVIDEND_YIELD_ESTIMATE, FALLBACK_RISK_FREE, IV_SHOCKS, PRICE_SHOCKS, type ScreenFilters } from './config';
+import { DIVIDEND_YIELD_ESTIMATE, FALLBACK_RISK_FREE, IV_SHOCKS, PRICE_SHOCKS, TAIL_HEADLINE, TAIL_HOLD_DAYS, TAIL_SHOCKS, type ScreenFilters } from './config';
 import { catalystsBefore, type Catalyst } from './catalysts';
 import { atmIvByExpiration, evaluateContract, type EvaluatedContract } from './contracts';
 import type { MarketView } from './market';
@@ -14,12 +14,34 @@ import { runScenarios, smileFromChain, type ScenarioResult, type SmilePoint } fr
 import { addDays, realizedVol, type AnySeries, type MarketDataset } from './series';
 import { LABEL_ORDER, evaluateSetup, type SetupResult } from './setup';
 
+export interface TailCell {
+  priceShock: number;
+  ivPts: number;
+  /** Model value per share after TAIL_HOLD_DAYS. */
+  value: number;
+  /** value / entry (ask). */
+  multiple: number;
+}
+
+export interface TailPayoff {
+  holdDays: number;
+  cells: TailCell[];
+  /** The headline cell (5% drop, +10 vol points). */
+  headline: TailCell;
+  /** 1 - |delta|: the option market's rough odds it expires worthless. */
+  chanceWorthless: number | null;
+}
+
 export interface HuntRow {
   ev: EvaluatedContract;
   setup: SetupResult;
   scenario: ScenarioResult | null;
   smile: SmilePoint[];
+  /** Present on the Cheap tail puts scan only. */
+  tail?: TailPayoff | null;
 }
+
+export type HuntMode = 'standard' | 'tail';
 
 export interface HuntResult {
   symbol: string;
@@ -36,6 +58,7 @@ export interface HuntResult {
   rejectionCounts: Record<string, number>;
   noTrade: boolean;
   noTradeReason?: string;
+  mode?: HuntMode;
   source: string;
   fetchedAt: string;
   error?: string;
@@ -57,7 +80,9 @@ export async function huntPuts(args: {
   data: MarketDataset;
   catalysts: Catalyst[];
   now?: Date;
+  mode?: HuntMode;
 }): Promise<HuntResult> {
+  const mode: HuntMode = args.mode ?? 'standard';
   const now = args.now ?? new Date();
   const symbol = args.symbol.toUpperCase();
   const f = args.filters;
@@ -85,6 +110,7 @@ export async function huntPuts(args: {
     riskFree: rf,
     dividendYield: q,
     filters: f,
+    mode,
     scanned: 0,
     passing: 0,
     rows: [],
@@ -134,6 +160,43 @@ export async function huntPuts(args: {
     return { ev, setup, scenario, smile };
   });
   rows.sort((a, b) => LABEL_ORDER.indexOf(a.setup.label) - LABEL_ORDER.indexOf(b.setup.label) || (b.setup.setup ?? 0) - (a.setup.setup ?? 0));
+
+  if (mode === 'tail') {
+    const holdDays = TAIL_HOLD_DAYS;
+    const tailRows: HuntRow[] = prelim.map(({ ev, s }) => {
+      const smile = smiles.get(ev.contract.expiration) ?? [];
+      const c = ev.contract;
+      let tail: TailPayoff | null = null;
+      if (c.ask != null && c.ask > 0 && c.iv != null && c.dte > holdDays) {
+        const ask = c.ask;
+        const res = runScenarios(
+          { type: 'put', S, K: c.strike, dte: c.dte, entry: ask, mid: ev.mid, iv: c.iv, r: rf, q, smile, holdDays, steps: 120 },
+          TAIL_SHOCKS.map((t) => t.price),
+          Array.from(new Set(TAIL_SHOCKS.map((t) => t.ivPts))),
+        );
+        const cells: TailCell[] = [];
+        for (const t of TAIL_SHOCKS) {
+          const cell = res.hold.find((h) => h.priceShock === t.price && h.ivShock === t.ivPts);
+          if (cell) cells.push({ priceShock: t.price, ivPts: t.ivPts, value: cell.value, multiple: cell.value / ask });
+        }
+        if (cells.length === TAIL_SHOCKS.length) {
+          tail = { holdDays: res.holdDays, cells, headline: cells[TAIL_HEADLINE], chanceWorthless: c.delta != null ? 1 - Math.abs(c.delta) : null };
+        }
+      }
+      return { ev, setup: s, scenario: null, smile, tail };
+    });
+    tailRows.sort((a, b) => (b.tail?.headline.multiple ?? -1) - (a.tail?.headline.multiple ?? -1));
+    return {
+      ...base,
+      scanned: puts.length,
+      passing: passing.length,
+      rows: tailRows.slice(0, 60),
+      rejectedSample: evs.filter((e) => !e.passes).slice(0, 40).map((e) => ({ symbol: e.contract.symbol, strike: e.contract.strike, expiration: e.contract.expiration, reasons: e.rejections })),
+      rejectionCounts: counts,
+      noTrade: passing.length === 0,
+      noTradeReason: passing.length === 0 ? 'No cheap tail put passed the liquidity and price checks.' : undefined,
+    };
+  }
 
   if (args.market.regime.insufficient) {
     return { ...base, scanned: puts.length, passing: passing.length, rows: rows.slice(0, 60), rejectionCounts: counts, noTrade: true, noTradeReason: 'Market data is unavailable, so the environment cannot be judged. Contracts are listed for reference only.' };

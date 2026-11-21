@@ -138,7 +138,10 @@ export function evaluateContract(c: PutContract, ctx: MarketContext, f: ScreenFi
   if (absDelta != null && (absDelta < f.minAbsDelta || absDelta > f.maxAbsDelta)) rejections.push(`|Delta| ${absDelta.toFixed(2)} outside ${f.minAbsDelta.toFixed(2)}–${f.maxAbsDelta.toFixed(2)}`);
   if ((c.openInterest ?? 0) < f.minOpenInterest) rejections.push(`Open interest ${c.openInterest ?? 0} < ${f.minOpenInterest}`);
   if ((c.volume ?? 0) < f.minVolume) rejections.push(`Volume ${c.volume ?? 0} < ${f.minVolume}`);
-  if (spreadPct != null && spreadPct > f.maxSpreadPct) rejections.push(`Spread ${(spreadPct * 100).toFixed(0)}% > ${(f.maxSpreadPct * 100).toFixed(0)}%`);
+  const spreadAbs = bid != null && ask != null ? ask - bid : null;
+  const absOk = f.maxSpreadAbs != null && spreadAbs != null && spreadAbs <= f.maxSpreadAbs + 1e-9;
+  if (spreadPct != null && spreadPct > f.maxSpreadPct && !absOk)
+    rejections.push(`Spread ${(spreadPct * 100).toFixed(0)}% > ${(f.maxSpreadPct * 100).toFixed(0)}%${f.maxSpreadAbs != null ? ` and $${(spreadAbs ?? 0).toFixed(2)} > $${f.maxSpreadAbs.toFixed(2)}` : ''}`);
 
   // ── Derived numbers ──
   const costAtAsk = ask != null ? ask * 100 : null;

@@ -85,6 +85,12 @@ export interface ScreenFilters {
   maxSpreadPct: number;
   /** Greeks older than this many minutes during the regular session make a contract stale. */
   maxGreeksAgeMin: number;
+  /**
+   * Optional absolute spread allowance in $/share. When set, a contract
+   * passes the spread check if EITHER the % spread or the $ spread is within
+   * limits (a one-cent tick on a $0.10 option is already 10%).
+   */
+  maxSpreadAbs?: number;
 }
 
 export const SHORT_TERM_FILTERS: ScreenFilters = {
@@ -119,6 +125,35 @@ export const LEAPS_FILTERS: ScreenFilters = {
   maxAbsDelta: 0.5,
   minVolume: 0,
 };
+
+/**
+ * Cheap tail puts: far out-of-the-money puts that cost little and can
+ * multiply when fear spikes. Most expire worthless; the scan ranks by payoff
+ * multiple in a stress scenario, never by chance of winning.
+ */
+export const TAIL_FILTERS: ScreenFilters = {
+  minPremium: 0.05,
+  maxPremium: 0.5,
+  minDte: 7,
+  maxDte: 60,
+  minAbsDelta: 0.005,
+  maxAbsDelta: 0.1,
+  minOpenInterest: 1000,
+  minVolume: 10,
+  maxSpreadPct: 0.4,
+  maxSpreadAbs: 0.03,
+  maxGreeksAgeMin: 90,
+};
+
+/** Stress scenarios for tail puts: index drop with a matching VIX-point rise, valued after TAIL_HOLD_DAYS. */
+export const TAIL_SHOCKS: { price: number; ivPts: number }[] = [
+  { price: -0.03, ivPts: 5 },
+  { price: -0.05, ivPts: 10 },
+  { price: -0.08, ivPts: 15 },
+];
+/** Index of the headline scenario in TAIL_SHOCKS (5% drop, +10 vol points). */
+export const TAIL_HEADLINE = 1;
+export const TAIL_HOLD_DAYS = 3;
 
 /** Standard price and IV shocks for the scenario grid. */
 export const PRICE_SHOCKS = [-0.15, -0.1, -0.05, -0.02, 0, 0.02, 0.05];

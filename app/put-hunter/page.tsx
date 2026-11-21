@@ -10,18 +10,19 @@ import { ViewToggle, useViewMode } from '@/components/crash/ViewMode';
 import Term from '@/components/ui/Term';
 import { huntSummary } from '@/lib/crash/plainEnglish';
 import { LabelBadge, Pill, RegimeBadge, TONE_TEXT, fmtDate, fmtEt, pctFmt, qualityTone, scoreTone, usd } from '@/components/crash/ui';
-import { LEAPS_FILTERS, LONG_TERM_FILTERS, PUT_HUNTER_UNDERLYINGS, SHORT_TERM_FILTERS, type ScreenFilters } from '@/lib/crash/config';
+import { LEAPS_FILTERS, LONG_TERM_FILTERS, PUT_HUNTER_UNDERLYINGS, SHORT_TERM_FILTERS, TAIL_FILTERS, TAIL_HOLD_DAYS, type ScreenFilters } from '@/lib/crash/config';
 import type { HuntResult, HuntRow } from '@/lib/crash/hunter';
 import type { Regime } from '@/lib/crash/regime';
 import { DEFAULT_BUDGET, exposureByGroup, type Position, type RiskBudget } from '@/lib/crash/sizing';
 
-type Horizon = 'short' | 'long' | 'leaps';
+type Horizon = 'short' | 'long' | 'leaps' | 'tail';
 type HuntResponse = HuntResult & { error?: string; market?: { score: number | null; band: string | null; coverage: number; regime: Regime; insufficient: boolean; why: string[]; asOf: string } };
 
 const HORIZONS: { id: Horizon; label: string; filters: ScreenFilters }[] = [
   { id: 'short', label: 'Short term · 14–60 DTE', filters: SHORT_TERM_FILTERS },
   { id: 'long', label: 'Long term · 60–120 DTE', filters: LONG_TERM_FILTERS },
   { id: 'leaps', label: 'LEAPS · 120+ DTE', filters: LEAPS_FILTERS },
+  { id: 'tail', label: 'Cheap tail puts · 7–60 DTE', filters: TAIL_FILTERS },
 ];
 
 const FILTER_FIELDS: { key: keyof ScreenFilters; label: string; step: number; pct?: boolean }[] = [
@@ -34,6 +35,7 @@ const FILTER_FIELDS: { key: keyof ScreenFilters; label: string; step: number; pc
   { key: 'minOpenInterest', label: 'Min open interest', step: 10 },
   { key: 'minVolume', label: 'Min volume', step: 1 },
   { key: 'maxSpreadPct', label: 'Max spread %', step: 1, pct: true },
+  { key: 'maxSpreadAbs', label: 'Or max spread $', step: 0.01 },
 ];
 
 const BUDGET_KEY = 'tradevi.crash.budget.v1';
@@ -96,6 +98,98 @@ function Row({ r, onOpen }: { r: HuntRow; onOpen: () => void }) {
       <td className={`py-2 pr-2 font-mono text-right font-bold ${TONE_TEXT[qualityTone(ev.quality)]}`}>{ev.quality ?? '—'}</td>
       <td className={`py-2 font-mono text-right font-bold ${TONE_TEXT[qualityTone(setup.setup)]}`}>{setup.setup ?? '—'}</td>
     </tr>
+  );
+}
+
+const mult = (x: number) => (x >= 10 ? `${Math.round(x)}×` : `${x.toFixed(1)}×`);
+
+function TailRow({ r, onOpen, detailed }: { r: HuntRow; onOpen: () => void; detailed: boolean }) {
+  const { ev, tail } = r;
+  const c = ev.contract;
+  const h = tail?.headline;
+  return (
+    <tr className="border-t border-white/[0.04] hover:bg-white/[0.03] cursor-pointer" onClick={onOpen}>
+      <td className="py-2 pr-2 text-white whitespace-nowrap">
+        {c.underlying} ${c.strike} put
+        <div className="text-[11px] text-tv-muted">expires {fmtDate(c.expiration)} · {c.dte} days left</div>
+      </td>
+      <td className="py-2 pr-2 font-mono text-right">{usd(ev.costAtAsk, 0)}<div className="text-[10px] text-tv-muted">ask {usd(c.ask)}</div></td>
+      <td className="py-2 pr-2 font-mono text-right whitespace-nowrap">
+        {h ? (
+          <>
+            <span className="font-bold text-tv-green">{mult(h.multiple)}</span>
+            <div className="text-[10px] text-tv-muted">{usd(c.ask)} → {usd(h.value)}</div>
+          </>
+        ) : '—'}
+      </td>
+      {detailed && (
+        <td className="py-2 pr-2 font-mono text-right whitespace-nowrap text-[11px] text-gray-300">
+          {tail ? tail.cells.map((x) => mult(x.multiple)).join(' · ') : '—'}
+        </td>
+      )}
+      <td className="py-2 pr-2 font-mono text-right whitespace-nowrap">{usd(ev.breakevenAtAsk)}<div className="text-[11px] text-tv-muted font-sans">{ev.declineToBreakeven != null ? `${pctFmt(ev.declineToBreakeven)} drop` : ''}</div></td>
+      <td className="py-2 pr-2 font-mono text-right text-tv-amber">{tail?.chanceWorthless != null ? pctFmt(tail.chanceWorthless, 0) : '—'}</td>
+      <td className="py-2 pr-2 font-mono text-right hidden sm:table-cell">{usd(ev.thetaDollarsPerDay, 2)}</td>
+      {detailed && (
+        <>
+          <td className="py-2 pr-2 font-mono text-right">{c.delta?.toFixed(3)}</td>
+          <td className="py-2 pr-2 font-mono text-right">{pctFmt(c.iv)}</td>
+          <td className="py-2 pr-2 font-mono text-right">{c.openInterest?.toLocaleString()}<div className="text-[10px] text-tv-muted">vol {c.volume?.toLocaleString()}</div></td>
+          <td className="py-2 pr-2 font-mono text-right">{usd(c.bid)} / {usd(c.ask)}</td>
+        </>
+      )}
+    </tr>
+  );
+}
+
+function TailTable({ rows, detailed, onOpen }: { rows: HuntRow[]; detailed: boolean; onOpen: (r: HuntRow) => void }) {
+  const shown = detailed ? rows : rows.slice(0, 15);
+  return (
+    <table className="w-full text-xs">
+      <thead className="text-tv-muted text-[10px] uppercase tracking-wider">
+        <tr className="text-right">
+          <th className="text-left py-2 pl-4 pr-2"><Term k="put">Contract</Term></th>
+          <th className="py-2 pr-2"><Term k="cost">Cost (max loss)</Term></th>
+          <th className="py-2 pr-2">If index −5% and <Term k="vix">VIX</Term> +10</th>
+          {detailed && <th className="py-2 pr-2">−3%/+5 · −5%/+10 · −8%/+15</th>}
+          <th className="py-2 pr-2"><Term k="breakeven">Pays off below</Term></th>
+          <th className="py-2 pr-2">Chance worthless</th>
+          <th className="py-2 pr-2 hidden sm:table-cell"><Term k="theta">Time cost / day</Term></th>
+          {detailed && (
+            <>
+              <th className="py-2 pr-2"><Term k="delta">Δ</Term></th>
+              <th className="py-2 pr-2"><Term k="iv">IV</Term></th>
+              <th className="py-2 pr-2"><Term k="oi">OI</Term></th>
+              <th className="py-2 pr-4"><Term k="bidask">Bid / Ask</Term></th>
+            </>
+          )}
+        </tr>
+      </thead>
+      <tbody className="[&>tr>td:first-child]:pl-4 [&>tr>td:last-child]:pr-4">
+        {shown.map((r) => (
+          <TailRow key={r.ev.contract.symbol} r={r} detailed={detailed} onOpen={() => onOpen(r)} />
+        ))}
+        {!rows.length && (
+          <tr>
+            <td colSpan={detailed ? 11 : 6} className="py-6 text-center text-tv-muted">No cheap tail put passed the liquidity and price checks.</td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  );
+}
+
+function TailBetBanner() {
+  return (
+    <div className="rounded-2xl border border-tv-amber/40 bg-tv-amber/[0.08] p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Pill tone="amber">TAIL BET</Pill>
+        <span className="text-sm font-bold text-white">Cheap puts that can multiply in a fear spike. Most expire worthless.</span>
+      </div>
+      <p className="text-xs text-gray-300 mt-1.5">
+        Ranked by how many times each put could be worth in {TAIL_HOLD_DAYS} days if the index fell 5% and the VIX rose 10 points. That is a model estimate, not a forecast. &ldquo;Chance worthless&rdquo; is 1 − |delta|, the option market&apos;s own rough odds. Only use money you can lose completely.
+      </p>
+    </div>
   );
 }
 
@@ -226,7 +320,7 @@ export default function PutHunterPage() {
                     className="input text-xs w-full"
                     type="number"
                     step={fd.step}
-                    value={fd.pct ? Math.round(filters[fd.key] * 100) : filters[fd.key]}
+                    value={fd.pct ? Math.round((filters[fd.key] ?? 0) * 100) : (filters[fd.key] ?? '')}
                     onChange={(e) => setFilters({ ...filters, [fd.key]: fd.pct ? Number(e.target.value) / 100 : Number(e.target.value) })}
                   />
                 </label>
@@ -269,6 +363,7 @@ export default function PutHunterPage() {
 
       {!loading && data && !data.error && data.rows && (
         <>
+          {data.mode === 'tail' && <TailBetBanner />}
           {data.noTrade && (
             <div className="rounded-2xl border border-tv-border bg-white/[0.03] p-4">
               <div className="text-lg font-black text-white tracking-wide">NO TRADE</div>
@@ -284,7 +379,9 @@ export default function PutHunterPage() {
             </div>
             {data.partialErrors.length > 0 && <p className="px-4 text-[11px] text-tv-amber">Some data missing: {data.partialErrors.slice(0, 3).join('; ')}</p>}
             <div className="overflow-x-auto mt-2">
-              {mode === 'simple' ? (
+              {data.mode === 'tail' ? (
+                <TailTable rows={data.rows} detailed={mode === 'detailed'} onOpen={setOpen} />
+              ) : mode === 'simple' ? (
                 <table className="w-full text-xs">
                   <thead className="text-tv-muted text-[10px] uppercase tracking-wider">
                     <tr className="text-right">
