@@ -13,7 +13,7 @@ export const maxDuration = 60;
  * Only records between 3:30 and 4:15 PM ET on trading days unless ?force=1.
  */
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
+  const secret = process.env.CRON_SECRET?.trim();
   if (!secret) return NextResponse.json({ error: 'CRON_SECRET not set — snapshot recording disabled' }, { status: 503 });
   if (request.headers.get('authorization') !== `Bearer ${secret}`) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
