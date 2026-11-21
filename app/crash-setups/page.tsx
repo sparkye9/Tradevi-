@@ -116,7 +116,7 @@ export default function CrashSetupsPage() {
     setLoading(true);
     fetch(`/api/crash/setups?symbol=${symbol}`)
       .then(async (r) => {
-        const j = (await r.json()) as Resp;
+        const j = (await r.json().catch(() => ({ error: r.status === 504 ? 'The historical replay took too long to load. Reload in a minute.' : `HTTP ${r.status}` }))) as Resp;
         if (!r.ok && !j.error) j.error = `HTTP ${r.status}`;
         setData(j);
       })

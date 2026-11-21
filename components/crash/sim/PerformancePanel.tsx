@@ -65,7 +65,7 @@ export default function PerformancePanel({ params, setParams, onResult, noHindsi
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 text-[11px] text-tv-muted">
         <label>Major decline
           <select className="input w-full mt-0.5" value={params.decline.threshold} onChange={(e) => setParams({ ...params, decline: { ...params.decline, threshold: Number(e.target.value) } })}>
-            {[0.07, 0.1, 0.15, 0.2, 0.3].map((t) => <option key={t} value={t}>{t * 100}% from the rolling high</option>)}
+            {[0.07, 0.1, 0.15, 0.2, 0.3].map((t) => <option key={t} value={t}>{Math.round(t * 100)}% from the rolling high</option>)}
           </select>
         </label>
         <label>Rolling high (sessions)<input type="number" className="input w-full mt-0.5" value={params.decline.highWindow} onChange={(e) => setParams({ ...params, decline: { ...params.decline, highWindow: Number(e.target.value) } })} /></label>
