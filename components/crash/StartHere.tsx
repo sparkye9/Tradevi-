@@ -9,7 +9,7 @@ const STEPS = [
   { title: 'Read the summary first', text: 'The purple “Today in plain English” box answers the main question in a few sentences. Everything below it is the evidence.' },
   { title: 'Check the score once a day', text: 'Crash Intelligence scores warning signs from 0 to 100. Under 40 is quiet. Look at the other pages only when it is 50 or higher, or a setup is firing.' },
   { title: 'Then look for a put', text: 'Put Setups says whether today matches a rule that worked before. Put Hunter lists the actual contracts, what each costs and where it starts paying off.' },
-  { title: 'Practise on history', text: 'Crash Simulator replays 2008, 2020 and other drops day by day without showing the future, so you can test your judgement safely.' },
+  { title: 'Cheap tail puts', text: 'Put Hunter’s “Cheap tail puts” button lists low-cost, far-out puts that can multiply in a fear spike. Most expire worthless, so only use money you can lose completely.' },
 ];
 
 /**

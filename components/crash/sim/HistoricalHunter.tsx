@@ -114,7 +114,7 @@ export default function HistoricalHunter({
             {FIELDS.map((f) => (
               <label key={f.key} className="text-[11px] text-tv-muted">
                 {f.label}
-                <input type="number" className="input w-full mt-0.5" step={f.step} value={f.pct ? Math.round(filters[f.key] * 100) : filters[f.key]} onChange={(e) => setFilters({ ...filters, [f.key]: f.pct ? Number(e.target.value) / 100 : Number(e.target.value) })} />
+                <input type="number" className="input w-full mt-0.5" step={f.step} value={f.pct ? Math.round((filters[f.key] ?? 0) * 100) : (filters[f.key] ?? '')} onChange={(e) => setFilters({ ...filters, [f.key]: f.pct ? Number(e.target.value) / 100 : Number(e.target.value) })} />
               </label>
             ))}
             <button className="btn btn-primary self-end" type="submit">Apply</button>

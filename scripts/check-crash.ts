@@ -9,7 +9,7 @@ import { PointInTime, type Bar, type LevelSeries, type MarketDataset } from '../
 import { computeRiskScore } from '../lib/crash/riskScore';
 import { classifyRegime, regimeFacts } from '../lib/crash/regime';
 import { evaluateContract, type PutContract } from '../lib/crash/contracts';
-import { SHORT_TERM_FILTERS } from '../lib/crash/config';
+import { SHORT_TERM_FILTERS, TAIL_FILTERS, TAIL_SHOCKS } from '../lib/crash/config';
 import { evaluateSetup } from '../lib/crash/setup';
 import { runScenarios } from '../lib/crash/scenarios';
 import { sizePosition, exposureByGroup } from '../lib/crash/sizing';
@@ -177,6 +177,22 @@ const stale = evaluateContract({ ...put, greeksUpdatedAt: '2026-11-20T14:00:00Z'
 check('stale Greeks rejected during the session', stale.rejections.some((r) => r.startsWith('Stale Greeks')));
 const wide = evaluateContract({ ...put, bid: 0.1, ask: 0.3 }, ctx, SHORT_TERM_FILTERS);
 check('100% spread rejected', wide.rejections.some((r) => r.startsWith('Spread')));
+
+// ─── Cheap tail puts ────────────────────────────────────────────────────────
+// Shaped like the SPY 500 put of Nov 2026: 40 days, $0.20, delta about −0.01.
+const tailPut: PutContract = { ...put, symbol: 'SPY261231P00500000', strike: 500, expiration: '2026-12-31', dte: 40, bid: 0.19, ask: 0.21, delta: -0.012, iv: 0.42, openInterest: 3606, volume: 386 };
+const tailCtx = { ...ctx, underlyingPrice: 690 };
+check('a 0.01-delta put is rejected by the standard scan', evaluateContract(tailPut, tailCtx, SHORT_TERM_FILTERS).rejections.some((r) => r.startsWith('|Delta|')));
+check('the same put passes the Cheap tail puts scan', evaluateContract(tailPut, tailCtx, TAIL_FILTERS).passes);
+const pennyWide = evaluateContract({ ...tailPut, bid: 0.07, ask: 0.1 }, tailCtx, TAIL_FILTERS);
+check('a $0.03-wide spread passes even when it is 35%+ of mid', pennyWide.passes);
+const tooWide = evaluateContract({ ...tailPut, bid: 0.05, ask: 0.15 }, tailCtx, TAIL_FILTERS);
+check('a spread over 40% and over $0.03 is rejected', tooWide.rejections.some((r) => r.startsWith('Spread')));
+check('tail scan needs 1,000 open interest', evaluateContract({ ...tailPut, openInterest: 500 }, tailCtx, TAIL_FILTERS).rejections.some((r) => r.startsWith('Open interest')));
+const tailScen = runScenarios({ type: 'put', S: 690, K: 500, dte: 40, entry: 0.21, mid: 0.2, iv: 0.42, r: 0.04, q: 0.013, holdDays: 3, steps: 120 }, TAIL_SHOCKS.map((t) => t.price), TAIL_SHOCKS.map((t) => t.ivPts));
+const tailMult = TAIL_SHOCKS.map((t) => tailScen.hold.find((h) => h.priceShock === t.price && h.ivShock === t.ivPts)!.value / 0.21);
+check('tail multiples grow with the size of the shock', tailMult[0] < tailMult[1] && tailMult[1] < tailMult[2]);
+check('a 5% drop with VIX +10 multiplies a far OTM put', tailMult[1] > 1.5);
 
 // ─── Setups ─────────────────────────────────────────────────────────────────
 const scen = runScenarios({ type: 'put', S: 660, K: 600, dte: 28, entry: 0.22, mid: 0.2, iv: 0.19, r: 0.045, q: 0.012, holdDays: 14, steps: 120 }, [-0.1, 0, 0.05], [0, 5]);

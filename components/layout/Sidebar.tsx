@@ -21,7 +21,6 @@ import {
   ShieldAlert,
   ListChecks,
   Target,
-  History,
   MoreHorizontal,
   X,
   type LucideIcon,
@@ -52,7 +51,6 @@ const GROUPS: { title: string | null; items: NavItem[] }[] = [
       { href: '/crash-intelligence', label: 'Crash Intelligence', icon: ShieldAlert },
       { href: '/put-hunter', label: 'Put Hunter', icon: Target },
       { href: '/crash-setups', label: 'Put Setups', icon: ListChecks },
-      { href: '/crash-simulator', label: 'Crash Simulator', icon: History },
     ],
   },
   {

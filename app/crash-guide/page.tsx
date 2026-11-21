@@ -19,13 +19,7 @@ const PAGES = [
     href: '/put-hunter',
     name: 'Put Hunter',
     question: 'Is there a put worth buying, and what could I lose?',
-    look: ['Only rows labelled WATCH or STRONG WATCH', 'Cost (the most you can lose) and “pays off below” (breakeven)', 'Tap a row for what it might be worth if the market falls 5%, 10% or 15%'],
-  },
-  {
-    href: '/crash-simulator',
-    name: 'Crash Simulator',
-    question: 'Would this have worked in 2008 or 2020?',
-    look: ['Pick a past crash and press Play', 'Watch the score day by day without seeing the future', 'Decide, then reveal what happened. Results marked THEORETICAL are model prices'],
+    look: ['Only rows labelled WATCH or STRONG WATCH', 'Cost (the most you can lose) and “pays off below” (breakeven)', 'Tap a row for what it might be worth if the market falls 5%, 10% or 15%', '“Cheap tail puts” lists $0.05–$0.50 far-out puts ranked by how much they could multiply in a fear spike. Most expire worthless'],
   },
 ];
 
@@ -44,7 +38,7 @@ export default function CrashGuidePage() {
       <div className="space-y-3">
         <div>
           <h1 className="text-2xl font-bold text-white">How to use the crash tools</h1>
-          <p className="text-sm text-gray-400 mt-1">Four pages, one question each. Use them in this order.</p>
+          <p className="text-sm text-gray-400 mt-1">Three pages, one question each. Use them in this order.</p>
         </div>
         <CrashSubnav />
       </div>
@@ -80,7 +74,7 @@ export default function CrashGuidePage() {
       <section className="card">
         <h2 className="text-sm font-bold text-white">Simple and Detailed views</h2>
         <p className="mt-1 text-sm text-gray-200">
-          Every crash page opens in Simple view: the answer and the few numbers that matter. Switch to Detailed (top right of each page) for every reading, its source and its date, the full contract table with the Greeks, and the simulator’s research tools. Labels that warn you, such as THEORETICAL, NO TRADE or missing data, show in both views.
+          Every crash page opens in Simple view: the answer and the few numbers that matter. Switch to Detailed (top right of each page) for every reading, its source and its date, the full contract table with the Greeks, and the research details behind each number. Labels that warn you, such as THEORETICAL, NO TRADE or missing data, show in both views.
         </p>
       </section>
 

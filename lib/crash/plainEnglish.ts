@@ -98,6 +98,7 @@ const money = (n: number, d = 0) => `$${n.toLocaleString('en-US', { minimumFract
 
 export function huntSummary(hunt: HuntResult & { error?: string }, regime?: Regime | null): Sentence[] {
   if (hunt.error && !hunt.rows?.length) return [{ text: `Option prices are unavailable right now (${hunt.error}). No contracts can be judged until they return.`, tone: 'gray' }];
+  if (hunt.mode === 'tail') return tailSummary(hunt, regime);
   const watch = hunt.rows.filter((r) => r.setup.label === 'STRONG WATCH' || r.setup.label === 'WATCH');
   const out: Sentence[] = [];
   if (hunt.noTrade || !watch.length) {
@@ -113,6 +114,25 @@ export function huntSummary(hunt: HuntResult & { error?: string }, regime?: Regi
     }
   }
   if (regime === 'PANIC / LATE ENTRY' || regime === 'VOLATILITY EXPANSION') out.push({ text: 'Fear is already high, so every put costs more than usual today.', tone: 'amber' });
+  return out;
+}
+
+function tailSummary(hunt: HuntResult, regime?: Regime | null): Sentence[] {
+  const out: Sentence[] = [];
+  const rows = hunt.rows.filter((r) => r.tail);
+  if (!rows.length) {
+    out.push({ text: `No cheap ${hunt.symbol} tail put passes the liquidity and price checks today (${hunt.scanned.toLocaleString()} checked).`, tone: 'gray' });
+    return out;
+  }
+  out.push({ text: `${hunt.passing} cheap ${hunt.symbol} put${hunt.passing === 1 ? '' : 's'} pass${hunt.passing === 1 ? 'es' : ''} the checks, out of ${hunt.scanned.toLocaleString()}. These are tail bets: most expire worthless.`, tone: 'amber' });
+  const t = rows[0];
+  const c = t.ev.contract;
+  const h = t.tail!.headline;
+  if (c.ask != null) {
+    out.push({ text: `Biggest multiplier: the $${c.strike} put expiring ${fmtDay(c.expiration)}, ${money(c.ask * 100)} per contract. If ${c.underlying} fell 5% and the VIX rose 10 points within ${t.tail!.holdDays} days, the model values it near ${money(h.value * 100)}, about ${h.multiple >= 10 ? Math.round(h.multiple) : h.multiple.toFixed(1)} times the cost.`, tone: 'green' });
+  }
+  if (t.tail!.chanceWorthless != null) out.push({ text: `The option market puts its chance of expiring worthless near ${pct(t.tail!.chanceWorthless)}.`, tone: 'red' });
+  if (regime === 'PANIC / LATE ENTRY' || regime === 'VOLATILITY EXPANSION') out.push({ text: 'Fear is already high, so these cost more than on a calm day, and a further spike is needed to pay.', tone: 'amber' });
   return out;
 }
 
