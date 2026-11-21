@@ -22,7 +22,18 @@ async function getText(url: string, timeoutMs = 8000): Promise<string> {
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: '*/*' }, cache: 'no-store', signal: ctrl.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      // Keep the provider's own reason (FRED explains a bad key in the body).
+      let detail = '';
+      try {
+        const body = await res.text();
+        const m = /"error_message"\s*:\s*"([^"]+)"/.exec(body);
+        detail = m ? `: ${m[1]}` : '';
+      } catch {
+        /* no body */
+      }
+      throw new Error(`HTTP ${res.status}${detail}`);
+    }
     return await res.text();
   } finally {
     clearTimeout(t);
@@ -191,7 +202,9 @@ export function parseFredCsv(text: string): { date: string; value: number }[] {
 }
 
 export async function fredSeries(spec: FredSpec, fromYmd: string | null): Promise<LevelSeries> {
-  const key = process.env.FRED_API_KEY;
+  // Trim: a key pasted into the Vercel dashboard often carries a trailing
+  // newline or quotes, which FRED rejects as "api_key is not registered".
+  const key = process.env.FRED_API_KEY?.trim().replace(/^['"]|['"]$/g, '') || undefined;
   const start = fromYmd ?? '1990-01-01';
   if (key) {
     // output_type=4 → initial release only, with the date it was first published.
