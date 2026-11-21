@@ -2,6 +2,10 @@
 import { useEffect, useState } from 'react';
 import LearnBox from '@/components/ui/LearnBox';
 import CrashSubnav from '@/components/crash/CrashSubnav';
+import TodayBox from '@/components/crash/TodayBox';
+import { DetailedOnly, SimpleOnly, ViewToggle } from '@/components/crash/ViewMode';
+import Term from '@/components/ui/Term';
+import { signalLine, type Sentence } from '@/lib/crash/plainEnglish';
 import { LabelBadge, Pill, SectionTitle, Stat, TONE_TEXT, fmtDate, pctFmt, qualityTone, scoreTone, usd } from '@/components/crash/ui';
 import type { LiveSetupsResult, LiveSetup } from '@/lib/crash/history/liveSetups';
 import type { SignalStats } from '@/lib/crash/history/signals';
@@ -34,6 +38,27 @@ function TradeLine({ label, s }: { label: string; s: PeriodStats }) {
   );
 }
 
+function setupsSummary(d: Resp): Sentence[] {
+  const firing = d.setups.filter((s) => s.firing);
+  const out: Sentence[] = [];
+  if (!firing.length) {
+    out.push({ text: `None of the ${d.setups.length} put rules match today's market, so there is no rule-based reason to buy puts today.`, tone: 'gray' });
+  } else {
+    out.push({ text: `${firing.length} of ${d.setups.length} put rules match today's market: ${firing.map((s) => s.def.name.toLowerCase()).join('; ')}.`, tone: 'red' });
+    const withContracts = firing.filter((s) => s.contracts.length);
+    out.push(
+      withContracts.length
+        ? { text: `Live contracts worth a closer look are listed under ${withContracts.length === 1 ? 'that rule' : 'those rules'}.`, tone: 'green' }
+        : { text: 'No live contract currently passes the safety checks for these rules, so there is still nothing to buy.', tone: 'gray' },
+    );
+  }
+  if (!d.market.insufficient && (d.market.regime === 'PANIC / LATE ENTRY' || d.market.regime === 'VOLATILITY EXPANSION')) {
+    out.push({ text: 'Fear is already high, so any put costs more than usual. Early-warning rules do not fire at this stage by design.', tone: 'amber' });
+  }
+  out.push({ text: 'A matching rule is a research flag, not a recommendation. Past and THEORETICAL results do not predict future results.', tone: 'gray' });
+  return out;
+}
+
 function SetupCard({ s }: { s: LiveSetup }) {
   const ev = s.evidence;
   return (
@@ -46,7 +71,21 @@ function SetupCard({ s }: { s: LiveSetup }) {
         {s.firing ? <Pill tone="red">CONDITIONS PRESENT TODAY</Pill> : <Pill tone="gray">NOT FIRING</Pill>}
       </div>
       <div className="text-xs text-gray-300">Rule: <b className="text-white">{ev?.rule ?? (s.rule.kind === 'score' ? `Risk score ≥ ${s.rule.min}` : s.rule.regimes.join(' or '))}</b> · {s.distance}</div>
+      {ev && (
+        <SimpleOnly>
+          <div className="text-xs text-gray-300 space-y-1">
+            <p><Term k="leadTime">Track record</Term>: {signalLine(ev.signal)} In the years it was never tuned on (<Term k="inSample">out-of-sample</Term>): {signalLine(ev.outOfSample)}</p>
+            <p>
+              <Pill tone="amber">THEORETICAL</Pill>{' '}
+              {ev.theoretical
+                ? `Model-priced test on SPY: ${ev.theoretical.all.trades} trades, ${ev.theoretical.all.wins} winners, net ${usd(ev.theoretical.all.net, 0)} on $500 per trade.`
+                : 'No model-priced trades in the history.'}
+            </p>
+          </div>
+        </SimpleOnly>
+      )}
       {ev ? (
+        <DetailedOnly>
         <div className="grid lg:grid-cols-2 gap-3 text-xs">
           <div>
             <div className="text-tv-muted mb-1">Track record of the rule against 10% declines (point-in-time). {ev.thresholdSource}.</div>
@@ -74,6 +113,7 @@ function SetupCard({ s }: { s: LiveSetup }) {
             ) : <p className="text-tv-muted">No theoretical trades in the history.</p>}
           </div>
         </div>
+        </DetailedOnly>
       ) : (
         <p className="text-xs text-tv-muted">Historical evidence unavailable right now.</p>
       )}
@@ -128,9 +168,12 @@ export default function CrashSetupsPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Put Setups</h1>
-          <p className="text-sm text-tv-muted">Today&apos;s market checked against put entry rules tested on the historical replay.</p>
+          <p className="text-sm text-tv-muted">Does today&apos;s market match a put rule that worked before? Each card is one rule with its track record.</p>
         </div>
-        <CrashSubnav />
+        <div className="flex flex-wrap items-center gap-2">
+          <ViewToggle />
+          <CrashSubnav />
+        </div>
       </div>
       <LearnBox
         summary="Each setup is a rule tested on history; it lights up when today's conditions match, with its track record beside it."
@@ -141,6 +184,7 @@ export default function CrashSetupsPage() {
           { term: 'Sizing', text: 'Every put can expire worthless. Keep each idea inside the risk budget on Put Hunter; one contract is the default.' },
         ]}
       />
+      {data && !data.error && data.setups && <TodayBox sentences={setupsSummary(data)} />}
       <div className="card p-4">
         <SectionTitle
           title="Market today"
@@ -154,7 +198,7 @@ export default function CrashSetupsPage() {
         {data?.error && <p className="text-sm text-tv-red">{data.error}</p>}
         {data && !data.error && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <Stat label="Crash Risk Score" value={data.market.score != null ? Math.round(data.market.score) : '—'} tone={scoreTone(data.market.score)} sub={`as of ${fmtDate(data.market.asOf)}`} />
+            <Stat label={<Term k="riskScore">Crash Risk Score</Term>} value={data.market.score != null ? Math.round(data.market.score) : '—'} tone={scoreTone(data.market.score)} sub={`as of ${fmtDate(data.market.asOf)}`} />
             <Stat label="Regime" value={data.market.insufficient ? 'INSUFFICIENT DATA' : data.market.regime} />
             <Stat label="Setups firing" value={data.setups.filter((s) => s.firing).length} sub={`of ${data.setups.length}`} />
             <Stat label="Underlying" value={data.symbol} sub="live contracts from Tradier" />

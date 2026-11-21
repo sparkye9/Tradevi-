@@ -146,7 +146,7 @@ export function SectionTitle({ title, subtitle, right }: { title: string; subtit
   );
 }
 
-export function Stat({ label, value, sub, tone = 'gray' }: { label: string; value: ReactNode; sub?: ReactNode; tone?: Tone }) {
+export function Stat({ label, value, sub, tone = 'gray' }: { label: ReactNode; value: ReactNode; sub?: ReactNode; tone?: Tone }) {
   return (
     <div>
       <div className="label">{label}</div>
