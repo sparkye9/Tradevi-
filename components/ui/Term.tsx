@@ -32,8 +32,11 @@ export default function Term({ k, children, example }: { k: GlossaryKey; childre
         className="underline decoration-dotted decoration-tv-purple/70 underline-offset-2 cursor-help text-inherit font-inherit"
         aria-describedby={open ? id : undefined}
         onClick={(e) => {
+          // Open, never toggle: a tap or click also fires mouseenter first,
+          // so toggling here closed the popover the moment it opened.
+          // Outside click and Escape close it.
           e.stopPropagation();
-          setOpen((v) => !v);
+          setOpen(true);
         }}
       >
         {children ?? g.term}
