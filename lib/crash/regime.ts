@@ -59,7 +59,10 @@ export interface RegimeResult {
   facts: RegimeFacts;
 }
 
-export function regimeFacts(data: MarketDataset, asOf: string, mode: CutMode, score: RiskScoreResult, cfg: RegimeConfig = DEFAULT_REGIME_CONFIG): RegimeFacts {
+/** Only the category risks are read, so the fast historical path can pass `quickScore` output. */
+export type CategoryRisks = { categories: { id: CategoryId; risk: number | null }[] };
+
+export function regimeFacts(data: MarketDataset, asOf: string, mode: CutMode, score: CategoryRisks | RiskScoreResult, cfg: RegimeConfig = DEFAULT_REGIME_CONFIG): RegimeFacts {
   const p = new PointInTime(data, asOf, mode);
   const vixC = p.closes('VIX');
   const vix = vixC.length ? vixC[vixC.length - 1] : null;

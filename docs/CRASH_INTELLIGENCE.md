@@ -9,8 +9,11 @@ the scores below is a probability of a crash or of a winning trade.
 - **Put Hunter** (`/put-hunter`): scans Tradier put chains for SPY, QQQ, IWM,
   DIA or any ticker, in three horizons (14–60 DTE, 60–120 DTE, LEAPS 120+),
   and scores each contract three separate ways.
+- **Put Setups** (`/crash-setups`): today's market checked against put entry
+  rules tested on the replay, each with its track record. Puts only.
 - **Crash Simulator** (`/crash-simulator`): historical replay of the same
-  engine (second pull request).
+  engine, the historical Put Hunter, trade simulation, the strategy lab and
+  the performance report (section 10).
 
 Code: pure engines in `lib/crash/` (no network), providers in
 `lib/crash/providers/`, routes in `app/api/crash/`. Tests:
@@ -200,6 +203,12 @@ them it refuses. This builds genuine history from the day it is switched on.
   ORATS historical, about $599 one-time, 2007 onward) would backfill it.
 - **Historical options backtests**: same dependency; until then the simulator
   marks options results HISTORICAL OPTIONS DATA UNAVAILABLE or THEORETICAL.
+  Import purchased files with `scripts/import-historical-options.ts` (section 10).
+- **ICE BofA spreads on FRED** (HY / IG OAS) are licensed and FRED serves only
+  recent years of them, so for 2007–2016 the credit category leans on Moody's
+  Baa−Aaa and the HYG / LQD ETF ratios (HYG from April 2007).
+- **Historical catalysts**: the FOMC calendar covers 2026 onward only, so the
+  setup's catalyst component is zero in replays.
 - **Breadth**: free breadth uses sector-ETF proxies; true % above MA and
   advance/decline need TradingView imports or a paid feed.
 - **Live verification**: the engines are tested on synthetic series; the live
@@ -214,3 +223,116 @@ them it refuses. This builds genuine history from the day it is switched on.
    `supabase/schema.sql`, set `NEXT_PUBLIC_SUPABASE_URL`,
    `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET` on Vercel.
 4. Optional: TradingView breadth via CSV import or the alert webhook.
+
+## 10. Historical Crash Simulator
+
+Code: `lib/crash/history/` (pure engines plus `service.ts`, the server-side
+cache), `app/api/crash/history` (actions `replay`, `reveal`, `chain`, `scan`,
+`trade`, `evaluate`, `lab`), page `app/crash-simulator`. Tests:
+`scripts/check-crash-history.ts` (run by `npm test`).
+
+**Point in time.** The full-history dataset (Yahoo/Stooq ETFs, Cboe indexes,
+FRED/ALFRED) is scored for every session with the live engine. Each date sees
+only bars on or before it (or before it, for "before the open") and level
+points whose `availableOn` is on or before it; weekly STLFSI / NFCI appear on
+their release day, and with `FRED_API_KEY` their first-release values are
+used. Series without vintages are flagged "revised values, not strict
+point-in-time". The checks score dates on full and truncated data and require
+identical results.
+
+**No Hindsight Mode** (on by default). The server sends nothing dated after the
+replay date: no later prices, scores, regimes, headlines or declines.
+Headlines whose meaning is only known later ("the low") are hidden until
+reveal. The decision journal (Buy put / Watch / Wait / Avoid, contract, entry,
+hold, target, max loss, reason) is kept in the browser; only after a decision
+is recorded can the user reveal the outcome, simulate a trade, or run the
+whole-history report and lab.
+
+**Major declines** are detected from SPY closes: the first close at least X%
+(10% default, configurable) below the rolling 252-session high, lasting until
+a new rolling high, so declines never overlap. For each decline: first
+warning (the earliest warning episode overlapping the 120-day lead window and
+starting before the crossing), lead in calendar days, the score 90/60/30/10/1
+days before, and whether it was missed. Warning episodes (gaps of ≤ 5 sessions
+merged) are classified as preceded a decline (within 120 days), during a
+decline, false alarm, or pending (too recent to judge).
+
+**Splits.** In-sample / out-of-sample at a chosen date (default 2016-01-01),
+reported separately. Walk-forward: the score threshold is chosen on each
+training window (default 6 years) by F1 of hit rate and (1 − false-alarm
+rate), then measured on the next unseen 2-year window; if a training window
+had no decline the default is kept and marked.
+
+**Options data.** Actual chains come from the importer (local files) or
+Tradevi's own daily snapshots in Supabase. Without them the page says
+HISTORICAL OPTIONS DATA UNAVAILABLE. A THEORETICAL reconstruction can be
+shown instead, never presented as quotes:
+
+| Assumption | Default |
+| --- | --- |
+| ATM IV | volatility index × 0.92 (SPY/DIA: VIX with VIX9D/VIX3M term structure; QQQ: VXN; IWM: RVX; XLF/KRE: VIX × 60-day realized-vol ratio to SPY) |
+| Skew | +8 vol points per 10% OTM at 30 days, × √(30/DTE), scaled by Cboe SKEW / 125 |
+| Expirations | monthly third Fridays; beyond 9 months quarterly and January only |
+| Quotes | spread max(one tick, 4% of value); $0.05/$0.10 ticks before 2007-10-01, $0.01/$0.05 after |
+| Rate / dividends | DGS3MO that day / the live dividend estimate |
+
+Open interest and volume are unknown for theoretical contracts, so the
+liquidity stage can only check the assumed quote, and "best liquidity" is not
+offered. Acceptance criteria that need actual chains (inspect actual contract
+data; liquidity-checked qualification; actual trade results) stay marked
+UNMET or THEORETICAL ONLY on the page.
+
+**Trade engine.** Entry at the ask, the midpoint (flagged unverifiable), a
+limit or a user premium; a limit fills only when a later close's ask is at or
+below it (up to 3 sessions), otherwise no fill. Exits at each close at the bid
+(or mid): profit target (+25…+500% or custom), max loss (25…100%), underlying
+price, VIX level, technical breakdown, time, manual date, days before expiry,
+expiration (intrinsic). A threshold crossed between closes fills at the next
+close and is flagged "gap-through". Results include fees, MFE/MAE, max
+drawdown, capital efficiency and the hold-to-expiry outcome.
+
+**Strategy lab** (A cheap OTM, B moderate delta, C longer-dated, D vega per
+dollar with a VIX-30 exit, E breakdown confirmation, F early warning / PRE-CRASH
+WATCH): one position at a time, 20-day cooldown, sized by risk per trade
+(skipped when one contract exceeds it), with net, win rate, profit factor,
+expectancy, max drawdown, worst losing streak, holding period, in-sample vs
+out-of-sample, by regime and by year, and missed declines.
+
+**2008 BIG SHORT MODE** answers the ten questions from the point-in-time
+timeline and a weekly Put Hunter scan, with the caveat that those investors
+used credit derivatives, not index puts.
+
+**Reproducibility.** Every run returns a manifest: engine version, app
+version, parameters, date range, each series' source and FNV-1a fingerprint
+up to the run's end date, options data kind, and a results hash. Saved runs
+live in the browser and export/import as JSON; "Re-run and verify" reports
+same data / same engine / identical results, naming any revised series.
+
+**Importer.**
+
+```
+npx tsx scripts/import-historical-options.ts vendor.csv [--format orats|historicaloptiondata|cboe-datashop|tradevi-snapshot] [--symbol SPY]
+```
+
+Normalizes, validates (OCC symbol vs fields, expiry, missing / crossed /
+negative / impossible quotes, missing underlying, duplicates, non-standard
+multipliers, weekend expirations, missing Greeks, implausible IV, bids below
+intrinsic, quotes unchanged for 5 sessions with no volume), keeps puts within
+800 DTE and 40–110% of spot, and writes `data/historical-options/<SYMBOL>/<YYYY-MM>.json`
+plus a report. `data/` is git-ignored: licensed data stays on your machine.
+ORATS rows carry call Greeks, so put Greeks are recomputed from ORATS' put mid
+IV and marked. The adapters follow each vendor's published columns and have
+not been run on purchased files here; check the first import against the
+vendor's own viewer.
+
+**Put Setups.** Five puts-only rules (early warning long-dated and LEAPS,
+elevated risk short and long, breakdown short). Score thresholds come from the
+latest walk-forward fold. Beside each: warned/declines, lead, fires and false
+alarms (whole, in-sample, out-of-sample, walk-forward) and THEORETICAL trade
+outcomes on SPY. When a rule's conditions are present today, live Tradier
+contracts at WATCH or better are listed. Research flags only.
+
+**Performance.** A cold start fetches the full history and scores ~5,000+
+sessions (about 7 seconds); results are cached for 6 hours. A full lab run
+takes about 8 seconds. `CRASH_HISTORY_FIXTURE` (a dataset JSON) is honoured
+only outside production, for local render tests.

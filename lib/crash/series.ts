@@ -99,6 +99,13 @@ export function lastIndexAtOrBefore<T>(arr: readonly T[], target: string, key: (
  * dated after `asOf` (or, in 'open' mode, on `asOf` itself), nor level points
  * whose `availableOn` is later than the cut.
  */
+/**
+ * Bars / points any indicator may look back over. Fixed for live and
+ * historical runs alike, so a date scores the same either way, and it keeps
+ * a 20-year replay fast.
+ */
+export const MAX_LOOKBACK = 600;
+
 export class PointInTime {
   constructor(
     readonly data: MarketDataset,
@@ -126,7 +133,7 @@ export class PointInTime {
     const s = this.data.series[id];
     if (!s || s.kind !== 'bars') return [];
     const idx = lastIndexAtOrBefore(s.bars, this.barCut, (b) => b.date);
-    return idx < 0 ? [] : s.bars.slice(0, idx + 1);
+    return idx < 0 ? [] : s.bars.slice(Math.max(0, idx + 1 - MAX_LOOKBACK), idx + 1);
   }
 
   closes(id: string): number[] {
@@ -144,7 +151,8 @@ export class PointInTime {
     const cut = this.mode === 'close' ? this.asOf : prevDay(this.asOf);
     const idx = lastIndexAtOrBefore(s.points, cut, (p) => p.date);
     const out: LevelPoint[] = [];
-    for (let i = 0; i <= idx; i++) {
+    // Weekly series publish with a lag, so scan a little further back than the window.
+    for (let i = Math.max(0, idx + 1 - MAX_LOOKBACK - 30); i <= idx; i++) {
       const p = s.points[i];
       if ((p.availableOn ?? p.date) <= cut) out.push(p);
     }
