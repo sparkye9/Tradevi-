@@ -106,3 +106,38 @@ create policy "Signed-in users can view TradingView alerts"
 
 -- No insert/update/delete policy — the webhook route uses the service-role
 -- key, which bypasses RLS entirely, same as the PayPal webhook.
+
+-- Crash Intelligence — daily end-of-day put-chain snapshots recorded from
+-- Tradier by /api/crash/snapshot (Vercel Cron). This is Tradevi's own
+-- historical options record, built from the day recording starts. Only the
+-- server (service-role key) reads or writes it.
+create table if not exists public.crash_option_snapshots (
+  id bigserial primary key,
+  trade_date date not null,
+  captured_at timestamptz not null,
+  underlying text not null,
+  underlying_price numeric,
+  option_symbol text not null,
+  option_type text not null check (option_type in ('put', 'call')),
+  expiration date not null,
+  strike numeric not null,
+  bid numeric,
+  ask numeric,
+  last numeric,
+  volume integer,
+  open_interest integer,
+  delta numeric,
+  gamma numeric,
+  theta numeric,
+  vega numeric,
+  iv numeric,
+  greeks_updated_at timestamptz,
+  source text not null default 'Tradier',
+  unique (trade_date, option_symbol)
+);
+
+create index if not exists crash_option_snapshots_lookup_idx
+  on public.crash_option_snapshots (underlying, trade_date);
+
+alter table public.crash_option_snapshots enable row level security;
+-- No policies: only the service-role key (server) can read or write.

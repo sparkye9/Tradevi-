@@ -18,6 +18,10 @@ import {
   Calculator,
   NotebookPen,
   Settings,
+  ShieldAlert,
+  ListChecks,
+  Target,
+  History,
   MoreHorizontal,
   X,
   type LucideIcon,
@@ -40,6 +44,15 @@ const GROUPS: { title: string | null; items: NavItem[] }[] = [
       { href: '/market-structure', label: 'Market Structure', icon: Network },
       { href: '/power-hour', label: 'Power Hour', icon: Timer },
       { href: '/market-selector', label: 'Selector', icon: Crosshair },
+    ],
+  },
+  {
+    title: 'Crash Intelligence',
+    items: [
+      { href: '/crash-intelligence', label: 'Crash Intelligence', icon: ShieldAlert },
+      { href: '/put-hunter', label: 'Put Hunter', icon: Target },
+      { href: '/crash-setups', label: 'Put Setups', icon: ListChecks },
+      { href: '/crash-simulator', label: 'Crash Simulator', icon: History },
     ],
   },
   {
