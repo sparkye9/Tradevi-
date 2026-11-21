@@ -1,11 +1,14 @@
 'use client';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import LearnBox from '@/components/ui/LearnBox';
 import DataUnavailable from '@/components/ui/DataUnavailable';
 import CrashSubnav from '@/components/crash/CrashSubnav';
 import ContractDetail from '@/components/crash/ContractDetail';
 import TodayBox from '@/components/crash/TodayBox';
+import HistoryPanel, { HistoryCell, type AnalogResponse, type SetupsResponse } from '@/components/crash/HistoryPanel';
+import { bucketOf, type HistoricalPayoff } from '@/lib/crash/analogs';
+import { LABEL_ORDER } from '@/lib/crash/setup';
 import { ViewToggle, useViewMode } from '@/components/crash/ViewMode';
 import Term from '@/components/ui/Term';
 import { huntSummary } from '@/lib/crash/plainEnglish';
@@ -57,17 +60,26 @@ function save(key: string, v: unknown) {
   }
 }
 
-function SimpleRow({ r, onOpen }: { r: HuntRow; onOpen: () => void }) {
+type HistCtx = { payoffs: Record<string, HistoricalPayoff>; pick: string | null } | null;
+const isPick = (r: HuntRow, h: HistCtx) => {
+  if (!h?.pick) return false;
+  const b = bucketOf(Math.abs(r.ev.contract.delta ?? 0), r.ev.contract.dte);
+  return b?.id === h.pick;
+};
+const PickTag = () => <span className="ml-1 inline-flex rounded-full border border-tv-green/40 bg-tv-green/10 px-1.5 text-[10px] font-semibold text-tv-green">History&apos;s pick</span>;
+
+function SimpleRow({ r, onOpen, hist }: { r: HuntRow; onOpen: () => void; hist: HistCtx }) {
   const { ev, setup } = r;
   const c = ev.contract;
   return (
     <tr className="border-t border-white/[0.04] hover:bg-white/[0.03] cursor-pointer" onClick={onOpen}>
       <td className="py-2 pr-2"><LabelBadge label={setup.label} /></td>
       <td className="py-2 pr-2 text-white whitespace-nowrap">
-        ${c.strike} put
+        ${c.strike} put{isPick(r, hist) && <PickTag />}
         <div className="text-[11px] text-tv-muted">expires {fmtDate(c.expiration)} · {c.dte} days left</div>
       </td>
       <td className="py-2 pr-2 font-mono text-right">{usd(ev.costAtAsk, 0)}</td>
+      {hist && <td className="py-2 pr-2 font-mono text-right"><HistoryCell p={hist.payoffs[c.symbol]} /></td>}
       <td className="py-2 pr-2 font-mono text-right whitespace-nowrap">{usd(ev.breakevenAtAsk)}<div className="text-[11px] text-tv-muted font-sans">{ev.declineToBreakeven != null ? `${pctFmt(ev.declineToBreakeven)} drop` : ''}</div></td>
       <td className="py-2 pr-2 font-mono text-right hidden sm:table-cell">{usd(ev.thetaDollarsPerDay, 0)}</td>
       <td className={`py-2 font-mono text-right font-bold ${TONE_TEXT[qualityTone(ev.quality)]}`}>{ev.quality ?? '—'}</td>
@@ -75,14 +87,14 @@ function SimpleRow({ r, onOpen }: { r: HuntRow; onOpen: () => void }) {
   );
 }
 
-function Row({ r, onOpen }: { r: HuntRow; onOpen: () => void }) {
+function Row({ r, onOpen, hist }: { r: HuntRow; onOpen: () => void; hist: HistCtx }) {
   const { ev, setup } = r;
   const c = ev.contract;
   return (
     <tr className="border-t border-white/[0.04] hover:bg-white/[0.03] cursor-pointer" onClick={onOpen}>
       <td className="py-2 pr-2"><LabelBadge label={setup.label} /></td>
       <td className="py-2 pr-2 font-mono text-white whitespace-nowrap">
-        {c.strike}P <span className="text-tv-muted">{fmtDate(c.expiration)}</span>
+        {c.strike}P <span className="text-tv-muted">{fmtDate(c.expiration)}</span>{isPick(r, hist) && <PickTag />}
         <div className="text-[10px] text-tv-muted font-sans">{c.dte} DTE · {ev.moneyness}</div>
       </td>
       <td className="py-2 pr-2 font-mono text-right whitespace-nowrap">{usd(c.bid)} / {usd(c.ask)}<div className="text-[10px] text-tv-muted">mid {usd(ev.mid)}</div></td>
@@ -96,21 +108,22 @@ function Row({ r, onOpen }: { r: HuntRow; onOpen: () => void }) {
       <td className="py-2 pr-2 font-mono text-right hidden lg:table-cell">{pctFmt(ev.spreadPct, 0)}</td>
       <td className="py-2 pr-2 font-mono text-right whitespace-nowrap">{usd(ev.breakevenAtAsk)}<div className="text-[10px] text-tv-muted">−{pctFmt(ev.declineToBreakeven)}</div></td>
       <td className={`py-2 pr-2 font-mono text-right font-bold ${TONE_TEXT[qualityTone(ev.quality)]}`}>{ev.quality ?? '—'}</td>
-      <td className={`py-2 font-mono text-right font-bold ${TONE_TEXT[qualityTone(setup.setup)]}`}>{setup.setup ?? '—'}</td>
+      <td className={`py-2 ${hist ? 'pr-2' : ''} font-mono text-right font-bold ${TONE_TEXT[qualityTone(setup.setup)]}`}>{setup.setup ?? '—'}</td>
+      {hist && <td className="py-2 font-mono text-right"><HistoryCell p={hist.payoffs[c.symbol]} /></td>}
     </tr>
   );
 }
 
 const mult = (x: number) => (x >= 10 ? `${Math.round(x)}×` : `${x.toFixed(1)}×`);
 
-function TailRow({ r, onOpen, detailed }: { r: HuntRow; onOpen: () => void; detailed: boolean }) {
+function TailRow({ r, onOpen, detailed, hist }: { r: HuntRow; onOpen: () => void; detailed: boolean; hist: HistCtx }) {
   const { ev, tail } = r;
   const c = ev.contract;
   const h = tail?.headline;
   return (
     <tr className="border-t border-white/[0.04] hover:bg-white/[0.03] cursor-pointer" onClick={onOpen}>
       <td className="py-2 pr-2 text-white whitespace-nowrap">
-        {c.underlying} ${c.strike} put
+        {c.underlying} ${c.strike} put{isPick(r, hist) && <PickTag />}
         <div className="text-[11px] text-tv-muted">expires {fmtDate(c.expiration)} · {c.dte} days left</div>
       </td>
       <td className="py-2 pr-2 font-mono text-right">{usd(ev.costAtAsk, 0)}<div className="text-[10px] text-tv-muted">ask {usd(c.ask)}</div></td>
@@ -122,6 +135,7 @@ function TailRow({ r, onOpen, detailed }: { r: HuntRow; onOpen: () => void; deta
           </>
         ) : '—'}
       </td>
+      {hist && <td className="py-2 pr-2 font-mono text-right"><HistoryCell p={hist.payoffs[c.symbol]} /></td>}
       {detailed && (
         <td className="py-2 pr-2 font-mono text-right whitespace-nowrap text-[11px] text-gray-300">
           {tail ? tail.cells.map((x) => mult(x.multiple)).join(' · ') : '—'}
@@ -142,7 +156,7 @@ function TailRow({ r, onOpen, detailed }: { r: HuntRow; onOpen: () => void; deta
   );
 }
 
-function TailTable({ rows, detailed, onOpen }: { rows: HuntRow[]; detailed: boolean; onOpen: (r: HuntRow) => void }) {
+function TailTable({ rows, detailed, onOpen, hist }: { rows: HuntRow[]; detailed: boolean; onOpen: (r: HuntRow) => void; hist: HistCtx }) {
   const shown = detailed ? rows : rows.slice(0, 15);
   return (
     <table className="w-full text-xs">
@@ -151,6 +165,7 @@ function TailTable({ rows, detailed, onOpen }: { rows: HuntRow[]; detailed: bool
           <th className="text-left py-2 pl-4 pr-2"><Term k="put">Contract</Term></th>
           <th className="py-2 pr-2"><Term k="cost">Cost (max loss)</Term></th>
           <th className="py-2 pr-2">If index −5% and <Term k="vix">VIX</Term> +10</th>
+          {hist && <th className="py-2 pr-2">History (1 week)</th>}
           {detailed && <th className="py-2 pr-2">−3%/+5 · −5%/+10 · −8%/+15</th>}
           <th className="py-2 pr-2"><Term k="breakeven">Pays off below</Term></th>
           <th className="py-2 pr-2">Chance worthless</th>
@@ -167,11 +182,11 @@ function TailTable({ rows, detailed, onOpen }: { rows: HuntRow[]; detailed: bool
       </thead>
       <tbody className="[&>tr>td:first-child]:pl-4 [&>tr>td:last-child]:pr-4">
         {shown.map((r) => (
-          <TailRow key={r.ev.contract.symbol} r={r} detailed={detailed} onOpen={() => onOpen(r)} />
+          <TailRow key={r.ev.contract.symbol} r={r} detailed={detailed} hist={hist} onOpen={() => onOpen(r)} />
         ))}
         {!rows.length && (
           <tr>
-            <td colSpan={detailed ? 11 : 6} className="py-6 text-center text-tv-muted">No cheap tail put passed the liquidity and price checks.</td>
+            <td colSpan={(detailed ? 11 : 6) + (hist ? 1 : 0)} className="py-6 text-center text-tv-muted">No cheap tail put passed the liquidity and price checks.</td>
           </tr>
         )}
       </tbody>
@@ -205,6 +220,9 @@ export default function PutHunterPage() {
   const [open, setOpen] = useState<HuntRow | null>(null);
   const [budget, setBudget] = useState<RiskBudget>(DEFAULT_BUDGET);
   const [positions, setPositions] = useState<Position[]>([]);
+  const [hist, setHist] = useState<AnalogResponse | null>(null);
+  const [histLoading, setHistLoading] = useState(false);
+  const [setups, setSetups] = useState<SetupsResponse | null>(null);
 
   useEffect(() => {
     setBudget(load(BUDGET_KEY, DEFAULT_BUDGET));
@@ -217,6 +235,17 @@ export default function PutHunterPage() {
     try {
       const qs = new URLSearchParams({ symbol: sym, horizon: h });
       for (const k of Object.keys(f) as (keyof ScreenFilters)[]) qs.set(k, String(f[k]));
+      setHist(null);
+      setHistLoading(true);
+      // History runs in parallel: the first load replays ~20 years and can take a minute.
+      fetch(`/api/crash/analogs?${qs}`)
+        .then(async (r) => {
+          const j = (await r.json().catch(() => ({ error: r.status === 504 ? 'history took too long to load; reload in a minute' : `HTTP ${r.status}` }))) as AnalogResponse;
+          if (!r.ok && !j.error) j.error = `HTTP ${r.status}`;
+          setHist(j);
+        })
+        .catch((e) => setHist({ error: e instanceof Error ? e.message : String(e) } as AnalogResponse))
+        .finally(() => setHistLoading(false));
       const res = await fetch(`/api/crash/puts?${qs}`);
       const j = (await res.json()) as HuntResponse;
       if (!res.ok && !j.error) j.error = `HTTP ${res.status}`;
@@ -227,6 +256,17 @@ export default function PutHunterPage() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!PUT_HUNTER_UNDERLYINGS.includes(symbol as (typeof PUT_HUNTER_UNDERLYINGS)[number])) {
+      setSetups({ error: 'rules cover SPY, QQQ, IWM and DIA' });
+      return;
+    }
+    setSetups(null);
+    fetch(`/api/crash/setups?symbol=${symbol}`)
+      .then(async (r) => setSetups((await r.json().catch(() => ({ error: `HTTP ${r.status}` }))) as SetupsResponse))
+      .catch(() => setSetups({ error: 'unavailable' }));
+  }, [symbol]);
 
   useEffect(() => {
     scan(symbol, filters, horizon);
@@ -258,6 +298,15 @@ export default function PutHunterPage() {
     save(POS_KEY, next);
   }
 
+  const histCtx: HistCtx = hist && !hist.error && data && hist.symbol === data.symbol ? { payoffs: hist.payoffs ?? {}, pick: hist.learned?.best?.id ?? null } : null;
+  const rows = useMemo(() => {
+    const base = data?.rows ?? [];
+    if (!histCtx) return base;
+    const m = (r: HuntRow) => histCtx.payoffs[r.ev.contract.symbol]?.meanMultiple ?? -1;
+    if (data?.mode === 'tail') return [...base].sort((a, b) => m(b) - m(a));
+    return [...base].sort((a, b) => LABEL_ORDER.indexOf(a.setup.label) - LABEL_ORDER.indexOf(b.setup.label) || m(b) - m(a));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, hist]);
   const exposure = exposureByGroup(positions, budget);
   const rejections = Object.entries(data?.rejectionCounts ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 6);
 
@@ -357,6 +406,7 @@ export default function PutHunterPage() {
       )}
 
       {!loading && data && <TodayBox sentences={huntSummary(data, data.market?.regime ?? null)} />}
+      {!loading && data && !data.error && <HistoryPanel hist={hist} loading={histLoading} setups={setups} symbol={data.symbol} />}
 
       {loading && <div className="skeleton h-40" />}
       {!loading && data?.error && !data.rows?.length && <DataUnavailable reason={data.error} />}
@@ -380,7 +430,7 @@ export default function PutHunterPage() {
             {data.partialErrors.length > 0 && <p className="px-4 text-[11px] text-tv-amber">Some data missing: {data.partialErrors.slice(0, 3).join('; ')}</p>}
             <div className="overflow-x-auto mt-2">
               {data.mode === 'tail' ? (
-                <TailTable rows={data.rows} detailed={mode === 'detailed'} onOpen={setOpen} />
+                <TailTable rows={rows} detailed={mode === 'detailed'} onOpen={setOpen} hist={histCtx} />
               ) : mode === 'simple' ? (
                 <table className="w-full text-xs">
                   <thead className="text-tv-muted text-[10px] uppercase tracking-wider">
@@ -388,14 +438,15 @@ export default function PutHunterPage() {
                       <th className="text-left py-2 pl-4 pr-2"><Term k="watch">Verdict</Term></th>
                       <th className="text-left py-2 pr-2"><Term k="put">Contract</Term></th>
                       <th className="py-2 pr-2"><Term k="cost">Cost (max loss)</Term></th>
+                      {histCtx && <th className="py-2 pr-2">History</th>}
                       <th className="py-2 pr-2"><Term k="breakeven">Pays off below</Term></th>
                       <th className="py-2 pr-2 hidden sm:table-cell"><Term k="theta">Time cost / day</Term></th>
                       <th className="py-2 pr-4"><Term k="quality">Quality</Term></th>
                     </tr>
                   </thead>
                   <tbody className="[&>tr>td:first-child]:pl-4 [&>tr>td:last-child]:pr-4">
-                    {data.rows.slice(0, 15).map((r) => (
-                      <SimpleRow key={r.ev.contract.symbol} r={r} onOpen={() => setOpen(r)} />
+                    {rows.slice(0, 15).map((r) => (
+                      <SimpleRow key={r.ev.contract.symbol} r={r} hist={histCtx} onOpen={() => setOpen(r)} />
                     ))}
                     {!data.rows.length && (
                       <tr>
@@ -421,12 +472,13 @@ export default function PutHunterPage() {
                     <th className="py-2 pr-2 hidden lg:table-cell"><Term k="spread">Spread</Term></th>
                     <th className="py-2 pr-2"><Term k="breakeven">Breakeven</Term></th>
                     <th className="py-2 pr-2"><Term k="quality">Quality</Term></th>
-                    <th className="py-2 pr-4"><Term k="setup">Setup</Term></th>
+                    <th className={`py-2 ${histCtx ? 'pr-2' : 'pr-4'}`}><Term k="setup">Setup</Term></th>
+                    {histCtx && <th className="py-2 pr-4">History</th>}
                   </tr>
                 </thead>
                 <tbody className="[&>tr>td:first-child]:pl-4 [&>tr>td:last-child]:pr-4">
-                  {data.rows.map((r) => (
-                    <Row key={r.ev.contract.symbol} r={r} onOpen={() => setOpen(r)} />
+                  {rows.map((r) => (
+                    <Row key={r.ev.contract.symbol} r={r} hist={histCtx} onOpen={() => setOpen(r)} />
                   ))}
                   {!data.rows.length && (
                     <tr>

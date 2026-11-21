@@ -17,6 +17,8 @@ import { parseTradingViewCsv } from '../lib/crash/providers/tradingview';
 import { parseCboeCsv, parseFredCsv, parseTreasuryCsv } from '../lib/crash/providers/fetchers';
 import { parseGreeksStamp } from '../lib/crash/providers/chains';
 import { runSection as historyChecks } from './check-crash-history';
+import { findAnalogs, historicalPayoff, learnBucket } from '../lib/crash/analogs';
+import type { TimelinePoint } from '../lib/crash/history/timeline';
 
 let failed = 0;
 export function check(name: string, cond: boolean) {
@@ -227,6 +229,40 @@ check('FRED CSV skips "." values', parseFredCsv('observation_date,BAMLH0A0HYM2\n
 check('Treasury CSV parsed', parseTreasuryCsv('Date,"1 Mo","3 Mo","2 Yr","10 Yr"\n11/20/2026,4.1,4.0,3.6,4.2').get('2026-11-20')?.['10 Yr'] === 4.2);
 check('Greeks stamp read as New York time', parseGreeksStamp('2026-11-20 14:59:08', new Date('2026-11-20T21:00:00Z')) === '2026-11-20T19:59:08.000Z');
 check('future Greeks stamp treated as unknown', parseGreeksStamp('2026-11-21 14:59:08', new Date('2026-11-20T21:00:00Z')) === null);
+
+// ─── Days like today ────────────────────────────────────────────────────────
+{
+  const days: TimelinePoint[] = [];
+  const start = Date.UTC(2005, 0, 3);
+  let spy = 100;
+  for (let i = 0; i < 2000; i++) {
+    const date = new Date(start + i * 86400000).toISOString().slice(0, 10);
+    // Every 100 sessions: 10 calm-but-warning days (score 60, VIX 20), then a 12% drop with VIX doubling.
+    const phase = i % 100;
+    const warn = phase >= 80 && phase < 90;
+    if (phase >= 90 && phase < 95) spy *= 0.975;
+    else spy *= 1.0005;
+    const vix = phase >= 90 ? 40 : warn ? 20 : 14;
+    days.push({ date, score: warn ? 60 : 20, categories: {} as TimelinePoint['categories'], regime: warn ? 'ELEVATED RISK' : 'NORMAL', insufficient: false, spy, vix });
+  }
+  const todayDate = days[1990].date;
+  const an = findAnalogs({ tl: days, today: { date: todayDate, score: 60, vix: 20, regime: 'ELEVATED RISK' }, holdSessions: 10 });
+  check('analogs match only similar days', an.days.length > 0 && an.days.every((d) => days.find((p) => p.date === d.date)!.score === 60));
+  check('analogs need a complete forward window', an.days.every((d) => days.findIndex((p) => p.date === d.date) < days.length - 20));
+  check('analogs are all before today', an.days.every((d) => d.date < todayDate));
+  check('analog episodes are merged runs', an.episodes > 0 && an.episodes < an.days.length);
+  check('warning days in this series were followed by 10% drops', (an.stats.pDrop10in20 ?? 0) > 0.5);
+  const pay = historicalPayoff({ S: 100, K: 92, dte: 40, entry: 0.4, iv: 0.22, r: 0.04, q: 0, analogs: an });
+  check('a put re-priced on drops pays on average', pay != null && pay.meanMultiple > 1 && pay.label === 'THEORETICAL');
+  const calm = findAnalogs({ tl: days, today: { date: todayDate, score: 20, vix: 14, regime: 'NORMAL' }, holdSessions: 10 });
+  const payCalm = historicalPayoff({ S: 100, K: 92, dte: 40, entry: 0.4, iv: 0.22, r: 0.04, q: 0, analogs: calm });
+  check('the same put pays less after calm days', pay != null && payCalm != null && payCalm.meanMultiple < pay.meanMultiple);
+  const lb = learnBucket([
+    { absDelta: 0.03, dte: 30, payoff: { n: 50, meanMultiple: 3, medianMultiple: 0, hitRate: 0.2, p3x: 0.1, meanBefore: 3, meanAfter: 2, label: 'THEORETICAL' } },
+    { absDelta: 0.25, dte: 30, payoff: { n: 50, meanMultiple: 1, medianMultiple: 1, hitRate: 0.5, p3x: 0, meanBefore: 1.1, meanAfter: 1.0, label: 'THEORETICAL' } },
+  ]);
+  check('learned bucket chosen on early days and checked on later ones', lb.best?.label.startsWith('|Δ| 0.02–0.05') === true && lb.heldUp === true);
+}
 
 historyChecks(check);
 
