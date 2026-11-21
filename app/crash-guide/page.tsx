@@ -19,7 +19,7 @@ const PAGES = [
     href: '/put-hunter',
     name: 'Put Hunter',
     question: 'Is there a put worth buying, and what could I lose?',
-    look: ['Only rows labelled WATCH or STRONG WATCH', 'Cost (the most you can lose) and “pays off below” (breakeven)', 'Tap a row for what it might be worth if the market falls 5%, 10% or 20%'],
+    look: ['Only rows labelled WATCH or STRONG WATCH', 'Cost (the most you can lose) and “pays off below” (breakeven)', 'Tap a row for what it might be worth if the market falls 5%, 10% or 15%'],
   },
   {
     href: '/crash-simulator',
