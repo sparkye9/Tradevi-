@@ -6,6 +6,7 @@ const ITEMS = [
   { href: '/crash-intelligence', label: 'Crash Intelligence' },
   { href: '/put-hunter', label: 'Put Hunter' },
   { href: '/crash-setups', label: 'Put Setups' },
+  { href: '/small-account', label: 'Small account' },
   { href: '/crash-guide', label: 'How to use' },
 ];
 

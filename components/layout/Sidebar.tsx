@@ -20,6 +20,7 @@ import {
   Settings,
   ShieldAlert,
   ListChecks,
+  Wallet,
   Target,
   MoreHorizontal,
   X,
@@ -51,6 +52,7 @@ const GROUPS: { title: string | null; items: NavItem[] }[] = [
       { href: '/crash-intelligence', label: 'Crash Intelligence', icon: ShieldAlert },
       { href: '/put-hunter', label: 'Put Hunter', icon: Target },
       { href: '/crash-setups', label: 'Put Setups', icon: ListChecks },
+      { href: '/small-account', label: 'Small account', icon: Wallet },
     ],
   },
   {
