@@ -89,15 +89,15 @@ function TrajectoryChart({ t }: { t: Traj }) {
   }, [t]);
   const minY = Math.floor(Math.min(-60, (t.scenario?.troughFromPeak ?? 0) * 100 - 5) / 10) * 10;
   return (
-    <div className="h-[340px] w-full">
+    <div className="h-[370px] w-full">
       <ResponsiveContainer>
-        <LineChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+        <LineChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 18 }}>
           <CartesianGrid stroke="#ffffff10" />
           <XAxis dataKey="x" type="number" domain={[0, 400]} tick={{ fill: '#888', fontSize: 11 }} label={{ value: 'trading days since the peak', position: 'insideBottom', offset: -4, fill: '#777', fontSize: 11 }} />
           <YAxis domain={[minY, 5]} tick={{ fill: '#888', fontSize: 11 }} tickFormatter={(v) => `${v}%`} width={44} />
           <ReferenceLine y={0} stroke="#ffffff30" />
           <Tooltip contentStyle={{ background: '#111', border: '1px solid #333', fontSize: 12 }} formatter={(v: number, n: string) => [`${v.toFixed(1)}%`, n]} labelFormatter={(x) => `Day ${x} after the peak`} />
-          <Legend wrapperStyle={{ fontSize: 11 }} onClick={(e) => setShow((s) => ({ ...s, [String(e.dataKey)]: s[String(e.dataKey)] === false }))} />
+          <Legend wrapperStyle={{ fontSize: 11, paddingTop: 14 }} onClick={(e) => setShow((s) => ({ ...s, [String(e.dataKey)]: s[String(e.dataKey)] === false }))} />
           {t.episodes.map((e, i) => (
             <Line key={e.id} dataKey={e.id} name={`${e.label} (${pctFmt(e.depth, 0)})`} stroke={EP_COLORS[i % EP_COLORS.length]} strokeWidth={1} dot={false} isAnimationActive={false} hide={show[e.id] === false} connectNulls={false} />
           ))}
