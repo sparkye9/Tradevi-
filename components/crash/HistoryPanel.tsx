@@ -84,7 +84,7 @@ export default function HistoryPanel({ hist, loading, setups, symbol }: { hist: 
             <p className="text-xs text-tv-muted">No past days were close enough to today to learn from.</p>
           )}
           <p className="text-[11px] text-tv-muted">
-            The &ldquo;History&rdquo; column re-prices each put on what {hist.underlyingSeries} and {hist.volSeries} actually did over the {holdLabel} after each similar day. The moves are real; the option prices are a model, because real past option quotes aren&apos;t loaded. Rows are ranked by that average.
+            The &ldquo;History&rdquo; column re-prices each put on what {hist.underlyingSeries} and {hist.volSeries} actually did over {holdLabel} after each similar day. The moves are real; the option prices are a model, because real past option quotes aren&apos;t loaded. Rows are ranked by that average.
           </p>
         </>
       )}
