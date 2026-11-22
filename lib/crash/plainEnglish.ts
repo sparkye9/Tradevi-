@@ -108,7 +108,7 @@ export function huntSummary(hunt: HuntResult & { error?: string }, regime?: Regi
     if (hunt.noTradeReason) out.push({ text: hunt.noTradeReason, tone: 'gray' });
   } else {
     if (falling) {
-      out.push({ text: `The market is already falling. ${watch.length} ${hunt.symbol} put${watch.length === 1 ? '' : 's'} to consider for riding the fall, out of ${hunt.scanned.toLocaleString()} checked.`, tone: 'amber' });
+      out.push({ text: `The market is already falling. ${hunt.passing.toLocaleString()} ${hunt.symbol} put${hunt.passing === 1 ? '' : 's'} pass the checks out of ${hunt.scanned.toLocaleString()}; these are candidates for riding the fall.`, tone: 'amber' });
       out.push({ text: 'These are IN A FALL candidates, not early warnings: puts cost more now, and a sharp bounce can wipe out most of the premium within days.', tone: 'red' });
     } else out.push({ text: `${watch.length} ${hunt.symbol} put${watch.length === 1 ? '' : 's'} worth a closer look, out of ${hunt.scanned.toLocaleString()} checked.`, tone: 'green' });
     const t = watch[0].ev;
