@@ -288,6 +288,7 @@ export default function SmallAccountPage() {
                       <td className="py-2 pr-2 text-right font-mono">
                         {r.underlying} {pctFmt(r.fundDrop, 1)}
                         {r.underlying !== 'SPY' && r.spyDrop != null && <div className="text-[11px] text-tv-muted">≈ SPY {pctFmt(r.spyDrop, 0)}</div>}
+                        {r.underlying !== 'SPY' && r.spyDrop == null && <div className="text-[11px] text-tv-amber">doesn’t move with SPY</div>}
                       </td>
                       <td className="py-2 pr-2 text-right font-mono">{pctFmt(r.chanceWorthless, 0)}</td>
                       {(['median', 'worstPast', 'worseThanEver'] as const).map((id) => {
