@@ -179,7 +179,7 @@ export interface Scenario {
 /**
  * "Worse than any crash in the data": the worst past crash's shape from
  * today's depth onward, made `depthFactor` times as deep (from the peak) and
- * `speedFactor` times as fast. An assumption for stress-testing, not a forecast.
+ * `speedFactor` times as fast, without its bounces. An assumption for stress-testing, not a forecast.
  */
 export function worseThanEver(episodes: readonly Episode[], depthNow: number, depthFactor = 1.25, speedFactor = 1.5, ahead = 250): Scenario | null {
   if (!episodes.length) return null;
@@ -192,10 +192,13 @@ export function worseThanEver(episodes: readonly Episode[], depthNow: number, de
   const span = Math.log(1 + worst.depth) - base; // negative
   const want = Math.log(1 + target) - Math.log(1 + depthNow); // negative
   const rel: number[] = [];
+  let low = 0;
   for (let k = 0; k <= ahead; k++) {
     const j = Math.min(iT, i0 + Math.round(k * speedFactor));
     const frac = span !== 0 ? (Math.log(1 + worst.path[j]) - base) / span : 1; // 0 at today's depth, 1 at the trough
-    rel.push(Math.exp(Math.max(0, frac) * want));
+    // A worse-than-ever crash keeps falling: the worst crash's bounces are left out (running low only).
+    low = Math.max(low, Math.min(1, frac));
+    rel.push(Math.exp(low * want));
   }
   return {
     label: 'Worse than every past crash (your scenario)',

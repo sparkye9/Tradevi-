@@ -303,6 +303,7 @@ historyChecks(check);
   check('scenario path ends at that trough', near((1 + cur.depth) * Math.min(...sc.rel) - 1, -0.625, 1e-6));
   check('scenario is deeper than every past path', Math.min(...sc.rel) < Math.min(...fh.worst));
   check('scenario is faster than the worst past crash', sc.rel.findIndex((x) => x <= Math.min(...sc.rel) + 1e-9) < 200);
+  check('scenario never bounces (each day at or below the day before)', sc.rel.every((x, i) => i === 0 || x <= sc.rel[i - 1] + 1e-12));
   // Puts on the paths
   const v = putAtExpiry({ S: 100, K: 90, dte: 30, beta: 1, rel: [1, 0.9, 0.8, ...Array(30).fill(0.8)] });
   check('put at expiry on a −20% path is worth strike − price', near(v, 10, 1e-9));
