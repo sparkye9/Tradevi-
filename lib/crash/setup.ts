@@ -10,9 +10,12 @@ import type { EvaluatedContract } from './contracts';
 import type { Regime, RegimeFacts } from './regime';
 import type { ScenarioResult } from './scenarios';
 
-export type SetupLabel = 'STRONG WATCH' | 'WATCH' | 'WAIT' | 'AVOID' | 'LATE ENTRY';
+export type SetupLabel = 'STRONG WATCH' | 'WATCH' | 'IN A FALL' | 'WAIT' | 'AVOID' | 'LATE ENTRY';
 
-export const LABEL_ORDER: SetupLabel[] = ['STRONG WATCH', 'WATCH', 'WAIT', 'LATE ENTRY', 'AVOID'];
+export const LABEL_ORDER: SetupLabel[] = ['STRONG WATCH', 'WATCH', 'IN A FALL', 'WAIT', 'LATE ENTRY', 'AVOID'];
+
+/** Labels that count as a candidate (not NO TRADE). */
+export const ACTIONABLE_LABELS: SetupLabel[] = ['STRONG WATCH', 'WATCH', 'IN A FALL'];
 
 /** How well a regime suits buying puts as an early entry (0–1). */
 export const REGIME_FIT: Record<Regime, number> = {
@@ -97,9 +100,12 @@ export function evaluateSetup(inp: SetupInput): SetupResult {
     label = 'AVOID';
     if (!ev.passes) risks.unshift(...ev.rejections.map((r) => r + '.'));
     else risks.unshift('Contract quality is poor.');
-  } else if (regime === 'PANIC / LATE ENTRY' || (regime === 'VOLATILITY EXPANSION' && lateVol)) {
-    label = 'LATE ENTRY';
-    risks.unshift('Protection is already expensive; the early opportunity may have passed.');
+  } else if (regime === 'PANIC / LATE ENTRY' || (regime === 'VOLATILITY EXPANSION' && lateVol) || regime === 'BREAKDOWN CONFIRMED') {
+    // Crash mode (Nov 2026): the market is already falling. Show the put as a
+    // candidate for riding the fall, with the late-entry risks kept on top.
+    label = 'IN A FALL';
+    risks.unshift('Markets often bounce hard in a fall; a bounce can wipe out most of the premium within days.');
+    if (regime !== 'BREAKDOWN CONFIRMED') risks.unshift('Protection is already expensive; you are paying for fear that is already priced in.');
   } else if (setup != null && setup >= 70 && ev.quality >= 60) label = 'STRONG WATCH';
   else if (setup != null && setup >= 55) label = 'WATCH';
   else if (setup != null && setup >= 35) label = 'WAIT';

@@ -12,7 +12,7 @@ import { fetchPutChains } from './providers/chains';
 import { etfBars } from './providers/fetchers';
 import { runScenarios, smileFromChain, type ScenarioResult, type SmilePoint } from './scenarios';
 import { addDays, realizedVol, type AnySeries, type MarketDataset } from './series';
-import { LABEL_ORDER, evaluateSetup, type SetupResult } from './setup';
+import { ACTIONABLE_LABELS, LABEL_ORDER, evaluateSetup, type SetupResult } from './setup';
 
 export interface TailCell {
   priceShock: number;
@@ -201,7 +201,7 @@ export async function huntPuts(args: {
   if (args.market.regime.insufficient) {
     return { ...base, scanned: puts.length, passing: passing.length, rows: rows.slice(0, 60), rejectionCounts: counts, noTrade: true, noTradeReason: 'Market data is unavailable, so the environment cannot be judged. Contracts are listed for reference only.' };
   }
-  const actionable = rows.filter((r) => r.setup.label === 'STRONG WATCH' || r.setup.label === 'WATCH');
+  const actionable = rows.filter((r) => ACTIONABLE_LABELS.includes(r.setup.label));
   return {
     ...base,
     scanned: puts.length,

@@ -9,7 +9,7 @@
  * when one is loaded for the date, otherwise the THEORETICAL model, and each
  * trade records which. No strategy is assumed to beat another.
  */
-import { SHORT_TERM_FILTERS, type ScreenFilters } from '../config';
+import { RESEARCH_SHORT_FILTERS as SHORT_TERM_FILTERS, type ScreenFilters } from '../config';
 import { evaluateContract, atmIvByExpiration, type EvaluatedContract } from '../contracts';
 import { realizedVol, PointInTime, addDays, type MarketDataset } from '../series';
 import type { Regime } from '../regime';

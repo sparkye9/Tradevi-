@@ -91,9 +91,24 @@ export interface ScreenFilters {
    * limits (a one-cent tick on a $0.10 option is already 10%).
    */
   maxSpreadAbs?: number;
+  /**
+   * When true, open interest, volume and spread below these limits mark the
+   * row "Thin" (a visible warning) instead of hiding it. Only a missing or
+   * zero bid still removes a contract. Used by all Put Hunter presets since
+   * Nov 2026, so a falling market is not filtered down to nothing.
+   */
+  softLiquidity?: boolean;
 }
 
-export const SHORT_TERM_FILTERS: ScreenFilters = {
+/**
+ * The original screening limits. Historical research (strategies, replay
+ * funnels) keeps using these so published track records don't change when
+ * the live Put Hunter defaults are widened.
+ */
+/** Filter fields that hold numbers (everything but the softLiquidity switch). */
+export type NumericFilterKey = Exclude<keyof ScreenFilters, 'softLiquidity'>;
+
+export const RESEARCH_SHORT_FILTERS: ScreenFilters = {
   minPremium: 0.05,
   maxPremium: 0.5,
   minDte: 14,
@@ -105,13 +120,34 @@ export const SHORT_TERM_FILTERS: ScreenFilters = {
   maxSpreadPct: 0.25,
   maxGreeksAgeMin: 90,
 };
+export const RESEARCH_LONG_FILTERS: ScreenFilters = { ...RESEARCH_SHORT_FILTERS, maxPremium: 3, minDte: 60, maxDte: 120 };
+export const RESEARCH_LEAPS_FILTERS: ScreenFilters = { ...RESEARCH_SHORT_FILTERS, maxPremium: 25, minDte: 120, maxDte: 800, minAbsDelta: 0.1, maxAbsDelta: 0.5, minVolume: 0 };
+
+// Nov 2026: widened so a market that is already falling still shows puts.
+// The old $0.50 cap with a 0.10 delta floor could not both be met with the VIX
+// in the 30s. Thin trading is flagged, not hidden (softLiquidity).
+export const SHORT_TERM_FILTERS: ScreenFilters = {
+  minPremium: 0.05,
+  maxPremium: 10,
+  minDte: 3,
+  maxDte: 60,
+  minAbsDelta: 0.03,
+  maxAbsDelta: 0.4,
+  minOpenInterest: 50,
+  minVolume: 1,
+  maxSpreadPct: 0.3,
+  maxSpreadAbs: 0.05,
+  maxGreeksAgeMin: 90,
+  softLiquidity: true,
+};
 
 export const LONG_TERM_FILTERS: ScreenFilters = {
   ...SHORT_TERM_FILTERS,
   minPremium: 0.05,
-  maxPremium: 3,
+  maxPremium: 25,
   minDte: 60,
   maxDte: 120,
+  minVolume: 0,
 };
 
 /** LEAPS window for the long-term Setups view (no premium cap by default). */
@@ -121,7 +157,7 @@ export const LEAPS_FILTERS: ScreenFilters = {
   maxPremium: 25,
   minDte: 120,
   maxDte: 800,
-  minAbsDelta: 0.1,
+  minAbsDelta: 0.03,
   maxAbsDelta: 0.5,
   minVolume: 0,
 };
@@ -133,16 +169,17 @@ export const LEAPS_FILTERS: ScreenFilters = {
  */
 export const TAIL_FILTERS: ScreenFilters = {
   minPremium: 0.05,
-  maxPremium: 0.5,
-  minDte: 7,
+  maxPremium: 1,
+  minDte: 3,
   maxDte: 60,
-  minAbsDelta: 0.005,
-  maxAbsDelta: 0.1,
-  minOpenInterest: 1000,
-  minVolume: 10,
+  minAbsDelta: 0.003,
+  maxAbsDelta: 0.15,
+  minOpenInterest: 250,
+  minVolume: 1,
   maxSpreadPct: 0.4,
   maxSpreadAbs: 0.03,
   maxGreeksAgeMin: 90,
+  softLiquidity: true,
 };
 
 /** Stress scenarios for tail puts: index drop with a matching VIX-point rise, valued after TAIL_HOLD_DAYS. */

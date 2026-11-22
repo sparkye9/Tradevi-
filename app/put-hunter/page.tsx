@@ -13,7 +13,7 @@ import { ViewToggle, useViewMode } from '@/components/crash/ViewMode';
 import Term from '@/components/ui/Term';
 import { huntSummary } from '@/lib/crash/plainEnglish';
 import { LabelBadge, Pill, RegimeBadge, TONE_TEXT, fmtDate, fmtEt, pctFmt, qualityTone, scoreTone, usd } from '@/components/crash/ui';
-import { LEAPS_FILTERS, LONG_TERM_FILTERS, PUT_HUNTER_UNDERLYINGS, SHORT_TERM_FILTERS, TAIL_FILTERS, TAIL_HOLD_DAYS, type ScreenFilters } from '@/lib/crash/config';
+import { LEAPS_FILTERS, LONG_TERM_FILTERS, PUT_HUNTER_UNDERLYINGS, SHORT_TERM_FILTERS, TAIL_FILTERS, TAIL_HOLD_DAYS, type NumericFilterKey, type ScreenFilters } from '@/lib/crash/config';
 import type { HuntResult, HuntRow } from '@/lib/crash/hunter';
 import type { Regime } from '@/lib/crash/regime';
 import { DEFAULT_BUDGET, exposureByGroup, type Position, type RiskBudget } from '@/lib/crash/sizing';
@@ -22,13 +22,13 @@ type Horizon = 'short' | 'long' | 'leaps' | 'tail';
 type HuntResponse = HuntResult & { error?: string; market?: { score: number | null; band: string | null; coverage: number; regime: Regime; insufficient: boolean; why: string[]; asOf: string } };
 
 const HORIZONS: { id: Horizon; label: string; filters: ScreenFilters }[] = [
-  { id: 'short', label: 'Short term · 14–60 DTE', filters: SHORT_TERM_FILTERS },
+  { id: 'short', label: 'Short term · 3–60 DTE', filters: SHORT_TERM_FILTERS },
   { id: 'long', label: 'Long term · 60–120 DTE', filters: LONG_TERM_FILTERS },
   { id: 'leaps', label: 'LEAPS · 120+ DTE', filters: LEAPS_FILTERS },
-  { id: 'tail', label: 'Cheap tail puts · 7–60 DTE', filters: TAIL_FILTERS },
+  { id: 'tail', label: 'Cheap tail puts · 3–60 DTE', filters: TAIL_FILTERS },
 ];
 
-const FILTER_FIELDS: { key: keyof ScreenFilters; label: string; step: number; pct?: boolean }[] = [
+const FILTER_FIELDS: { key: NumericFilterKey; label: string; step: number; pct?: boolean }[] = [
   { key: 'minPremium', label: 'Min premium $/sh', step: 0.01 },
   { key: 'maxPremium', label: 'Max premium $/sh', step: 0.01 },
   { key: 'minDte', label: 'Min DTE', step: 1 },
@@ -66,6 +66,8 @@ const isPick = (r: HuntRow, h: HistCtx) => {
   const b = bucketOf(Math.abs(r.ev.contract.delta ?? 0), r.ev.contract.dte);
   return b?.id === h.pick;
 };
+const isThin = (r: HuntRow) => r.ev.flags.some((f) => f.startsWith('Thin:'));
+const ThinTag = ({ r }: { r: HuntRow }) => (isThin(r) ? <span title={r.ev.flags.filter((f) => f.startsWith('Thin:')).join('; ')} className="ml-1 inline-flex rounded-full border border-tv-amber/40 bg-tv-amber/10 px-1.5 text-[10px] font-semibold text-tv-amber">Thin</span> : null);
 const PickTag = () => <span className="ml-1 inline-flex rounded-full border border-tv-green/40 bg-tv-green/10 px-1.5 text-[10px] font-semibold text-tv-green">History&apos;s pick</span>;
 
 function SimpleRow({ r, onOpen, hist }: { r: HuntRow; onOpen: () => void; hist: HistCtx }) {
@@ -75,7 +77,7 @@ function SimpleRow({ r, onOpen, hist }: { r: HuntRow; onOpen: () => void; hist: 
     <tr className="border-t border-white/[0.04] hover:bg-white/[0.03] cursor-pointer" onClick={onOpen}>
       <td className="py-2 pr-2"><LabelBadge label={setup.label} /></td>
       <td className="py-2 pr-2 text-white whitespace-nowrap">
-        ${c.strike} put{isPick(r, hist) && <PickTag />}
+        ${c.strike} put{isPick(r, hist) && <PickTag />}<ThinTag r={r} />
         <div className="text-[11px] text-tv-muted">expires {fmtDate(c.expiration)} · {c.dte} days left</div>
       </td>
       <td className="py-2 pr-2 font-mono text-right">{usd(ev.costAtAsk, 0)}</td>
@@ -94,7 +96,7 @@ function Row({ r, onOpen, hist }: { r: HuntRow; onOpen: () => void; hist: HistCt
     <tr className="border-t border-white/[0.04] hover:bg-white/[0.03] cursor-pointer" onClick={onOpen}>
       <td className="py-2 pr-2"><LabelBadge label={setup.label} /></td>
       <td className="py-2 pr-2 font-mono text-white whitespace-nowrap">
-        {c.strike}P <span className="text-tv-muted">{fmtDate(c.expiration)}</span>{isPick(r, hist) && <PickTag />}
+        {c.strike}P <span className="text-tv-muted">{fmtDate(c.expiration)}</span>{isPick(r, hist) && <PickTag />}<ThinTag r={r} />
         <div className="text-[10px] text-tv-muted font-sans">{c.dte} DTE · {ev.moneyness}</div>
       </td>
       <td className="py-2 pr-2 font-mono text-right whitespace-nowrap">{usd(c.bid)} / {usd(c.ask)}<div className="text-[10px] text-tv-muted">mid {usd(ev.mid)}</div></td>
@@ -123,7 +125,7 @@ function TailRow({ r, onOpen, detailed, hist }: { r: HuntRow; onOpen: () => void
   return (
     <tr className="border-t border-white/[0.04] hover:bg-white/[0.03] cursor-pointer" onClick={onOpen}>
       <td className="py-2 pr-2 text-white whitespace-nowrap">
-        {c.underlying} ${c.strike} put{isPick(r, hist) && <PickTag />}
+        {c.underlying} ${c.strike} put{isPick(r, hist) && <PickTag />}<ThinTag r={r} />
         <div className="text-[11px] text-tv-muted">expires {fmtDate(c.expiration)} · {c.dte} days left</div>
       </td>
       <td className="py-2 pr-2 font-mono text-right">{usd(ev.costAtAsk, 0)}<div className="text-[10px] text-tv-muted">ask {usd(c.ask)}</div></td>
@@ -334,6 +336,8 @@ export default function PutHunterPage() {
           { term: 'Vega', text: 'How much the put gains if implied volatility rises. Puts bought before fear arrives benefit twice: price and volatility.' },
           { term: 'Three scores', text: 'Market risk (environment), contract quality (the contract itself) and trade setup (fit between the two). None is a probability of winning.' },
           { term: 'NO TRADE', text: 'When nothing earns WATCH or better, the scanner says so instead of forcing a pick.' },
+          { term: 'IN A FALL', text: 'The market is already falling (Breakdown, Volatility Expansion or Panic). These puts can still pay if the fall continues, but they cost more and a bounce can wipe them out.' },
+          { term: 'Thin', text: 'Few contracts trade or the bid–ask gap is wide. You may pay more to get in and out.' },
         ]}
       />
 

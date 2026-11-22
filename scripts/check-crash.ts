@@ -9,7 +9,7 @@ import { PointInTime, type Bar, type LevelSeries, type MarketDataset } from '../
 import { computeRiskScore } from '../lib/crash/riskScore';
 import { classifyRegime, regimeFacts } from '../lib/crash/regime';
 import { evaluateContract, type PutContract } from '../lib/crash/contracts';
-import { SHORT_TERM_FILTERS, TAIL_FILTERS, TAIL_SHOCKS } from '../lib/crash/config';
+import { RESEARCH_SHORT_FILTERS, SHORT_TERM_FILTERS, TAIL_FILTERS, TAIL_SHOCKS } from '../lib/crash/config';
 import { evaluateSetup } from '../lib/crash/setup';
 import { runScenarios } from '../lib/crash/scenarios';
 import { sizePosition, exposureByGroup } from '../lib/crash/sizing';
@@ -161,7 +161,7 @@ const put: PutContract = {
   greeksUpdatedAt: '2026-11-20T17:30:00Z', source: 'test',
 };
 const ctx = { underlyingPrice: 660, realizedVol20: 0.12, atmIv: 0.14, sessionOpen: true, now };
-const ev = evaluateContract(put, ctx, SHORT_TERM_FILTERS);
+const ev = evaluateContract(put, ctx, RESEARCH_SHORT_FILTERS);
 check('mid = 0.20', near(ev.mid ?? 0, 0.2, 1e-9));
 check('cost at mid = $20 per contract', near(ev.costAtMid ?? 0, 20, 1e-9));
 check('breakeven at mid = strike − 0.20', near(ev.breakevenAtMid ?? 0, 599.8, 1e-9));
@@ -177,20 +177,29 @@ const noGreeks = evaluateContract({ ...put, vega: null }, ctx, SHORT_TERM_FILTER
 check('missing Greeks → rejected and unscored', !noGreeks.passes && noGreeks.quality === null);
 const stale = evaluateContract({ ...put, greeksUpdatedAt: '2026-11-20T14:00:00Z' }, ctx, SHORT_TERM_FILTERS);
 check('stale Greeks rejected during the session', stale.rejections.some((r) => r.startsWith('Stale Greeks')));
-const wide = evaluateContract({ ...put, bid: 0.1, ask: 0.3 }, ctx, SHORT_TERM_FILTERS);
-check('100% spread rejected', wide.rejections.some((r) => r.startsWith('Spread')));
+const wide = evaluateContract({ ...put, bid: 0.1, ask: 0.3 }, ctx, RESEARCH_SHORT_FILTERS);
+check('100% spread rejected by the strict research limits', wide.rejections.some((r) => r.startsWith('Spread')));
+const wideLive = evaluateContract({ ...put, bid: 0.1, ask: 0.3, openInterest: 20 }, ctx, SHORT_TERM_FILTERS);
+check('live defaults flag a wide, thin put as Thin instead of hiding it', wideLive.passes && wideLive.flags.some((f) => f.startsWith('Thin: Spread')) && wideLive.flags.some((f) => f.startsWith('Thin: Open interest')));
+check('zero bid still hides a put under the live defaults', !evaluateContract({ ...put, bid: 0 }, ctx, SHORT_TERM_FILTERS).passes);
+// High-VIX day: a 0.15-delta, 40-day put costs $7. The old $0.50 cap hid every such put.
+const pricey = evaluateContract({ ...put, dte: 40, bid: 6.9, ask: 7.1, delta: -0.15, iv: 0.4 }, ctx, SHORT_TERM_FILTERS);
+check('live short-term defaults keep a $7 put on a high-VIX day', pricey.passes);
+check('the old limits would have hidden it', !evaluateContract({ ...put, dte: 40, bid: 6.9, ask: 7.1, delta: -0.15, iv: 0.4 }, ctx, RESEARCH_SHORT_FILTERS).passes);
+check('short-term defaults include this week (3 days left)', evaluateContract({ ...put, dte: 3 }, ctx, SHORT_TERM_FILTERS).passes);
 
 // ─── Cheap tail puts ────────────────────────────────────────────────────────
 // Shaped like the SPY 500 put of Nov 2026: 40 days, $0.20, delta about −0.01.
 const tailPut: PutContract = { ...put, symbol: 'SPY261231P00500000', strike: 500, expiration: '2026-12-31', dte: 40, bid: 0.19, ask: 0.21, delta: -0.012, iv: 0.42, openInterest: 3606, volume: 386 };
 const tailCtx = { ...ctx, underlyingPrice: 690 };
 check('a 0.01-delta put is rejected by the standard scan', evaluateContract(tailPut, tailCtx, SHORT_TERM_FILTERS).rejections.some((r) => r.startsWith('|Delta|')));
+check('a $0.96 tail put passes (cap is $1.00)', evaluateContract({ ...tailPut, bid: 0.92, ask: 0.96, delta: -0.04 }, tailCtx, TAIL_FILTERS).passes);
 check('the same put passes the Cheap tail puts scan', evaluateContract(tailPut, tailCtx, TAIL_FILTERS).passes);
 const pennyWide = evaluateContract({ ...tailPut, bid: 0.07, ask: 0.1 }, tailCtx, TAIL_FILTERS);
 check('a $0.03-wide spread passes even when it is 35%+ of mid', pennyWide.passes);
 const tooWide = evaluateContract({ ...tailPut, bid: 0.05, ask: 0.15 }, tailCtx, TAIL_FILTERS);
-check('a spread over 40% and over $0.03 is rejected', tooWide.rejections.some((r) => r.startsWith('Spread')));
-check('tail scan needs 1,000 open interest', evaluateContract({ ...tailPut, openInterest: 500 }, tailCtx, TAIL_FILTERS).rejections.some((r) => r.startsWith('Open interest')));
+check('a spread over 40% and over $0.03 is flagged Thin', tooWide.passes && tooWide.flags.some((f) => f.startsWith('Thin: Spread')));
+check('tail scan flags open interest under 250 as Thin', evaluateContract({ ...tailPut, openInterest: 100 }, tailCtx, TAIL_FILTERS).flags.some((f) => f.startsWith('Thin: Open interest')));
 const tailScen = runScenarios({ type: 'put', S: 690, K: 500, dte: 40, entry: 0.21, mid: 0.2, iv: 0.42, r: 0.04, q: 0.013, holdDays: 3, steps: 120 }, TAIL_SHOCKS.map((t) => t.price), TAIL_SHOCKS.map((t) => t.ivPts));
 const tailMult = TAIL_SHOCKS.map((t) => tailScen.hold.find((h) => h.priceShock === t.price && h.ivShock === t.ivPts)!.value / 0.21);
 check('tail multiples grow with the size of the shock', tailMult[0] < tailMult[1] && tailMult[1] < tailMult[2]);
@@ -208,7 +217,9 @@ check('NORMAL regime never gives STRONG WATCH', sNormal.label !== 'STRONG WATCH'
 const sPre = evaluateSetup({ marketScore: 55, regime: 'PRE-CRASH WATCH', facts: fNarrow, ev, scenario: scen, catalystsBeforeExpiry: 1 });
 check('every label has why and risks', sPre.why.length > 0 && sPre.risks.length > 0 && sPre.risks[0].includes('expire worthless'));
 const sLate = evaluateSetup({ marketScore: 85, regime: 'PANIC / LATE ENTRY', facts: fNarrow, ev, catalystsBeforeExpiry: 0 });
-check('panic regime → LATE ENTRY', sLate.label === 'LATE ENTRY');
+check('panic regime → IN A FALL, not NO TRADE', sLate.label === 'IN A FALL');
+check('IN A FALL keeps the expensive-protection and bounce warnings on top', sLate.risks[0].includes('already expensive') && sLate.risks[1].includes('bounce'));
+check('breakdown regime → IN A FALL', evaluateSetup({ marketScore: 70, regime: 'BREAKDOWN CONFIRMED', facts: fNarrow, ev, catalystsBeforeExpiry: 0 }).label === 'IN A FALL');
 check('rejected contract → AVOID', evaluateSetup({ marketScore: 55, regime: 'PRE-CRASH WATCH', facts: fNarrow, ev: zeroBid, catalystsBeforeExpiry: 0 }).label === 'AVOID');
 
 // ─── Sizing ─────────────────────────────────────────────────────────────────

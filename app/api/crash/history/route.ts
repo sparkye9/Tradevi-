@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { rateLimit } from '@/lib/rateLimit';
-import type { ScreenFilters } from '@/lib/crash/config';
+import type { NumericFilterKey, ScreenFilters } from '@/lib/crash/config';
 import { DEFAULT_DECLINE, type DeclineDefinition } from '@/lib/crash/history/events';
 import { DEFAULT_EVAL, type SignalRule } from '@/lib/crash/history/signals';
 import type { Regime } from '@/lib/crash/regime';
@@ -52,7 +52,7 @@ function rule(v: unknown): SignalRule {
 function filters(v: unknown): Partial<ScreenFilters> {
   const o = (v ?? {}) as Record<string, unknown>;
   const out: Partial<ScreenFilters> = {};
-  const keys: [keyof ScreenFilters, number, number][] = [
+  const keys: [NumericFilterKey, number, number][] = [
     ['minPremium', 0, 100],
     ['maxPremium', 0, 500],
     ['minDte', 0, 1000],
