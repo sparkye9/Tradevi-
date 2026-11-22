@@ -140,7 +140,8 @@ export async function GET(request: Request) {
         });
       }
     }
-    rows.sort((a, b) => (a.spyDrop ?? a.fundDrop ?? 9) - (b.spyDrop ?? b.fundDrop ?? 9) || a.cost - b.cost);
+    // Funds that don't fall with SPY (beta near zero or negative, e.g. energy) can't be ranked by an SPY fall: list them last.
+    rows.sort((a, b) => (a.spyDrop == null ? 1 : 0) - (b.spyDrop == null ? 1 : 0) || (a.spyDrop ?? a.fundDrop ?? 9) - (b.spyDrop ?? b.fundDrop ?? 9) || a.cost - b.cost);
 
     const toFromPeak = (rel: number[]) => rel.map((x) => Math.round(((1 + depthNow) * x - 1) * 10000) / 10000);
     return NextResponse.json({
