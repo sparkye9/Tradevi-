@@ -47,7 +47,7 @@ export const GLOSSARY = {
   lateEntry: { term: 'Late entry', short: 'Fear has already arrived and puts are expensive. Buying now often means paying for a drop that already happened.' },
   quality: { term: 'Quality score', short: 'How good the contract itself is (price, liquidity, time decay, payoff), 0–100. It is not the chance of winning.' },
   setup: { term: 'Setup score', short: 'How well this contract fits today’s market conditions, 0–100. It is not the chance of winning.' },
-  watch: { term: 'STRONG WATCH / WATCH', short: 'Contracts worth a closer look today. WAIT means maybe later; AVOID means poor value; LATE ENTRY means fear is already priced in.' },
+  watch: { term: 'STRONG WATCH / WATCH', short: 'Contracts worth a closer look today. WAIT means maybe later; AVOID means poor value; IN A FALL means the market is already falling: puts can still pay, but they cost more and a bounce can wipe them out.' },
   noTrade: { term: 'NO TRADE', short: 'Nothing passed the safety filters. Not trading is a valid answer; the scanner does not force a pick.' },
   theoretical: { term: 'THEORETICAL', short: 'Prices calculated from a model using past prices and the VIX, because real historical option quotes are not loaded. Not real past trades.' },
   inSample: { term: 'In-sample / out-of-sample', short: 'In-sample is the history a rule was tuned on; out-of-sample is history it never saw. Out-of-sample results are the honest test.' },

@@ -3,13 +3,13 @@ import { rateLimit } from '@/lib/rateLimit';
 import { buildDataset } from '@/lib/crash/providers/dataset';
 import { buildMarketView } from '@/lib/crash/market';
 import { huntPuts } from '@/lib/crash/hunter';
-import { LEAPS_FILTERS, LONG_TERM_FILTERS, SHORT_TERM_FILTERS, TAIL_FILTERS, type ScreenFilters } from '@/lib/crash/config';
+import { LEAPS_FILTERS, LONG_TERM_FILTERS, SHORT_TERM_FILTERS, TAIL_FILTERS, type NumericFilterKey, type ScreenFilters } from '@/lib/crash/config';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const SYMBOL_RE = /^[A-Z][A-Z0-9.\-]{0,9}$/;
-const NUM_KEYS: (keyof ScreenFilters)[] = ['minPremium', 'maxPremium', 'minDte', 'maxDte', 'minAbsDelta', 'maxAbsDelta', 'minOpenInterest', 'minVolume', 'maxSpreadPct', 'maxGreeksAgeMin', 'maxSpreadAbs'];
+const NUM_KEYS: NumericFilterKey[] = ['minPremium', 'maxPremium', 'minDte', 'maxDte', 'minAbsDelta', 'maxAbsDelta', 'minOpenInterest', 'minVolume', 'maxSpreadPct', 'maxGreeksAgeMin', 'maxSpreadAbs'];
 
 /** GET /api/crash/puts?symbol=SPY&horizon=short|long|leaps|tail[&minPremium=…] — Put Hunter scan. */
 export async function GET(request: Request) {

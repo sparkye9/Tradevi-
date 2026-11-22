@@ -197,7 +197,7 @@ function PutSummary({ view }: { view: MarketView }) {
   const top = hunt?.rows?.filter((r) => r.setup.label === 'STRONG WATCH' || r.setup.label === 'WATCH').slice(0, 3) ?? [];
   return (
     <div className="card">
-      <SectionTitle title="Put opportunities (SPY, 14–60 DTE)" subtitle="From Put Hunter's default filters" right={<Link href="/put-hunter" className="text-xs text-tv-purple hover:text-white">Open Put Hunter →</Link>} />
+      <SectionTitle title="Put opportunities (SPY, 3–60 DTE)" subtitle="From Put Hunter's default filters" right={<Link href="/put-hunter" className="text-xs text-tv-purple hover:text-white">Open Put Hunter →</Link>} />
       {loading ? (
         <div className="skeleton h-20" />
       ) : !hunt || hunt.error ? (

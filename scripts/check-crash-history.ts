@@ -16,7 +16,7 @@ import { detectFormat, normalizeRows, parseCsv, validateRows, occSymbol, parseOc
 import { compareManifests, makeManifest, validateDataset } from '../lib/crash/history/manifest';
 import { STRATEGIES, DEFAULT_LAB, runStrategy } from '../lib/crash/history/strategies';
 import { theoreticalPricer, theoreticalSnapshot } from '../lib/crash/history/pricers';
-import { SHORT_TERM_FILTERS } from '../lib/crash/config';
+import { RESEARCH_SHORT_FILTERS as SHORT_TERM_FILTERS } from '../lib/crash/config';
 import { classifyRegime, regimeFacts } from '../lib/crash/regime';
 import { computeRiskScore } from '../lib/crash/riskScore';
 

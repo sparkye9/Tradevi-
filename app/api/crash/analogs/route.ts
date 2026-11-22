@@ -6,14 +6,14 @@ import { huntPuts } from '@/lib/crash/hunter';
 import { getHistory } from '@/lib/crash/history/service';
 import { VOL_INDEX } from '@/lib/crash/history/theoretical';
 import { findAnalogs, historicalPayoff, learnBucket, type HistoricalPayoff } from '@/lib/crash/analogs';
-import { LEAPS_FILTERS, LONG_TERM_FILTERS, SHORT_TERM_FILTERS, TAIL_FILTERS, type ScreenFilters } from '@/lib/crash/config';
+import { LEAPS_FILTERS, LONG_TERM_FILTERS, SHORT_TERM_FILTERS, TAIL_FILTERS, type NumericFilterKey, type ScreenFilters } from '@/lib/crash/config';
 import type { AnySeries } from '@/lib/crash/series';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 const SYMBOL_RE = /^[A-Z][A-Z0-9.\-]{0,9}$/;
-const NUM_KEYS: (keyof ScreenFilters)[] = ['minPremium', 'maxPremium', 'minDte', 'maxDte', 'minAbsDelta', 'maxAbsDelta', 'minOpenInterest', 'minVolume', 'maxSpreadPct', 'maxGreeksAgeMin', 'maxSpreadAbs'];
+const NUM_KEYS: NumericFilterKey[] = ['minPremium', 'maxPremium', 'minDte', 'maxDte', 'minAbsDelta', 'maxAbsDelta', 'minOpenInterest', 'minVolume', 'maxSpreadPct', 'maxGreeksAgeMin', 'maxSpreadAbs'];
 
 function toMap(s: AnySeries | undefined): Map<string, number> | undefined {
   if (!s) return undefined;

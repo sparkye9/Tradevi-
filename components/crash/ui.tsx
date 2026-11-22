@@ -59,6 +59,7 @@ export const LABEL_STYLE: Record<SetupLabel, string> = {
   WATCH: 'bg-tv-blue/15 border-tv-blue/40 text-tv-blue',
   WAIT: 'bg-tv-amber/10 border-tv-amber/30 text-tv-amber',
   AVOID: 'bg-white/[0.04] border-tv-border text-gray-400',
+  'IN A FALL': 'bg-tv-amber/15 border-tv-amber/40 text-tv-amber',
   'LATE ENTRY': 'bg-tv-red/10 border-tv-red/30 text-tv-red',
 };
 

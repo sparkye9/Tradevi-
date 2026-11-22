@@ -136,12 +136,14 @@ export function evaluateContract(c: PutContract, ctx: MarketContext, f: ScreenFi
   if (mid != null && (mid < f.minPremium || mid > f.maxPremium)) rejections.push(`Premium $${mid.toFixed(2)} outside $${f.minPremium.toFixed(2)}–$${f.maxPremium.toFixed(2)}`);
   if (c.dte < f.minDte || c.dte > f.maxDte) rejections.push(`${c.dte} DTE outside ${f.minDte}–${f.maxDte}`);
   if (absDelta != null && (absDelta < f.minAbsDelta || absDelta > f.maxAbsDelta)) rejections.push(`|Delta| ${absDelta.toFixed(2)} outside ${f.minAbsDelta.toFixed(2)}–${f.maxAbsDelta.toFixed(2)}`);
-  if ((c.openInterest ?? 0) < f.minOpenInterest) rejections.push(`Open interest ${c.openInterest ?? 0} < ${f.minOpenInterest}`);
-  if ((c.volume ?? 0) < f.minVolume) rejections.push(`Volume ${c.volume ?? 0} < ${f.minVolume}`);
+  // Liquidity: hard rejections, or "Thin" warnings when softLiquidity is on.
+  const liq = f.softLiquidity ? (m: string) => flags.push(`Thin: ${m}`) : (m: string) => rejections.push(m);
+  if ((c.openInterest ?? 0) < f.minOpenInterest) liq(`Open interest ${c.openInterest ?? 0} < ${f.minOpenInterest}`);
+  if ((c.volume ?? 0) < f.minVolume) liq(`Volume ${c.volume ?? 0} < ${f.minVolume}`);
   const spreadAbs = bid != null && ask != null ? ask - bid : null;
   const absOk = f.maxSpreadAbs != null && spreadAbs != null && spreadAbs <= f.maxSpreadAbs + 1e-9;
   if (spreadPct != null && spreadPct > f.maxSpreadPct && !absOk)
-    rejections.push(`Spread ${(spreadPct * 100).toFixed(0)}% > ${(f.maxSpreadPct * 100).toFixed(0)}%${f.maxSpreadAbs != null ? ` and $${(spreadAbs ?? 0).toFixed(2)} > $${f.maxSpreadAbs.toFixed(2)}` : ''}`);
+    liq(`Spread ${(spreadPct * 100).toFixed(0)}% > ${(f.maxSpreadPct * 100).toFixed(0)}%${f.maxSpreadAbs != null ? ` and $${(spreadAbs ?? 0).toFixed(2)} > $${f.maxSpreadAbs.toFixed(2)}` : ''}`);
 
   // ── Derived numbers ──
   const costAtAsk = ask != null ? ask * 100 : null;

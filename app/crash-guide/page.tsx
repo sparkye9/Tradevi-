@@ -19,7 +19,7 @@ const PAGES = [
     href: '/put-hunter',
     name: 'Put Hunter',
     question: 'Is there a put worth buying, and what could I lose?',
-    look: ['Only rows labelled WATCH or STRONG WATCH', 'Cost (the most you can lose) and “pays off below” (breakeven)', 'Tap a row for what it might be worth if the market falls 5%, 10% or 15%', '“Cheap tail puts” lists $0.05–$0.50 far-out puts ranked by how much they could multiply in a fear spike. Most expire worthless'],
+    look: ['Rows labelled WATCH or STRONG WATCH; in a falling market, IN A FALL (with its bounce warning)', 'Cost (the most you can lose) and “pays off below” (breakeven)', 'Tap a row for what it might be worth if the market falls 5%, 10% or 15%', '“Cheap tail puts” lists $0.05–$1.00 far-out puts ranked by how much they could multiply in a fear spike. Most expire worthless'],
   },
 ];
 

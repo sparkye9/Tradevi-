@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { LEAPS_FILTERS, LONG_TERM_FILTERS, SHORT_TERM_FILTERS, type ScreenFilters } from '@/lib/crash/config';
+import { RESEARCH_LEAPS_FILTERS as LEAPS_FILTERS, RESEARCH_LONG_FILTERS as LONG_TERM_FILTERS, RESEARCH_SHORT_FILTERS as SHORT_TERM_FILTERS, type NumericFilterKey, type ScreenFilters } from '@/lib/crash/config';
 import { runScenarios, smileFromChain } from '@/lib/crash/scenarios';
 import type { FunnelRow } from '@/lib/crash/history/funnel';
 import { DEFAULT_EXITS, type EntryMethod, type ExitRules } from '@/lib/crash/history/trade';
@@ -17,7 +17,7 @@ import { historyPost, type ChainData, type TradeData } from './api';
 
 type Horizon = 'short' | 'long' | 'leaps';
 const HFILTERS: Record<Horizon, ScreenFilters> = { short: SHORT_TERM_FILTERS, long: LONG_TERM_FILTERS, leaps: LEAPS_FILTERS };
-const FIELDS: { key: keyof ScreenFilters; label: string; step: number; pct?: boolean }[] = [
+const FIELDS: { key: NumericFilterKey; label: string; step: number; pct?: boolean }[] = [
   { key: 'minPremium', label: 'Min premium', step: 0.01 },
   { key: 'maxPremium', label: 'Max premium', step: 0.01 },
   { key: 'minDte', label: 'Min DTE', step: 1 },

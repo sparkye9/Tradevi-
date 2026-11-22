@@ -6,6 +6,7 @@
  */
 import type { MarketView } from './market';
 import type { HuntResult } from './hunter';
+import { ACTIONABLE_LABELS } from './setup';
 import type { CategoryId } from './config';
 import type { Regime } from './regime';
 import type { SignalStats } from './history/signals';
@@ -99,18 +100,22 @@ const money = (n: number, d = 0) => `$${n.toLocaleString('en-US', { minimumFract
 export function huntSummary(hunt: HuntResult & { error?: string }, regime?: Regime | null): Sentence[] {
   if (hunt.error && !hunt.rows?.length) return [{ text: `Option prices are unavailable right now (${hunt.error}). No contracts can be judged until they return.`, tone: 'gray' }];
   if (hunt.mode === 'tail') return tailSummary(hunt, regime);
-  const watch = hunt.rows.filter((r) => r.setup.label === 'STRONG WATCH' || r.setup.label === 'WATCH');
+  const watch = hunt.rows.filter((r) => ACTIONABLE_LABELS.includes(r.setup.label));
+  const falling = watch.length > 0 && watch.every((r) => r.setup.label === 'IN A FALL');
   const out: Sentence[] = [];
   if (hunt.noTrade || !watch.length) {
     out.push({ text: `No ${hunt.symbol} put passes the safety checks today (${hunt.scanned.toLocaleString()} checked). Nothing to buy; waiting is a valid answer.`, tone: 'gray' });
     if (hunt.noTradeReason) out.push({ text: hunt.noTradeReason, tone: 'gray' });
   } else {
-    out.push({ text: `${watch.length} ${hunt.symbol} put${watch.length === 1 ? '' : 's'} worth a closer look, out of ${hunt.scanned.toLocaleString()} checked.`, tone: 'green' });
+    if (falling) {
+      out.push({ text: `The market is already falling. ${watch.length} ${hunt.symbol} put${watch.length === 1 ? '' : 's'} to consider for riding the fall, out of ${hunt.scanned.toLocaleString()} checked.`, tone: 'amber' });
+      out.push({ text: 'These are IN A FALL candidates, not early warnings: puts cost more now, and a sharp bounce can wipe out most of the premium within days.', tone: 'red' });
+    } else out.push({ text: `${watch.length} ${hunt.symbol} put${watch.length === 1 ? '' : 's'} worth a closer look, out of ${hunt.scanned.toLocaleString()} checked.`, tone: 'green' });
     const t = watch[0].ev;
     const c = t.contract;
     if (t.costAtAsk != null && t.breakevenAtAsk != null) {
       const drop = t.declineToBreakeven != null ? ` (a ${pct(t.declineToBreakeven, 1)} drop)` : '';
-      out.push({ text: `Top pick: the $${c.strike} put expiring ${fmtDay(c.expiration)}. It costs ${money(t.costAtAsk)} per contract, which is the most you can lose, and makes money at expiration if ${c.underlying} is below ${money(t.breakevenAtAsk, 2)}${drop}.`, tone: 'gray' });
+      out.push({ text: `${falling ? 'Top candidate' : 'Top pick'}: the $${c.strike} put expiring ${fmtDay(c.expiration)}. It costs ${money(t.costAtAsk)} per contract, which is the most you can lose, and makes money at expiration if ${c.underlying} is below ${money(t.breakevenAtAsk, 2)}${drop}.`, tone: 'gray' });
     }
   }
   if (regime === 'PANIC / LATE ENTRY' || regime === 'VOLATILITY EXPANSION') out.push({ text: 'Fear is already high, so every put costs more than usual today.', tone: 'amber' });

@@ -11,7 +11,7 @@
  */
 import { promises as fs } from 'fs';
 import path from 'path';
-import { DEFAULT_REGIME_CONFIG, DEFAULT_RISK_CONFIG, LEAPS_FILTERS, LONG_TERM_FILTERS, SHORT_TERM_FILTERS, type ScreenFilters } from '../config';
+import { DEFAULT_REGIME_CONFIG, DEFAULT_RISK_CONFIG, RESEARCH_LEAPS_FILTERS, RESEARCH_LONG_FILTERS, RESEARCH_SHORT_FILTERS, type ScreenFilters } from '../config';
 import { buildDataset } from '../providers/dataset';
 import { classifyRegime, regimeFacts } from '../regime';
 import { computeRiskScore } from '../riskScore';
@@ -193,7 +193,7 @@ async function snapshotFor(h: HistoryState, symbol: string, date: string, f: Scr
 
 // ─── Actions ───────────────────────────────────────────────────────────────
 
-export const HORIZON_FILTERS: Record<'short' | 'long' | 'leaps', ScreenFilters> = { short: SHORT_TERM_FILTERS, long: LONG_TERM_FILTERS, leaps: LEAPS_FILTERS };
+export const HORIZON_FILTERS: Record<'short' | 'long' | 'leaps', ScreenFilters> = { short: RESEARCH_SHORT_FILTERS, long: RESEARCH_LONG_FILTERS, leaps: RESEARCH_LEAPS_FILTERS };
 
 export function clampDate(h: HistoryState, date: string): string {
   const s = h.sessions;
