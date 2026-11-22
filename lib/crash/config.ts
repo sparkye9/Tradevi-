@@ -167,6 +167,29 @@ export const LEAPS_FILTERS: ScreenFilters = {
  * multiply when fear spikes. Most expire worthless; the scan ranks by payoff
  * multiple in a stress scenario, never by chance of winning.
  */
+/**
+ * Small account (Nov 2026): funds scanned for puts a $25–$50 budget can buy.
+ * Cheaper sector and bond funds have puts much closer to today's price than
+ * SPY at the same dollar cost.
+ */
+export const SMALL_ACCOUNT_SYMBOLS = ['SPY', 'QQQ', 'IWM', 'DIA', 'XLF', 'HYG', 'EEM', 'XLE'] as const;
+export function smallAccountFilters(budget: number): ScreenFilters {
+  return {
+    minPremium: 0.03,
+    maxPremium: budget / 100,
+    minDte: 3,
+    maxDte: 120,
+    minAbsDelta: 0.003,
+    maxAbsDelta: 0.5,
+    minOpenInterest: 100,
+    minVolume: 0,
+    maxSpreadPct: 0.4,
+    maxSpreadAbs: 0.05,
+    maxGreeksAgeMin: 90,
+    softLiquidity: true,
+  };
+}
+
 export const TAIL_FILTERS: ScreenFilters = {
   minPremium: 0.05,
   maxPremium: 1,

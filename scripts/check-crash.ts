@@ -9,7 +9,8 @@ import { PointInTime, type Bar, type LevelSeries, type MarketDataset } from '../
 import { computeRiskScore } from '../lib/crash/riskScore';
 import { classifyRegime, regimeFacts } from '../lib/crash/regime';
 import { evaluateContract, type PutContract } from '../lib/crash/contracts';
-import { RESEARCH_SHORT_FILTERS, SHORT_TERM_FILTERS, TAIL_FILTERS, TAIL_SHOCKS } from '../lib/crash/config';
+import { RESEARCH_SHORT_FILTERS, SHORT_TERM_FILTERS, TAIL_FILTERS, TAIL_SHOCKS, smallAccountFilters } from '../lib/crash/config';
+import { beta as trajBeta, bestIntrinsicOnPath, currentFall, findEpisodes, fromHere, putAtExpiry, worseThanEver } from '../lib/crash/trajectory';
 import { evaluateSetup } from '../lib/crash/setup';
 import { runScenarios } from '../lib/crash/scenarios';
 import { sizePosition, exposureByGroup } from '../lib/crash/sizing';
@@ -276,6 +277,41 @@ check('future Greeks stamp treated as unknown', parseGreeksStamp('2026-11-21 14:
 }
 
 historyChecks(check);
+
+// ─── Small account trajectory ───────────────────────────────────────────────
+{
+  // Synthetic index: rises, a −50% crash (prices around 100), recovery to new highs
+  // at a much higher level, a −30% crash (prices around 1,000), recovery, then a fall in progress.
+  const closes: number[] = [];
+  const seg = (from: number, to: number, n: number) => { for (let i = 1; i <= n; i++) closes.push(from * Math.pow(to / from, i / n)); };
+  closes.push(100);
+  seg(100, 120, 50); seg(120, 60, 200); seg(60, 130, 200);
+  seg(130, 1000, 300); seg(1000, 700, 60); seg(700, 1100, 120);
+  seg(1100, 990, 30);
+  const bars = closes.map((c, i) => ({ date: new Date(Date.UTC(2000, 0, 1) + i * 86400000).toISOString().slice(0, 10), open: c, high: c, low: c, close: c, volume: 0 }));
+  const eps = findEpisodes(bars);
+  check('finds both finished crashes', eps.length === 2);
+  check('crash depth is % from its own peak, not dollars', near(eps[0].depth, -0.5, 1e-9) && near(eps[1].depth, -0.3, 1e-9));
+  const cur = currentFall(bars)!;
+  check('current fall is measured from the latest high', near(cur.depth, -0.1, 1e-9) && cur.sessions === 30);
+  const fh = fromHere(eps, cur.depth);
+  check('both past crashes fell past today\'s depth and are used', fh.used.length === 2);
+  check('worst path from here is the deeper crash', Math.min(...fh.worst) < Math.min(...fh.median) + 1e-12);
+  check('1-month further-fall stats exist', fh.horizons[0].worst != null && fh.horizons[0].worst! < 0);
+  const sc = worseThanEver(eps, cur.depth)!;
+  check('worse-than-ever trough is 1.25× the worst past crash', near(sc.troughFromPeak, -0.625, 1e-9));
+  check('scenario path ends at that trough', near((1 + cur.depth) * Math.min(...sc.rel) - 1, -0.625, 1e-6));
+  check('scenario is deeper than every past path', Math.min(...sc.rel) < Math.min(...fh.worst));
+  check('scenario is faster than the worst past crash', sc.rel.findIndex((x) => x <= Math.min(...sc.rel) + 1e-9) < 200);
+  // Puts on the paths
+  const v = putAtExpiry({ S: 100, K: 90, dte: 30, beta: 1, rel: [1, 0.9, 0.8, ...Array(30).fill(0.8)] });
+  check('put at expiry on a −20% path is worth strike − price', near(v, 10, 1e-9));
+  check('low-beta fund falls less on the same path', putAtExpiry({ S: 100, K: 90, dte: 30, beta: 0.4, rel: Array(40).fill(0.8) }) === 0);
+  check('best intrinsic on the way counts an early dip', bestIntrinsicOnPath({ S: 100, K: 95, dte: 30, beta: 1, rel: [1, 0.8, ...Array(30).fill(1)] }) > 14);
+  const f = bars.slice(0, 300);
+  check('beta of a fund to itself is 1', near(trajBeta(f, f) ?? 0, 1, 1e-9));
+  check('small-account filters cap the premium at the budget', smallAccountFilters(50).maxPremium === 0.5 && smallAccountFilters(25).maxPremium === 0.25);
+}
 
 if (failed) {
   console.error(`\n${failed} crash check(s) failed`);
